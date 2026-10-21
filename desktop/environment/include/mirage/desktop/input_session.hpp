@@ -134,8 +134,8 @@ inline constexpr std::chrono::milliseconds max_move_duration{2000};
 /// longer presses are session holds that must pass the decision budgets.
 inline constexpr std::chrono::milliseconds max_press_dwell{1500};
 /// No-command deadline, covering screenshot/OCR/model feedback wait: held
-/// inputs are released before it expires; repeated observation never
-/// renews it (DEC-110 section 3).
+/// inputs enter cleanup at expiry; platform waits remain cooperative/soft.
+/// Repeated observation never renews it (DEC-110 section 3).
 inline constexpr std::chrono::milliseconds max_idle{15000};
 /// Total lifetime of one session including all feedback waits.
 inline constexpr std::chrono::milliseconds max_session_total{60000};
@@ -297,6 +297,25 @@ std::vector<SmoothMoveSample>
 build_smooth_move_schedule(PointerPoint from, PointerPoint to, std::chrono::milliseconds duration,
                            std::uint32_t path_points,
                            std::optional<PointerMotionVariation> variation = std::nullopt);
+
+/// Platform-owned controlled input, called only by one managed session worker.
+/// Normal holding has no legacy InputOutcome::input_released projection.
+struct InputSessionDelivery {
+    bool ok = false;
+    bool cancelled = false;
+    bool side_effect_may_have_occurred = false;
+    ProviderError error;
+};
+class InputSessionBackend {
+  public:
+    virtual ~InputSessionBackend() = default;
+    virtual InputCapabilitySet capabilities() const = 0;
+    /// Focus/geometry/device and physical takeover guard; no input side effects.
+    virtual ProviderError check() = 0;
+    virtual InputSessionDelivery apply(const InputSessionCommand &, const CancelToken &) = 0;
+    /// Releases only owned inputs. Cleanup ignores task cancellation.
+    virtual InputOutcome release() = 0;
+};
 
 /// Receipt classes (DEC-110 section 3): admission, delivery, controlled
 /// holding, confirmed release and "cannot confirm" are distinguished. The

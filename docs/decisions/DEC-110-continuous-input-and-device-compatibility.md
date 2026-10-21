@@ -453,3 +453,49 @@ Unicode/IME 能力沿既有后端限制，不将粘贴或最终文本传输冒�
 每段已超过计划 250 ms 时停止，不回放积压事件。该路径不引入跨工具持键或后台
 控制循环，M7-27 与 Windows 保持开放。实施及验证结果须在专项计划追加，不以此
 契约修订宣称已通过验收。
+
+
+## 2026-10-21：M7-27 受控持键首个接线范围
+
+维护者授权推进长按与持键开发。首个生产接线限定固定前台窗口：X11/XInput2 通过
+独立 `InputSessionBackend` opt-in 声明受控持有和期间截图能力，其他 Provider 默认
+明确不支持。`desktop.input_session.begin/advance/observe/release` 是独立 1.0.0 工具
+族，正常 holding 不使用旧 `InputOutcome::input_released=false`。begin 绑定当前
+任务/会话、真实前台窗口及几何、期望 action epoch；advance 使用宿主 session id、
+最新 state_version 和连续 sequence，重复或迟到命令不重放。
+
+宿主持有既有 ActionCoordinator 单写者 lease、实际待释放键/按钮集合；普通写入
+在会话期间拒绝 busy，截图可继续。首增量开放 key_down/up/tap、button_down/up/tap，
+最多四项持有、64 个变更、15 秒 idle、60 秒 total，沿预算 v1；observe 与截图不续期。
+鼠标按钮只在当前指针位于绑定窗口内时操作，不提供持有中的移动或自由脚本。
+长按使用 `press=long` 意图，由 Desktop 本地种子规划 1080～1240 ms（小于既有
+1500 ms 完整按压上限），模型无时间参数；普通点按维持既有自然时序。
+
+X11 driver 独立持有平台连接，检查窗口销毁/配置、前台及几何、键/按钮读回状态，
+并监测 XI2 raw 输入；物理接管停止推进。同键竞争或事件预算耗尽导致归属不明时，
+不能向可能由用户持有的输入盲发 up，而是封锁写入并明确报告不确定。原生物理
+设备、X 服务故障及 compositor 仍需实测，不承诺所有输入来源均可区分或硬期限。
+系统切换器/Alt-Tab 的焦点转换、held pointer travel、OS repeat、IME 与跨设备能力
+未验，不扩大本次范围；默认不修改键盘重复或系统配置。
+
+同一 ModelLayer 复用一个 kairo blocking worker；命令通过容量 8、RejectNewest 的
+MpscChannel，状态使用 LatestMailbox。每个准入的新 session 使用独立 Core，前一
+worker run 必须 join 后才能重绑；旧 facade/请求不能停止或推进新 owner。平台连接
+和 held 状态仅由该 worker 使用，等待的 condition variable 只唤醒 comm 数据面，
+没有第二套队列/线程/计时 owner。父取消、权限策略换代、接管、期限、平台错误、
+模型拒绝/异常或任务终结都会进入释放；无活动输入时 worker 停止，不后台空转。
+停止是 soft、协作式的，不把 4 ms 等待切片宣称为平台往返或释放硬保证。
+
+Portal 另提供同次调用完整长按：`desktop.session.click/key` 升为 4.1.0，新增可选
+`press=normal|long`；默认行为不变。长按点击只能 click_count=1，仍自动接近并重验
+落点；完整预算不足在按下前拒绝，释放完成后才返回/验证。DesktopCaptureSession
+需独立声明 timed_press_supported，不能从已有 click 推断支持。Portal 跨调用持有、
+Windows 受控持键及真实系统切换器继续开放。证据与实际门禁见
+[本轮记录](../compatibility/controlled-input-sessions-20261021.md)。
+
+
+收尾边界：已知完整按压计划必须放入剩余 session/operation 预算，否则按下前拒绝。
+执行中的协作停止同时检查父取消和 Executor worker stop token，不能只在空闲循环
+检查。已确认释放的已知失败按 DEC-056 的既有策略，在释放代际及之后的新桌面
+观察到达后才允许恢复结算；旧代际截图不能退休失败，取消/接管与释放 uncertain
+不通过该路径消除。当前会话状态在截图后进入 awaiting_feedback，但不续期。

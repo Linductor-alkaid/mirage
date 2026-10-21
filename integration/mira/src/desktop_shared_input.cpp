@@ -48,6 +48,8 @@ void DesktopImageTurn::register_shared_input(mira::BuiltinToolRegistry &registry
         mira::BuiltinToolSpec spec;
         spec.wire_name = std::string("desktop.session.") + operation;
         spec.version = {4, 0, 0};
+        if (std::string_view(operation) == "click" || std::string_view(operation) == "key")
+            spec.version = {4, 1, 0};
         spec.has_side_effects = true;
         const std::string use =
             std::string_view(operation) == "click"
@@ -90,7 +92,10 @@ void DesktopImageTurn::register_shared_input(mira::BuiltinToolRegistry &registry
             "click/drag use button=left/middle/right (default left). Scroll and drag approach "
             "and revalidate the target first. Wheel steps, drag motion and key transitions "
             "use local natural timing; text is typed character by character. No timing arguments "
-            "or held keys. Text has a 15 second budget; split longer text. "
+            "or held keys. Click/key accept press=long for one locally timed 1080..1240 ms "
+            "complete press (click_count must be 1); default normal is unchanged. No duration "
+            "parameter or cross-call hold; release completes before the result/verification. "
+            "Text has a 15 second budget; split longer text. "
             "verify_kind=shared_frame_observed proves released input and "
             "fresh frame only, or shared_text_exists with expected_text checks same-stream OCR. "
             "verify_kind is optional. Without it, no post-action frame or OCR is captured; "
@@ -101,6 +106,10 @@ void DesktopImageTurn::register_shared_input(mira::BuiltinToolRegistry &registry
             "image_scope in its receipt: retry against that scope without recapturing. "
             "Do not retry uncertain effects.";
         Json::Object props;
+        if (std::string_view(operation) == "click" || std::string_view(operation) == "key")
+            props.emplace_back(
+                "press",
+                Json{Json::Object{{"type", "string"}, {"enum", Json::Array{"normal", "long"}}}});
         if (std::string_view(operation) == "click") {
             props.emplace_back("click_count", click_count_schema());
         }
@@ -208,7 +217,18 @@ mira::Result<Json> DesktopImageTurn::shared_input(const std::string &operation, 
         (operation != "click" && !drag && args.find("button")) ||
         (operation != "scroll" && (args.find("horizontal_steps") || args.find("vertical_steps"))))
         return rejected("invalid_argument");
+    const auto press = field(args, "press");
+    if ((args.find("press") && (operation != "click" && operation != "key")) ||
+        (args.find("press") && !args.find("press")->as_string()) ||
+        (!press.empty() && press != "normal" && press != "long") ||
+        (press == "long" && operation == "click" && *clicks != 1))
+        return rejected("invalid_argument");
     desktop::SharedInputAction action;
+    action.long_press = press == "long";
+    if (action.long_press && !native_session_->timed_press_supported())
+        return rejected(
+            "timed_press_unavailable", false, true, {}, "press",
+            "This shared backend cannot long press; use normal input or another supported route.");
     action.click_count = *clicks;
     using Kind = desktop::SharedInputAction::Kind;
     action.kind = operation == "click"       ? Kind::Click
@@ -419,6 +439,7 @@ mira::Result<Json> DesktopImageTurn::shared_input(const std::string &operation, 
         if (pointer_action) {
             auto approach = action;
             approach.kind = Kind::Move;
+            approach.long_press = false;
             approach.click_count = 1;
             approach.target_width =
                 static_cast<std::int32_t>(std::min(to_monitor_x(*x + *w) - to_monitor_x(*x),

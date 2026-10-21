@@ -8,6 +8,11 @@
 #include <utility>
 
 namespace mirage::desktop {
+std::unique_ptr<InputSessionBackend> InputProvider::open_input_session(const PointerActionScope &,
+                                                                       const CancelToken &) {
+    return {};
+}
+
 namespace {
 
 constexpr std::array<std::pair<std::string_view, SessionKeyName::Modifier>, 4> kBareModifiers = {{

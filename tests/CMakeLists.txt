@@ -1740,3 +1740,18 @@ mirage_add_test(action_recovery_facts_test
     LABELS "integration;runtime;security"
     TIMEOUT 30
     )
+
+mirage_add_test(controlled_input_session_test
+    SOURCES integration/controlled_input_session_test.cpp
+    LIBS Mirage::integration_mira Mirage::kairo_consumer
+    LABELS "integration;runtime;input"
+    TIMEOUT 30)
+
+get_target_property(MIRAGE_CONTROLLED_XINPUT2 mirage_platform MIRAGE_XINPUT2_AVAILABLE)
+if(MIRAGE_CONTROLLED_XINPUT2)
+mirage_add_test(controlled_input_x11_test
+    SOURCES platform/controlled_input_x11_test.cpp
+    LIBS Mirage::platform Mirage::integration_mira Mirage::kairo_consumer ${X11_X11_LIB} ${X11_Xtst_LIB}
+    LABELS "integration;platform;input"
+    TIMEOUT 30)
+endif()

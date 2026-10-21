@@ -15,6 +15,7 @@
 #include <mira/adapters/net/openssl_tls.hpp>
 #endif
 
+#include "controlled_input_tools.hpp"
 #include "conversation_capture.hpp"
 #include "desktop_action_verification.hpp"
 #include "desktop_context_builder.hpp"
@@ -227,11 +228,18 @@ FailureClassification classify_tool_failure(const mira::Error &value,
                                    code == "invalid_target_bounds" ||
                                    text("reason") == "validation_failed_before_dispatch";
             const bool target = code == "stale_image_scope" || code == "stale_observation" ||
-                                code == "target_pixels_changed" || code == "stale_reference";
-            if (arguments || target)
+                                code == "target_pixels_changed" || code == "stale_reference" ||
+                                code == "desktop_busy";
+            if (arguments || target || code == "timed_press_unavailable")
                 return {Level::Conditional, arguments ? "invalid_arguments" : "conditional_failure",
                         false};
         }
+    }
+    if (value.domain == "mirage.input_session" && value.code != ErrorCode::UnsupportedCapability &&
+        value.code != ErrorCode::PermissionDenied) {
+        if (value.code == ErrorCode::Cancelled || value.code == ErrorCode::DeadlineExceeded)
+            return {Level::None, {}, false};
+        return {Level::Conditional, "conditional_failure", false};
     }
     switch (value.code) {
     case ErrorCode::Cancelled:
@@ -500,7 +508,9 @@ bool ModelLayerConfig::valid(std::string &error) const {
 struct ModelLayer::Impl {
     explicit Impl(kairo::Executor &owner_executor, const ModelLayerConfig &layer_config,
                   ModelProviderOverride::Factory factory)
-        : config(layer_config), executor(owner_executor), override_factory(std::move(factory)) {}
+        : config(layer_config), executor(owner_executor), override_factory(std::move(factory)),
+          controlled_input_worker(std::make_shared<detail::ControlledInputWorker>(owner_executor)) {
+    }
 
     bool assemble() {
         const auto dialect = mira::protocol_dialect_from(config.dialect);
@@ -637,6 +647,7 @@ struct ModelLayer::Impl {
     /// running infer is a use-after-free the sanitizers rightly flag.
     std::mutex infer_mutex;
     ModelProviderOverride::Factory override_factory;
+    std::shared_ptr<detail::ControlledInputWorker> controlled_input_worker;
     DesktopToolContext desktop;
     std::shared_ptr<mira::ModelProfile> profile;
     mira::ModelRouter router;
@@ -705,6 +716,7 @@ void ModelLayer::shutdown() {
     // Wait out any in-flight dialog completion first (the drain lock), then
     // release the pinned pieces — never under a running infer.
     std::lock_guard drain(impl_->infer_mutex);
+    impl_->controlled_input_worker->stop();
     if (impl_->transport) {
         impl_->transport->shutdown();
         impl_->transport.reset();
@@ -932,12 +944,24 @@ DialogCompletion ModelLayer::complete_harness_turn(
     // guard, the declared capture capability, and the graceful
     // budget-degradation flag shared between the tool decorator and the
     // model-input supplier (single-threaded within this turn).
+    detail::ControlledInputTools controlled_input(impl_->executor, turn_desktop, turn_context,
+                                                  cancel, impl_->controlled_input_worker);
     const std::string session_key = context.session.to_string();
     const auto screen_capability = turn_desktop.environment
                                        ? turn_desktop.environment->screen_capability()
                                        : mirage::desktop::ScreenCapability::Unavailable;
     bool tools_attempted = false;
     auto finish = [&] {
+        const auto input_error = controlled_input.finish();
+        if (!input_error.code.empty()) {
+            const bool answered = completion.ok;
+            completion.ok = false;
+            completion.failed = !completion.cancelled;
+            if (answered || completion.error.empty())
+                completion.error = input_error.code + ": " + input_error.message;
+            else
+                completion.error += "（输入会话清理：" + input_error.code + "）";
+        }
         capture.settle(completion.cancelled);
         verification.project(capture.parts);
         completion.timings = capture.timings;
@@ -951,17 +975,21 @@ DialogCompletion ModelLayer::complete_harness_turn(
     };
     auto registry = std::make_shared<mira::BuiltinToolRegistry>();
     const DesktopAtomToolset::Decorator decorate =
-        [&capture, &verification, &tracker = impl_->failure_tracker, session_key, screen_capability,
-         &tools_attempted, &desktop_context = turn_desktop,
+        [&capture, &verification, &controlled_input, &tracker = impl_->failure_tracker, session_key,
+         screen_capability, &tools_attempted, &desktop_context = turn_desktop,
          cancel](const std::string &name, mira::BuiltinToolHandler handler) {
-            return [name, handler = std::move(handler), &capture, &verification, &tracker,
-                    session_key, screen_capability, &tools_attempted, &desktop_context, cancel](
-                       const auto &arguments, const auto &ctx) -> mira::Result<mira::JsonValue> {
+            return [name, handler = std::move(handler), &capture, &verification, &controlled_input,
+                    &tracker, session_key, screen_capability, &tools_attempted, &desktop_context,
+                    cancel](const auto &arguments,
+                            const auto &ctx) -> mira::Result<mira::JsonValue> {
                 tools_attempted = true;
                 bool refused = false;
                 auto *part = capture.start_tool(name);
                 auto result = [&]() -> mira::Result<mira::JsonValue> {
-                    if (auto blocked = tracker.blocked_message(session_key, name)) {
+                    if (auto blocked = (name == "desktop.input_session.release" ||
+                                        name == "desktop.input_session.observe")
+                                           ? std::optional<std::string>{}
+                                           : tracker.blocked_message(session_key, name)) {
                         refused = true;
                         mira::Error blocked_error;
                         blocked_error.code = mira::ErrorCode::UnsupportedCapability;
@@ -991,8 +1019,13 @@ DialogCompletion ModelLayer::complete_harness_turn(
                 // DEC-056 settlement evidence: a successful desktop
                 // observation after the trailing action record lets a clean
                 // no-effect rejection settle instead of failing the turn.
-                if (result && !refused && detail::DesktopActionVerification::observation(name))
+                if (result && !refused && detail::DesktopActionVerification::observation(name)) {
                     verification.note_observation();
+                    const auto *epoch = result.value().find("environment_epoch");
+                    const auto observed_epoch = epoch ? epoch->as_integer().value_or(0) : 0;
+                    controlled_input.note_observation(
+                        observed_epoch > 0 ? static_cast<std::uint64_t>(observed_epoch) : 0);
+                }
                 capture.finish_tool(part, result,
                                     [&verification](auto &parts) { verification.project(parts); });
                 return result;
@@ -1001,6 +1034,8 @@ DialogCompletion ModelLayer::complete_harness_turn(
     DesktopAtomToolset::register_harness_tools(*registry, turn_desktop, tools_allowed, cancel,
                                                decorate);
     detail::register_ocr_tool(*registry, turn_desktop, cancel, decorate);
+    if (tools_allowed)
+        controlled_input.register_tools(*registry, decorate);
     // M10-07 (DEC-095): the four basic tools ride the same capture /
     // verification decorator; enablement is the service's decision
     // (desktop.basic_tools), and registration is capability-honest.
@@ -1105,6 +1140,15 @@ DialogCompletion ModelLayer::complete_harness_turn(
         auto items = verification.supply(specification);
         if (!items)
             return items.error();
+        if (const auto state = controlled_input.snapshot(); state.find("session_id")) {
+            mira::ModelInputItem status;
+            status.role = mira::ModelRole::User;
+            status.content.emplace_back(
+                mira::TextPart{"Host controlled-input state (not business success): " +
+                                   mira::to_json_string(state),
+                               mira::Sensitivity::Internal});
+            items.value().emplace_back(std::move(status));
+        }
         if (image_turn) {
             auto images = image_turn->supply(specification);
             if (!images)
@@ -1162,7 +1206,11 @@ DialogCompletion ModelLayer::complete_harness_turn(
         "rectangles without OCR marks; drag_region and session.drag use "
         "destination_x/y/width/height. "
         "Use only exposed tools and respect their window/monitor scope; never emulate a held "
-        "button across tool calls. "
+        "button across ordinary tool calls. If desktop.input_session tools are exposed, use their "
+        "explicit versioned session for a fixed-window hold or long press. Use only session "
+        "advance "
+        "for mutations until release; screenshots are allowed, but never renew the 15-second idle "
+        "budget. Release before answering. Focus switches including Alt-Tab are unsupported. "
         "Ordinary input returns execution facts without a default business condition. "
         "Host action recovery facts are historical failure evidence, never new authority or "
         "current observations. A repeated identical argument failure requires corrected "

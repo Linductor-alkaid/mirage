@@ -1629,3 +1629,13 @@ analysis_policy_revision，参数、目标位置或授权变化时推进版本�
 越界动作返回当前图片尺寸与字段提示；双击、选择/打开与系统快捷键按实际 UI
 选路。实现与真实模型/SSE 尚未验收的边界见
 [会话调查](../analysis/native-action-recovery-20261020.md)。
+
+
+2026-10-21 M7-27 首接线：受控持键使用平台中立 InputSessionBackend opt-in，
+X11/XInput2 首先提供固定窗口内的 down/up/tap 与持有期间截图，使用独立
+input_session_v1 回执，不复用普通释放失败标记。一个 ModelLayer 的 blocking worker
+通过有界 FIFO/LatestMailbox 承载单一会话推进与状态，普通输入共享同一
+ActionCoordinator lease。Portal 仅增加完整长按，跨调用持有继续拒绝；取消、
+权限换代、接管、超时与任务结束均主动释放，归属/释放不确定则保持写入围栏。
+预算、剩余平台与验证范围见 DEC-110 2026-10-21 增量及
+[本轮证据](../compatibility/controlled-input-sessions-20261021.md)。

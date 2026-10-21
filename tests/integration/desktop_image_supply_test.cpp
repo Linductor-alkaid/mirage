@@ -90,6 +90,7 @@ class NativeEnvironment final : public mirage::desktop::DesktopEnvironment,
                                 public mirage::desktop::ScreenProvider {
   public:
     int created = 0, captures = 0, closed = 0, inputs = 0, moves = 0;
+    bool long_press_available = true;
     bool interactive = false, pixels_changed = false, release_failed = false,
          uncertain_input = false;
     bool fail = false, revoke = false, throw_capture = false, repeated_source_after_input = false;
@@ -185,6 +186,9 @@ class NativeEnvironment final : public mirage::desktop::DesktopEnvironment,
             ++env.created;
         }
         bool input_supported() const override { return input_mode && live; }
+        bool timed_press_supported() const override {
+            return env.long_press_available && input_supported();
+        }
         mirage::desktop::SharedPointerQueryOutcome pointer_position(
             const mirage::desktop::CancelToken &cancel) override {
             if (cancel.cancelled())
@@ -3074,6 +3078,90 @@ void reuse_annotation_end_to_end(kairo::Executor &executor) {
 }
 } // namespace
 
+void shared_long_press_contract() {
+    const auto invoke = [](mira::BuiltinToolRegistry &registry, const mira::OperationContext &ctx,
+                           const char *name, const JsonValue &args) {
+        const auto exposed = registry.exposed_tools();
+        const auto spec = std::find_if(exposed.begin(), exposed.end(),
+                                       [&](const auto &tool) { return tool.wire_name == name; });
+        check(spec != exposed.end());
+        mira::ToolProposal call;
+        call.tool_id = spec->tool_id;
+        call.tool_version = spec->version;
+        call.wire_name = name;
+        call.has_side_effects = std::string_view{name} != "desktop.screen.capture";
+        call.operation_id = mira::OperationId::generate();
+        call.provider_call_id.value = "long-press";
+        call.arguments = args;
+        call.arguments_digest = mira::canonical_json_digest(args);
+        return registry.execute(call, ctx);
+    };
+    for (const std::string mode : {"click", "key", "multi", "unavailable", "press_type"}) {
+        auto source = std::make_shared<detail::DesktopImageSource>();
+        auto env = std::make_shared<NativeEnvironment>();
+        env->interactive = true;
+        env->long_press_available = mode != "unavailable";
+        mirage::integration::DesktopToolContext tools;
+        tools.environment = env;
+        tools.actions = std::make_shared<mirage::desktop::ActionCoordinator>();
+        tools.gate = [](const auto &, const auto &, const auto &stop) { return !stop(); };
+        auto ctx = mira::make_control_context();
+        ctx.task = mira::TaskId::generate();
+        ctx.session = mira::SessionId::generate();
+        ctx.task_epoch = 1;
+        detail::DesktopImageTurn turn(source, tools, ctx, {});
+        mira::BuiltinToolRegistry registry;
+        turn.register_tool(registry, {}, true);
+        const auto captured =
+            invoke(registry, ctx, "desktop.screen.capture",
+                   mira::parse_json(R"({"source":"desktop","interaction":true})").value());
+        check(captured && !captured.value().failed);
+        if (!captured || captured.value().failed)
+            continue;
+        mira::AgentLoopSpec spec;
+        spec.task_id = ctx.task;
+        spec.session_id = ctx.session;
+        spec.task_epoch = ctx.task_epoch;
+        const auto supplied = turn.supply(spec);
+        check(supplied.has_value());
+        mira::ModelRequest request;
+        request.task_id = ctx.task;
+        request.task_epoch = ctx.task_epoch;
+        request.input = supplied.value();
+        check(turn.validate_request(request, ctx).has_value());
+        const auto &frame = captured.value().result;
+        check(frame.find("image_scope") && frame.find("environment_epoch"));
+        if (!frame.find("image_scope") || !frame.find("environment_epoch"))
+            continue;
+        JsonValue args{JsonValue::Object{{"image_scope", *frame.find("image_scope")},
+                                         {"environment_epoch", *frame.find("environment_epoch")},
+                                         {"x", 0},
+                                         {"y", 0},
+                                         {"width", 1},
+                                         {"height", 1},
+                                         {"press", "long"}}};
+        if (mode == "key")
+            args.set("key_name", "shift");
+        if (mode == "multi")
+            args.set("click_count", 2);
+        if (mode == "press_type")
+            args.set("press", true);
+        const auto result = invoke(
+            registry, ctx, mode == "key" ? "desktop.session.key" : "desktop.session.click", args);
+        const bool success = mode == "click" || mode == "key";
+        if (!result || result.value().failed == success)
+            std::fprintf(stderr, "long press mode=%s error=%s\n", mode.c_str(),
+                         result ? result.value().safe_error_summary.c_str()
+                                : result.error().safe_message.c_str());
+        check(result && result.value().failed != success);
+        check(env->inputs == (success ? 1 : 0));
+        if (success)
+            check(env->last_input.long_press);
+        else
+            check(env->moves == 0);
+    }
+}
+
 int main() {
     try {
         if (const auto *mode = std::getenv("MIRAGE_IMAGE_LIVE");
@@ -3154,6 +3242,7 @@ int main() {
               "escaped_budget", "candidate_prefix", "invalid_args", "model_throw"})
             native_ocr_loop(executor, mode);
         input_reuse_contention(executor);
+        shared_long_press_contract();
         shared_loop(executor);
         contracts(executor);
         budget_degradation();

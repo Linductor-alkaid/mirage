@@ -892,3 +892,12 @@ M7/M8 的真实桌面、在线业务与其他平台门禁保持开放，负责�
 2026-10-21 补查：native-release 离线复验旧 SSE 截断样本 3/3 正确到达 Incomplete；
 公开 provider 诊断转发没有缺失。此次失败流未留存，无法从进程内事件存储恢复，
 本次 SSE 根因继续开放；没有重放原任务或改动依赖解析器。
+
+
+2026-10-21：M7-27 进入 In Progress，首接线为 X11/XInput2 固定前台窗口内的受控
+持键/截图与版本化独立工具族，以及 Portal 同次调用的本地定时长按。看护复用
+ModelLayer 的一个 Executor blocking worker，任务终结与权限换代进入主动释放。
+普通 input_released 回执语义不变；系统切换器焦点转换、未验平台及真实业务门禁
+继续开放。详见[实施与验收证据](../compatibility/controlled-input-sessions-20261021.md)。
+本轮 Debug 全量 106/106、ASan/UBSan/native-release 定向各 15/15；完整 native-release
+product 与公开头文件边界检查通过。M7-27 仍按剩余门禁保持 In Progress。

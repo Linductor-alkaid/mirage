@@ -5,6 +5,8 @@
 add_library(mirage_integration_mira STATIC
     src/basic_agent_toolset.cpp
     src/desktop_atom_toolset.cpp
+    src/controlled_input_session.cpp
+    src/controlled_input_tools.cpp
     src/desktop_action_verification.cpp
     src/desktop_context_builder.cpp
     src/desktop_ocr_tool.cpp

@@ -3,6 +3,7 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -98,9 +99,16 @@ bool valid_drag_path(PointerPoint from, PointerPoint to);
 /// provider stays permission-agnostic. Coordinates are in global desktop
 /// coordinates, consistent with WindowGeometry. Methods are synchronous and
 /// bounded by their limits; callers decide the execution context.
+class InputSessionBackend;
+
 class InputProvider {
   public:
     virtual ~InputProvider() = default;
+    /// Independent opt-in for fixed-window controlled holds. A complete click
+    /// never implies this capability. The returned driver owns its connection.
+    virtual bool controlled_input_supported() const { return false; }
+    virtual std::unique_ptr<InputSessionBackend> open_input_session(const PointerActionScope &,
+                                                                    const CancelToken &);
     /// Complete discrete actions require explicit backend opt-in. The backend
     /// preflights physical input, owns its presses and reports cleanup failure.
     /// This includes type_text. Cancellation/deadline never suppress release;

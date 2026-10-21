@@ -115,6 +115,9 @@ desktop::InputOutcome dispatch_portal_input(PortalInputContext &s,
         else
             return failed("invalid_argument");
     }
+    if (action.long_press && ((action.kind != Kind::Click && action.kind != Kind::Key) ||
+                              (action.kind == Kind::Click && action.click_count != 1)))
+        return failed("invalid_argument");
     if (action.kind == Kind::Scroll &&
         !desktop::valid_scroll_steps(action.horizontal_steps, action.vertical_steps))
         return failed("invalid_argument");
@@ -180,7 +183,7 @@ desktop::InputOutcome dispatch_portal_input(PortalInputContext &s,
     double target_x = 0, target_y = 0;
     bool has_travel = false;
     try {
-        auto variation = action.kind == Kind::Click
+        auto variation = action.kind == Kind::Click && !action.long_press
                              ? desktop::PointerMotionVariation{}
                              : desktop::make_pointer_motion_variation(action.target_width);
         seed = variation.seed;
@@ -236,6 +239,12 @@ desktop::InputOutcome dispatch_portal_input(PortalInputContext &s,
     } catch (...) {
         return failed("input_plan_failed");
     }
+    const auto long_dwell = desktop::long_press_cadence_duration(seed);
+    if (action.long_press) {
+        if (action.kind == Kind::Key)
+            planned -= desktop::input_cadence_delay(seed, Phase::key_dwell);
+        planned += long_dwell;
+    }
     if (std::chrono::steady_clock::now() + planned >= end)
         return failed("input_timeout"); // Full plan admission, before any input.
     if (stopped())
@@ -257,6 +266,11 @@ desktop::InputOutcome dispatch_portal_input(PortalInputContext &s,
     auto wait = [&](Phase phase, std::size_t index = 0) {
         const bool result = pace_input_for(desktop::input_cadence_delay(seed, phase, index),
                                            [&] { return !stopped(); });
+        lagged |= !result && !stopped();
+        return result;
+    };
+    const auto wait_long = [&] {
+        const bool result = pace_input_for(long_dwell, [&] { return !stopped(); });
         lagged |= !result && !stopped();
         return result;
     };
@@ -323,6 +337,8 @@ desktop::InputOutcome dispatch_portal_input(PortalInputContext &s,
                      ++i) {
                     held_button = true;
                     ok = notify({PortalInputEvent::Kind::Button, button, 1u});
+                    if (ok && action.long_press)
+                        ok = wait_long();
                     release();
                 }
             } else if (ok && !stopped() && action.kind == Kind::Drag) {
@@ -376,7 +392,7 @@ desktop::InputOutcome dispatch_portal_input(PortalInputContext &s,
                         break;
                     }
                 } else {
-                    ok = wait(Phase::key_dwell);
+                    ok = action.long_press ? wait_long() : wait(Phase::key_dwell);
                 }
             }
         }

@@ -68,6 +68,10 @@ class X11Backend final : public mirage::desktop::WindowProvider,
     mirage::desktop::InputOutcome inject_key(const mirage::desktop::KeySym &key, bool pressed,
                                              const mirage::desktop::InputLimits &limits,
                                              const mirage::desktop::CancelToken &cancel) override;
+    bool controlled_input_supported() const override;
+    std::unique_ptr<mirage::desktop::InputSessionBackend>
+    open_input_session(const mirage::desktop::PointerActionScope &,
+                       const mirage::desktop::CancelToken &) override;
     bool complete_actions_supported() const override { return true; }
     bool bounded_pointer_actions_supported() const override { return true; }
     mirage::desktop::InputOutcome scroll_at(const mirage::desktop::PointerActionScope &,

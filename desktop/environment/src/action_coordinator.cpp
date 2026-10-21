@@ -81,6 +81,13 @@ void ActionCoordinator::takeover() {
     if (state_->busy)
         state_->active->request_cancel();
 }
+void ActionCoordinator::invalidate_authority() {
+    const std::lock_guard guard(state_->mutex);
+    ++state_->authority_epoch;
+    ++state_->epoch;
+    if (state_->busy)
+        state_->active->request_cancel();
+}
 bool ActionCoordinator::resume() {
     const std::lock_guard guard(state_->mutex);
     if (state_->busy || state_->dirty)

@@ -753,6 +753,7 @@ class PortalObservation final : public desktop::DesktopCaptureSession {
     bool revoked() const {
         return state_.authorization && generation_ != state_.authorization->generation();
     }
+    bool timed_press_supported() const override { return input_supported(); }
     bool input_supported() const override {
 #ifdef MIRAGE_LINUX_PIPEWIRE
         return state_.interaction && reusable() && state_.cast->interaction &&

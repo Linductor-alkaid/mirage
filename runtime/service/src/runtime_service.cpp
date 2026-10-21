@@ -2913,6 +2913,7 @@ struct RuntimeService::Impl {
         // Live effect first: the controller is shared with every task driver
         // and the atom toolset gate, so the new rules govern the next
         // authorize() call.
+        core->actions->invalidate_authority();
         core->permission->set_policy(std::move(policy));
         if (request.has_read_roots) {
             core->read_roots = request.read_roots;

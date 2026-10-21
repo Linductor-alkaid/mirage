@@ -23,6 +23,8 @@ enum class InputCadencePhase : std::uint8_t {
 /// Pure seeded planning; no waiting, input, mutable RNG, or model timing fields.
 std::chrono::milliseconds input_cadence_delay(std::uint64_t seed, InputCadencePhase,
                                               std::size_t index = 0);
+/// Explicit long-press intent, locally seeded 1080..1240 ms; no model timing.
+std::chrono::milliseconds long_press_cadence_duration(std::uint64_t seed);
 std::chrono::milliseconds chord_cadence_duration(std::uint64_t seed, std::size_t keys);
 std::chrono::milliseconds wheel_cadence_duration(std::uint64_t seed, std::size_t steps);
 std::chrono::milliseconds drag_cadence_duration(PointerPoint from, PointerPoint to,

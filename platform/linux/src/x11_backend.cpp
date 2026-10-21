@@ -1,5 +1,6 @@
 #include "x11_backend.hpp"
 #include "input_pacing.hpp"
+#include "x11_input_session.hpp"
 #include <mirage/desktop/input_cadence.hpp>
 #include <mirage/desktop/input_session.hpp>
 #include <mirage/desktop/visual_snapshot.hpp>
@@ -841,6 +842,20 @@ CaptureOutcome X11Backend::capture_roi(const WindowGeometry &roi, const CaptureL
         return outcome;
     }
     return capture_region(xconn(), roi, limits);
+}
+
+bool X11Backend::controlled_input_supported() const {
+#ifdef MIRAGE_LINUX_XINPUT2
+    return true;
+#else
+    return false;
+#endif
+}
+std::unique_ptr<mirage::desktop::InputSessionBackend>
+X11Backend::open_input_session(const mirage::desktop::PointerActionScope &scope,
+                               const CancelToken &cancel) {
+    std::lock_guard guard(mutex_);
+    return open_x11_input_session(DisplayString(connection_->display), scope, cancel);
 }
 
 InputOutcome X11Backend::inject_key(const KeySym &key, bool pressed, const InputLimits &limits,

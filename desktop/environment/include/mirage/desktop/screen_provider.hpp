@@ -141,6 +141,8 @@ struct SharedInputAction {
     /// Internal Move step: automatic approach before a click, within the
     /// same action lease. Not exposed as a separate model tool.
     std::int32_t target_width = 0;
+    /// Complete Click/Key long press, locally timed; never a cross-call hold.
+    bool long_press = false;
 };
 
 /// Read-only pointer snapshot in this capture session's FRAME pixels.
@@ -175,6 +177,7 @@ class DesktopCaptureSession {
     }
     virtual bool reusable() const { return false; }
     virtual bool input_supported() const { return false; }
+    virtual bool timed_press_supported() const { return false; }
     virtual InputOutcome input(const SharedInputAction &, const InputLimits &,
                                const CancelToken &) {
         return {false, false, {"unsupported_capability", "shared input unavailable"}, false, true};

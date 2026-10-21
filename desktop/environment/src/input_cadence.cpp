@@ -18,6 +18,10 @@ std::chrono::milliseconds input_cadence_delay(std::uint64_t seed, InputCadencePh
     const auto [low, high] = ranges[kind];
     return std::chrono::milliseconds{low + static_cast<int>(random() % (high - low + 1))};
 }
+std::chrono::milliseconds long_press_cadence_duration(std::uint64_t seed) {
+    return std::chrono::milliseconds{900} +
+           4 * input_cadence_delay(seed, InputCadencePhase::key_dwell);
+}
 std::chrono::milliseconds chord_cadence_duration(std::uint64_t seed, std::size_t keys) {
     auto total = input_cadence_delay(seed, InputCadencePhase::key_dwell);
     for (std::size_t i = 1; i < keys; ++i)

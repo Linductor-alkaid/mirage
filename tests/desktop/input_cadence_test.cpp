@@ -11,6 +11,10 @@ int main() {
         {{45, 85}, {35, 85}, {12, 28}, {8, 18}, {8, 16}, {30, 65}, {45, 80}, {35, 65}}};
     std::set<long long> times;
     for (std::uint64_t seed = 0; seed < 128; ++seed) {
+        const auto long_press = long_press_cadence_duration(seed);
+        MIRAGE_CHECK(long_press.count() >= 1080 && long_press.count() <= 1240);
+        MIRAGE_CHECK(long_press == long_press_cadence_duration(seed) &&
+                     long_press <= input_session_budget::max_press_dwell);
         for (std::size_t phase = 0; phase < bounds.size(); ++phase)
             for (std::size_t index = 0; index < 32; ++index) {
                 const auto kind = static_cast<InputCadencePhase>(phase);
