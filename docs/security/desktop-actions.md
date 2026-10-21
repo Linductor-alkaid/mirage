@@ -500,3 +500,30 @@ X11 物理同键竞争或 raw 事件超预算时不向归属不明输入发 up�
 模型错误本体不得被清理错误覆盖；成功作答但遗留持键会判为未干净结束并清理。
 普通点按、持有与业务成功各自表达，版本化 holding 不是授权更新或目标达成证明。
 详见[验证与限制](../compatibility/controlled-input-sessions-20261021.md)。
+
+同日持键移动增量：advance 1.1.0 的 smooth_move 仅接受全局 int32 目标坐标，
+与 key/button/press 互斥，无模型时间或路径入口。授权后本地规划时长；持有 lease
+的 worker 重新读取起点，先检查整条单调轨迹，再逐段检查绑定窗口、焦点、几何、
+实际 held 状态与物理干预并读回坐标。session/operation 剩余预算不足时拒绝移动并
+清理已有持键；途中失效停止余段，已发生位移不回滚、不重发。held 归属和释放失败
+围栏沿用首接线，不因新增移动或新截图清除；未开放跨窗口拖放和主动焦点转换。
+见[本增量证据](../compatibility/controlled-input-travel-20261021.md)。
+
+同日设备守卫增量：X11 受控持键最低 XI 2.1，XI 2.0 来源和外部 grab 反馈不足时
+不开放持键工具。准入先订阅事件再冻结 ClientPointer/master/XTEST slave 路由，
+后续拓扑变化终结当前会话；原路由失效、来源缺失或事件超预算不能盲发全局 up。
+非重叠外部输入只能清理本任务已知输入，重叠输入保留 held 与 dirty fence，普通
+resume 不消除。正常 SlaveSwitch 不是设备拔插；外部抓取不能遮蔽 XI 2.1 raw
+守卫。能力查询和新会话分别验证版本，普通完整输入独立声明。证据中的虚拟 slave、
+版本/源失效故障注入与真实硬件验收分开，见
+[设备守卫验收](../compatibility/controlled-input-devices-20261021.md)。
+
+系统切换器首增量使用独立 window_switch 1.0.0 工具族和 window_switch_v1 回执，
+平台仅 opt-in 已验证的 Openbox 3.6.1 profile。begin 需要 window.activate 与
+input.inject 两项授权，资源为 window_switcher；capture_scope 非空不注册。两个
+工具族共享 lease/worker，必须用对应族推进/清理，不接受模型 raw key、指针或时间。
+平台仍要求原窗口在持有期间保持焦点/几何，并持续核对 WM 身份与原物理/设备守卫。
+提前切焦点不能冒充预期转换；普通固定会话拒绝组合跨观察 Alt-Tab。release 与
+取消等必要清理可能提交选窗，回执 verified=false，需释放后的新观察验证实际目标。
+见[切换器验收记录](../compatibility/controlled-window-switcher-20261021.md)，其他
+管理器/profile 和平台不从本次成功推断支持。

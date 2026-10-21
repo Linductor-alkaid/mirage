@@ -1639,3 +1639,27 @@ ActionCoordinator lease。Portal 仅增加完整长按，跨调用持有继续�
 权限换代、接管、超时与任务结束均主动释放，归属/释放不确定则保持写入围栏。
 预算、剩余平台与验证范围见 DEC-110 2026-10-21 增量及
 [本轮证据](../compatibility/controlled-input-sessions-20261021.md)。
+
+同日 M7-27 后续：X11/XInput2 的 InputSessionBackend 声明 smooth_move，模型工具
+advance 1.1.0 新增全局 int32 目标坐标；本地距离策略生成时长，既有 worker 重新读回
+起点并执行固定窗口内的单调 minimum-jerk 路径。沿用同一 lease、held 集合及预算，
+逐段检查和读回，取消/权限换代/目标变化停止余段并清理。没有新增并发 owner 或
+平台类型泄漏；holding 与释放回执版本不变。Alt-Tab、跨窗口拖放和未验平台仍开放，
+契约、示例及门禁见 DEC-110“固定窗口内的持键移动”和
+[本增量证据](../compatibility/controlled-input-travel-20261021.md)。
+
+M7-27 同日设备守卫：受控 X11 路径要求 XI 2.1，按实际协商结果声明能力，以确保
+raw 来源及外部 active grab 期间的反馈契约。Platform Backend 在事件订阅后冻结
+当前 ClientPointer/master/XTEST slave 路由，拓扑/能力变化结束会话，不热切换。
+已知可释放与归属不明分开结算，源失效或同键竞争保留不确定 held 投影并封锁。
+仍复用现有 worker、lease、预算和通信，没有新线程或公共平台类型。细节见
+DEC-110“XI2 来源与设备变化守卫”及
+[设备守卫验收](../compatibility/controlled-input-devices-20261021.md)。
+
+M7-27 系统切换器首增量通过独立 Provider opt-in 与 desktop.window_switch 1.0.0
+承载，当前只验证 Openbox 3.6.1：原焦点/几何保持到最终 Alt 释放，不放宽为任意
+焦点输入。Runtime/Integration 在相同 worker/lease 内持 Alt、按方向安排 Shift/Tab，
+使用独立 window_switch_v1 回执，两个工具族不能交叉推进。需要桌面 window.activate
+及 input.inject 授权，窗口受限任务不注册。清理可能提交选择，释放后新观察验证
+目标；具体模式、预算、示例及平台门禁见 DEC-110“显式窗口切换器首增量”和
+[验收记录](../compatibility/controlled-window-switcher-20261021.md)。

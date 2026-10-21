@@ -988,7 +988,9 @@ DialogCompletion ModelLayer::complete_harness_turn(
             auto *part = capture.start_tool(name);
             auto result = [&]() -> mira::Result<mira::JsonValue> {
                 if (auto blocked = (name == "desktop.input_session.release" ||
-                                    name == "desktop.input_session.observe")
+                                    name == "desktop.input_session.observe" ||
+                                    name == "desktop.window_switch.release" ||
+                                    name == "desktop.window_switch.observe")
                                        ? std::optional<std::string>{}
                                        : tracker.blocked_message(session_key, name)) {
                     refused = true;
@@ -1210,7 +1212,10 @@ DialogCompletion ModelLayer::complete_harness_turn(
         "explicit versioned session for a fixed-window hold or long press. Use only session "
         "advance "
         "for mutations until release; screenshots are allowed, but never renew the 15-second idle "
-        "budget. Release before answering. Focus switches including Alt-Tab are unsupported. "
+        "budget. Release before answering. Use desktop.window_switch only when exposed for "
+        "Alt-Tab: the host holds Alt and accepts forward/backward selection; capture the full "
+        "display while selecting, then release and verify the fresh front window. Cleanup may "
+        "commit a selection. Never compose Alt-Tab through fixed-window input sessions. "
         "Ordinary input returns execution facts without a default business condition. "
         "Host action recovery facts are historical failure evidence, never new authority or "
         "current observations. A repeated identical argument failure requires corrected "

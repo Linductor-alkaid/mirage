@@ -72,6 +72,10 @@ class X11Backend final : public mirage::desktop::WindowProvider,
     std::unique_ptr<mirage::desktop::InputSessionBackend>
     open_input_session(const mirage::desktop::PointerActionScope &,
                        const mirage::desktop::CancelToken &) override;
+    bool window_switcher_supported() const override;
+    std::unique_ptr<mirage::desktop::InputSessionBackend>
+    open_window_switcher_session(const mirage::desktop::PointerActionScope &,
+                                 const mirage::desktop::CancelToken &) override;
     bool complete_actions_supported() const override { return true; }
     bool bounded_pointer_actions_supported() const override { return true; }
     mirage::desktop::InputOutcome scroll_at(const mirage::desktop::PointerActionScope &,

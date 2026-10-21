@@ -20,8 +20,9 @@ class ControlledInputTools {
     std::unique_ptr<ControlledInputSession> session_;
     std::string id_, window_;
     bool recovery_observed_ = false;
+    bool switching_ = false;
     mira::Error state_error(const desktop::InputSessionReceipt &) const;
     mira::Result<mira::JsonValue> invoke(const std::string &, const mira::JsonValue &,
-                                         const mira::OperationContext &);
+                                         const mira::OperationContext &, bool switching = false);
 };
 } // namespace mirage::integration::detail

@@ -12,6 +12,10 @@ std::unique_ptr<InputSessionBackend> InputProvider::open_input_session(const Poi
                                                                        const CancelToken &) {
     return {};
 }
+std::unique_ptr<InputSessionBackend>
+InputProvider::open_window_switcher_session(const PointerActionScope &, const CancelToken &) {
+    return {};
+}
 
 namespace {
 

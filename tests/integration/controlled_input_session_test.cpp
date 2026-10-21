@@ -10,6 +10,7 @@ using Session = mirage::integration::detail::ControlledInputSession;
 namespace {
 struct Facts {
     std::atomic<bool> physical_during{false};
+    std::atomic<int> device_fault{0};
     std::atomic<int> presses{0}, releases{0}, delay_ms{0};
     std::atomic<bool> fail_release{false}, fail_check{false}, throw_apply{false}, down{false},
         physical{false};
@@ -22,12 +23,16 @@ class Backend final : public d::InputSessionBackend {
     d::InputCapabilitySet capabilities() const override {
         return d::InputCapabilitySet{}
             .with(d::InputCapability::software_injection)
+            .with(d::InputCapability::smooth_move)
             .with(d::InputCapability::cross_observation_hold)
             .with(d::InputCapability::timed_press)
             .with(d::InputCapability::independent_modifiers)
             .with(d::InputCapability::hold_capture);
     }
     d::ProviderError check() override {
+        if (facts_->device_fault)
+            return {facts_->device_fault == 1 ? "input_device_changed" : "input_device_lost",
+                    "fixture device fault"};
         if (facts_->physical)
             return {"physical_takeover", "fixture physical input"};
         return facts_->fail_check.load()
@@ -298,18 +303,26 @@ void command_boundaries(kairo::Executor &executor) {
 }
 
 void planned_press_budget(kairo::Executor &executor) {
-    auto owner = std::make_shared<d::ActionCoordinator>();
-    auto facts = std::make_shared<Facts>();
-    Session session(executor, owner, {}, [facts] { return std::make_unique<Backend>(facts); },
-                    {std::chrono::milliseconds{500}, std::chrono::milliseconds{500}});
-    auto state = session.begin(owner->epoch());
-    auto press = down();
-    press.kind = d::InputSessionCommand::Kind::key_tap;
-    press.dwell = std::chrono::milliseconds{1100};
-    state = session.advance(1, state.state_version, press);
-    MIRAGE_CHECK(state.release_confirmed && state.error.code == "input_session_timeout");
-    MIRAGE_CHECK(facts->presses == 0 && state.command_sequence == 0);
-    session.stop();
+    for (const bool move : {false, true}) {
+        auto owner = std::make_shared<d::ActionCoordinator>();
+        auto facts = std::make_shared<Facts>();
+        Session session(executor, owner, {}, [facts] { return std::make_unique<Backend>(facts); },
+                        {std::chrono::milliseconds{500}, std::chrono::milliseconds{500}});
+        auto state = session.begin(owner->epoch());
+        auto press = down();
+        press.kind = d::InputSessionCommand::Kind::key_tap;
+        press.dwell = std::chrono::milliseconds{1100};
+        if (move) {
+            press = {};
+            press.kind = d::InputSessionCommand::Kind::smooth_move;
+            press.x = press.y = 100;
+            press.duration = std::chrono::milliseconds{600};
+        }
+        state = session.advance(1, state.state_version, press);
+        MIRAGE_CHECK(state.release_confirmed && state.error.code == "input_session_timeout");
+        MIRAGE_CHECK(facts->presses == 0 && state.command_sequence == 0);
+        session.stop();
+    }
 }
 
 void stop_during_command(kairo::Executor &executor) {
@@ -348,6 +361,29 @@ void worker_reuse(kairo::Executor &executor) {
     }
     worker->stop();
 }
+void device_endings(kairo::Executor &executor) {
+    for (const bool lost : {false, true}) {
+        auto owner = std::make_shared<d::ActionCoordinator>();
+        auto facts = std::make_shared<Facts>();
+        Session session(executor, owner, {}, [facts] { return std::make_unique<Backend>(facts); },
+                        {});
+        auto state = session.begin(owner->epoch());
+        state = session.advance(1, state.state_version, down());
+        MIRAGE_CHECK(state.outcome == d::InputSessionOutcome::holding);
+        facts->fail_release = lost;
+        facts->device_fault = lost ? 2 : 1;
+        wait_terminal(executor, session);
+        state = session.snapshot();
+        MIRAGE_CHECK(state.release_confirmed == !lost && state.cancelled == lost);
+        MIRAGE_CHECK(state.error.code == (lost ? "input_release_failed" : "input_device_changed"));
+        MIRAGE_CHECK(state.held_keys.empty() == !lost);
+        MIRAGE_CHECK(owner->input_released() == !lost);
+        if (lost)
+            MIRAGE_CHECK(!owner->resume() && !owner->try_begin({}));
+        MIRAGE_CHECK(session.advance(2, state.state_version, down()).state == state.state);
+        session.stop();
+    }
+}
 
 } // namespace
 int main() {
@@ -364,6 +400,7 @@ int main() {
         command_boundaries(executor);
         planned_press_budget(executor);
         stop_during_command(executor);
+        device_endings(executor);
     } catch (const std::exception &e) {
         std::fprintf(stderr, "controlled input: %s\n", e.what());
         executor.shutdown(true);

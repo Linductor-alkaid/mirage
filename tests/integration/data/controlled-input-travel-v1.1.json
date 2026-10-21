@@ -1,0 +1,22 @@
+{
+  "advance_version": [1, 1, 0],
+  "receipt_schema": "input_session_v1",
+  "command": "smooth_move",
+  "coordinate_min": -2147483648,
+  "coordinate_max": 2147483647,
+  "example": {"command": "smooth_move", "x": 340, "y": 190},
+  "invalid_arguments": [
+    {"command": "smooth_move", "x": 340},
+    {"command": "smooth_move", "y": 190},
+    {"command": "smooth_move", "x": 340.5, "y": 190},
+    {"command": "smooth_move", "x": 2147483648, "y": 190},
+    {"command": "smooth_move", "x": 340, "y": -2147483649},
+    {"command": "smooth_move", "x": "340", "y": 190},
+    {"command": "smooth_move", "x": 340, "y": 190, "key": "shift"},
+    {"command": "smooth_move", "x": 340, "y": 190, "button": "left"},
+    {"command": "smooth_move", "x": 340, "y": 190, "press": "long"},
+    {"command": "smooth_move", "x": 340, "y": 190, "duration": 50},
+    {"command": "smooth_move", "x": 340, "y": 190, "path_points": 2},
+    {"command": "key_down", "key": "shift", "x": 340, "y": 190}
+  ]
+}

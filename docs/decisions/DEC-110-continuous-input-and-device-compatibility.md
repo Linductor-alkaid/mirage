@@ -14,6 +14,8 @@
 > 新动作组能力仍待 M7-25/26，详见 DEC-056 首增量契约和专项验证记录。
 > 修订：2026-10-20 继续实施：三条物理点击工具已迁移为 4.0.0，本地默认自动平滑接近，
 > 不接收模型移动时间；具体范围、策略版本及证据见文末“自动接近点击首增量”。
+> 修订：2026-10-21 M7-27 继续接通固定窗口内的持键移动，advance 1.1.0；焦点转换及
+> 未验平台继续开放，具体契约与门禁见文末。
 
 ## 背景与问题
 
@@ -499,3 +501,90 @@ Windows 受控持键及真实系统切换器继续开放。证据与实际门禁
 检查。已确认释放的已知失败按 DEC-056 的既有策略，在释放代际及之后的新桌面
 观察到达后才允许恢复结算；旧代际截图不能退休失败，取消/接管与释放 uncertain
 不通过该路径消除。当前会话状态在截图后进入 awaiting_feedback，但不续期。
+
+## 2026-10-21：M7-27 固定窗口内的持键移动
+
+本次推进将既有 `smooth_move` 命令接入 X11/XInput2 受控会话，不改变焦点转换契约。
+`desktop.input_session.advance` 升为 1.1.0，新增 command=smooth_move 和全局桌面
+int32 坐标 x/y；begin/observe/release 保持 1.0.0，input_session_v1 与预算 v1 不变。
+移动不得混用 key/button/press 字段，键鼠按压命令不得携带坐标；模型不能提供时间、
+路径点数或轨迹。工具在授权后读取指针，用已有 automatic_pointer_duration 规划
+距离相关时长（零距离以 50 ms 作为内部合法计划，平台不发 motion），上限沿用
+650 ms；平台在持有 lease 的 worker 上重新读回真实起点并生成 minimum_jerk_v1。
+持有中的轨迹采用单调基线，避免弯曲/过冲引入额外拖放落点；不改普通点击策略 v2。
+
+后端只在原绑定窗口及当前 X screen 可见范围内移动：起点、目标和全部采样点在
+派发前检查，每段继续核对焦点/几何/生命周期、实际持键状态、XI2 物理干预和指针
+所在窗口；按时派发并同步读回每段坐标，不在结束时一次性提交缓冲轨迹。取消、
+权限换代或迟到超过既有 250 ms soft 容差时停止余段，不补发、不重试、不回滚坐标。
+每次移动消耗一个命令，不改变 held 集合；截图期间仍受原 idle/total 预算看护。
+完整计划无法放入 session 或 operation 剩余预算时拒绝移动并清理已有持键。
+
+沿用一个受管 blocking worker、容量 8 FIFO、LatestMailbox 和 ActionCoordinator；
+没有新增线程、调度器或跨上下文可变状态。Mira 的通用离散 InputSequence 不提供
+桌面窗口绑定的 held owner，Mirador 不提供输入派发；此能力属于 Mirage 的平台适配。
+实现核对 pinned kairo by-requirement → blocking-io card 与公开 executor/blocking_io
+接口；路径等待复用已有同步有界平台延续，stop/join/future 消费与清理顺序不变。
+
+示例（session_id、版本与 sequence 必须取当前宿主回执，截图后先更新状态）：
+
+```json
+{"session_id":"<host-id>","state_version":3,"sequence":2,"command":"smooth_move","x":340,"y":190}
+```
+
+可在 key_down 或 button_down 后移动、截图、继续移动，最后显式 release；holding
+只证明受控输入状态，不证明拖动业务成功。几何范围内新出现的遮挡窗口会在段间守卫
+或读回失败时停止，已发生的移动如实保留。系统切换器/Alt-Tab、跨窗口拖放、Portal
+跨调用持有、Windows、真实物理竞争与在线模型验收仍开放。
+golden 与负例见 `tests/integration/data/controlled-input-travel-v1.1.json`，实际结果见
+[持键移动验收记录](../compatibility/controlled-input-travel-20261021.md)。
+
+## 2026-10-21：M7-27 XI2 来源与设备变化守卫
+
+继续落实持键期间的输入归属和设备失效边界。X11 受控会话最低要求改为 XI 2.1：
+XI 2.0 的 raw sourceid 未定义，且其他客户端的 active grab 可以阻止 raw 反馈，
+不能据此承诺识别同键竞争。依据 X.Org
+[XI2 RawEvent 协议](https://www.x.org/releases/current/doc/inputproto/XI2proto.txt)，
+旧服务器在任何按下前拒绝；不影响普通完整输入入口的能力声明。
+
+会话在订阅 raw/HierarchyChanged/DeviceChanged 后冻结当前 ClientPointer、配对
+master keyboard 与两项 XTEST slave 的 id/use/attachment/enabled 信息，不热切换。
+任何拓扑变化结束当前会话；未损坏原注入路由时只释放已知拥有的输入。原路由被移除、
+禁用、重挂接、能力改变，或事件来源/容量无法判断时，保留不确定输入投影并封锁
+后续写入，不向归属不明的键/按钮补发 up。正常 SlaveSwitch 通知不等于设备失效，
+仍由随后 raw 事件判别真实干预，避免把自身 XTEST 活动当作设备丢失。
+
+独立 Xvfb slave 注入用于演练不同来源、同键/同按钮、外部 active grab 与拓扑
+变化；这是服务器协议/归属夹具，不是真实硬件拔插验收。沿用原 Executor blocking
+worker、FIFO、mailbox、取消和 shutdown 顺序，不新增并发 owner 或修改依赖。
+实际验证与剩余硬件门禁见
+[设备守卫验收记录](../compatibility/controlled-input-devices-20261021.md)。
+
+## 2026-10-21：M7-27 显式窗口切换器首增量
+
+在私有 Xvfb + Openbox 3.6.1 中，正反选窗及持 Alt 截图期间原窗口保持实际焦点，
+Alt 释放后才提交选择。本增量限定这个已验证 profile，不放宽固定窗口焦点/几何
+守卫。Platform Backend 独立 opt-in `window_switcher_supported` 和专用 driver，
+以 `_NET_SUPPORTING_WM_CHECK` 双向身份、WM name 和 `_OB_VERSION` 限定当前支持
+的管理器，生命周期内持续复核；其他 profile 默认不支持。
+
+新增独立 `desktop.window_switch.begin/advance/observe/release` 1.0.0 与
+`window_switch_v1` 回执。沿用原会话字段和预算 v1，固定会话工具版本/回执不变。
+begin 需要新鲜原窗口 id/epoch，同时授权 `window.activate` 和 `input.inject` 的
+`window_switcher` 资源；window capture_scope 非空的任务不注册该工具族。宿主
+自动持 Alt，advance 只接收 forward/backward、session_id、最新版本和下一命令序号。
+正向是一次 Tab tap，反向由宿主安排 Shift down/Tab tap/Shift up；完整已知命令/
+时序预算在首个事件前核对。没有模型键、坐标、时长或脚本参数。
+
+两个工具族共享同一个 owner、worker 和 lease；不得跨工具族推进或释放会话。
+平台专用 driver 也拒绝非 Alt/Shift/Tab 命令，固定会话拒绝组合跨观察 Alt-Tab。
+observe/截图不续期；截图应选完整 display，以覆盖系统切换器。原焦点提前变化、
+窗口/管理器/设备变化、父取消、接管、撤权、超时、模型失败和 shutdown 均进入原
+清理路径，归属/释放不确定保留 fence。没有新并发设施或依赖修改。
+
+release 负责释放 Alt，可能提交当前选窗；取消/超时等必要清理也可能提交选择，
+不假称恢复原窗口。释放确认只表示输入已收敛，回执始终 verified=false。任务需在
+释放后取得新鲜前台窗口观察验证目标；配置自定义按键或提前切焦点时可明确失败。
+Openbox 的正反选窗、截图与模型脚本验收见
+[切换器验收记录](../compatibility/controlled-window-switcher-20261021.md)。
+GNOME/KDE 等其他管理器、Portal、Windows 和在线自主模型验收继续开放。

@@ -1,6 +1,7 @@
 #include "x11_input_session.hpp"
 #include "input_pacing.hpp"
 #include <X11/XKBlib.h>
+#include <X11/Xatom.h>
 #include <X11/Xlib.h>
 #include <X11/extensions/XTest.h>
 #include <X11/keysym.h>
@@ -18,18 +19,76 @@ namespace mirage::platform::linux_backend {
 #ifdef MIRAGE_LINUX_XINPUT2
 namespace {
 using namespace desktop;
+Window window_property(Display *display, Window window, const char *name) {
+    Atom actual = None;
+    int format = 0;
+    unsigned long count = 0, remaining = 0;
+    unsigned char *data = nullptr;
+    const auto property = XInternAtom(display, name, True);
+    if (!property)
+        return 0;
+    const auto status = XGetWindowProperty(display, window, property, 0, 1, False, XA_WINDOW,
+                                           &actual, &format, &count, &remaining, &data);
+    const auto result =
+        status == Success && actual == XA_WINDOW && format == 32 && count == 1 && !remaining && data
+            ? *reinterpret_cast<unsigned long *>(data)
+            : 0;
+    if (data)
+        XFree(data);
+    return result;
+}
+bool text_property(Display *display, Window window, const char *name, const char *expected) {
+    const auto property = XInternAtom(display, name, True);
+    if (!property)
+        return false;
+    Atom actual = None;
+    int format = 0;
+    unsigned long count = 0, remaining = 0;
+    unsigned char *data = nullptr;
+    const auto status = XGetWindowProperty(display, window, property, 0, 16, False, AnyPropertyType,
+                                           &actual, &format, &count, &remaining, &data);
+    const bool matches = status == Success && format == 8 && !remaining && data &&
+                         std::string_view{reinterpret_cast<char *>(data), count} == expected;
+    if (data)
+        XFree(data);
+    return matches;
+}
+Window switcher_manager(Display *display) {
+    const auto root = DefaultRootWindow(display);
+    const auto wm = window_property(display, root, "_NET_SUPPORTING_WM_CHECK");
+    return wm && window_property(display, wm, "_NET_SUPPORTING_WM_CHECK") == wm &&
+                   text_property(display, wm, "_NET_WM_NAME", "Openbox") &&
+                   text_property(display, root, "_OB_VERSION", "3.6.1")
+               ? wm
+               : 0;
+}
 class Session final : public InputSessionBackend {
     Display *display_ = nullptr;
     PointerActionScope scope_;
     Window window_ = 0;
+    Window switcher_manager_ = 0;
     int xi_opcode_ = 0;
     std::set<int> injected_sources_;
+    struct DeviceRoute {
+        int use = 0, attachment = 0;
+    };
+    std::map<int, DeviceRoute> device_route_;
     std::map<std::string, unsigned> keys_, buttons_;
     std::vector<std::pair<bool, std::string>> order_;
     std::set<unsigned> conflicted_keys_, conflicted_buttons_;
-    bool effects_ = false, lost_ = false;
+    bool effects_ = false, lost_ = false, device_changed_ = false, route_lost_ = false;
     std::uint64_t seed_ = 0;
     std::uint32_t commands_ = 0;
+    void fence_owned() {
+        for (const auto &[name, code] : keys_) {
+            (void)name;
+            conflicted_keys_.insert(code);
+        }
+        for (const auto &[name, code] : buttons_) {
+            (void)name;
+            conflicted_buttons_.insert(code);
+        }
+    }
     bool within(Window current) const {
         for (int depth = 0; depth < 32 && current && current != PointerRoot; ++depth) {
             if (current == window_)
@@ -108,16 +167,23 @@ class Session final : public InputSessionBackend {
         XQueryKeymap(display_, state.data());
         return (static_cast<unsigned char>(state[code / 8]) & (1u << (code % 8))) != 0;
     }
-    bool pointer(unsigned &mask, bool require_target) const {
+    bool contains(PointerPoint point) const {
+        const auto &g = scope_.geometry;
+        return point.x >= g.x && point.y >= g.y &&
+               std::int64_t{point.x} < std::int64_t{g.x} + g.width &&
+               std::int64_t{point.y} < std::int64_t{g.y} + g.height && point.x >= 0 &&
+               point.y >= 0 && point.x < DisplayWidth(display_, DefaultScreen(display_)) &&
+               point.y < DisplayHeight(display_, DefaultScreen(display_));
+    }
+    bool pointer(unsigned &mask, bool require_target, PointerPoint *position = nullptr) const {
         Window root = 0, child = 0;
         int x = 0, y = 0, wx = 0, wy = 0;
         if (!XQueryPointer(display_, DefaultRootWindow(display_), &root, &child, &x, &y, &wx, &wy,
                            &mask))
             return false;
-        const auto &g = scope_.geometry;
-        return !require_target || (within(child) && x >= g.x && y >= g.y &&
-                                   std::int64_t{x} < std::int64_t{g.x} + g.width &&
-                                   std::int64_t{y} < std::int64_t{g.y} + g.height);
+        if (position)
+            *position = {x, y};
+        return !require_target || (within(child) && contains({x, y}));
     }
     bool transition(unsigned code, bool key, bool down) {
         effects_ = true;
@@ -139,7 +205,8 @@ class Session final : public InputSessionBackend {
             XCloseDisplay(display_);
         }
     }
-    bool open(const std::string &name, const PointerActionScope &scope, const CancelToken &cancel) {
+    bool open(const std::string &name, const PointerActionScope &scope, const CancelToken &cancel,
+              bool window_switcher) {
         if (cancel.cancelled() || scope.geometry.width <= 0 || scope.geometry.height <= 0)
             return false;
         unsigned long id = 0;
@@ -153,32 +220,69 @@ class Session final : public InputSessionBackend {
             return false;
         window_ = id;
         scope_ = scope;
-        int event = 0, error = 0, major = 2, minor = 0;
+        if (window_switcher && !(switcher_manager_ = switcher_manager(display_)))
+            return false;
+        int event = 0, error = 0, major = 2, minor = 1;
         if (!XQueryExtension(display_, "XInputExtension", &xi_opcode_, &event, &error) ||
-            XIQueryVersion(display_, &major, &minor) != Success)
+            XIQueryVersion(display_, &major, &minor) != Success || major < 2 ||
+            (major == 2 && minor < 1))
+            return false;
+        // Subscribe before discovering sources: a change during admission must
+        // be observed by the first guard, never silently accepted as a new route.
+        unsigned char raw_mask[XIMaskLen(XI_LASTEVENT)]{}, device_mask[XIMaskLen(XI_LASTEVENT)]{};
+        for (const int type : {XI_RawKeyPress, XI_RawKeyRelease, XI_RawButtonPress,
+                               XI_RawButtonRelease, XI_RawMotion})
+            XISetMask(raw_mask, type);
+        XISetMask(device_mask, XI_HierarchyChanged);
+        XISetMask(device_mask, XI_DeviceChanged);
+        XIEventMask selections[]{
+            {XIAllMasterDevices, static_cast<int>(sizeof(raw_mask)), raw_mask},
+            {XIAllDevices, static_cast<int>(sizeof(device_mask)), device_mask}};
+        if (XISelectEvents(display_, DefaultRootWindow(display_), selections, 2) != Success)
+            return false;
+        // Resolve the same client pointer that core XTEST / QueryKeymap use.
+        unsigned pointer_mask = 0;
+        int client_pointer = 0;
+        if (!pointer(pointer_mask, false) || !XIGetClientPointer(display_, None, &client_pointer))
             return false;
         int count = 0;
         XIDeviceInfo *devices = XIQueryDevice(display_, XIAllDevices, &count);
-        if (!devices || count > 256) {
-            if (devices)
-                XIFreeDeviceInfo(devices);
+        const std::unique_ptr<XIDeviceInfo, decltype(&XIFreeDeviceInfo)> device_owner{
+            devices, XIFreeDeviceInfo};
+        if (!devices || count <= 0 || count > 256)
             return false;
-        }
+        const auto find_device = [&](int device_id) -> const XIDeviceInfo * {
+            for (int n = 0; n < count; ++n)
+                if (devices[n].deviceid == device_id)
+                    return &devices[n];
+            return nullptr;
+        };
+        const auto *master_pointer = find_device(client_pointer);
+        const auto *master_keyboard =
+            master_pointer ? find_device(master_pointer->attachment) : nullptr;
+        if (!master_pointer || !master_keyboard || !master_pointer->enabled ||
+            !master_keyboard->enabled || master_pointer->use != XIMasterPointer ||
+            master_keyboard->use != XIMasterKeyboard ||
+            master_keyboard->attachment != client_pointer)
+            return false;
+        for (const auto *device : {master_pointer, master_keyboard})
+            device_route_.emplace(device->deviceid, DeviceRoute{device->use, device->attachment});
         for (int n = 0; n < count; ++n) {
-            const std::string device_name = devices[n].name ? devices[n].name : "";
-            if (device_name == "Virtual core XTEST pointer" ||
-                device_name == "Virtual core XTEST keyboard")
+            const std::string_view device_name = devices[n].name ? devices[n].name : "";
+            const bool pointer_source = device_name == "Virtual core XTEST pointer";
+            const bool keyboard_source = device_name == "Virtual core XTEST keyboard";
+            if (pointer_source || keyboard_source) {
+                const auto &device = devices[n];
+                if (!device.enabled ||
+                    device.use != (pointer_source ? XISlavePointer : XISlaveKeyboard) ||
+                    device.attachment !=
+                        (pointer_source ? client_pointer : master_keyboard->deviceid))
+                    return false;
                 injected_sources_.insert(devices[n].deviceid);
+                device_route_.emplace(device.deviceid, DeviceRoute{device.use, device.attachment});
+            }
         }
-        XIFreeDeviceInfo(devices);
-        if (injected_sources_.size() != 2)
-            return false;
-        unsigned char mask[XIMaskLen(XI_LASTEVENT)]{};
-        for (const int type : {XI_RawKeyPress, XI_RawKeyRelease, XI_RawButtonPress,
-                               XI_RawButtonRelease, XI_RawMotion})
-            XISetMask(mask, type);
-        XIEventMask selection{XIAllMasterDevices, static_cast<int>(sizeof(mask)), mask};
-        if (XISelectEvents(display_, DefaultRootWindow(display_), &selection, 1) != Success)
+        if (injected_sources_.size() != 2 || device_route_.size() != 4)
             return false;
         XSelectInput(display_, window_, StructureNotifyMask);
         XSync(display_, False);
@@ -188,6 +292,7 @@ class Session final : public InputSessionBackend {
     InputCapabilitySet capabilities() const override {
         return InputCapabilitySet{}
             .with(InputCapability::software_injection)
+            .with(InputCapability::smooth_move)
             .with(InputCapability::timed_press)
             .with(InputCapability::independent_modifiers)
             .with(InputCapability::cross_observation_hold)
@@ -198,14 +303,7 @@ class Session final : public InputSessionBackend {
         bool physical_seen = false, target_changed = false;
         for (unsigned n = 0; XPending(display_); ++n) {
             if (n >= 256) {
-                for (const auto &[name, code] : keys_) {
-                    (void)name;
-                    conflicted_keys_.insert(code);
-                }
-                for (const auto &[name, code] : buttons_) {
-                    (void)name;
-                    conflicted_buttons_.insert(code);
-                }
+                fence_owned();
                 return {"physical_input_unknown", "Input event budget exceeded"};
             }
             XEvent event{};
@@ -216,17 +314,47 @@ class Session final : public InputSessionBackend {
             if (event.type != GenericEvent || event.xcookie.extension != xi_opcode_)
                 continue;
             if (!XGetEventData(display_, &event.xcookie)) {
-                for (const auto &[name, code] : keys_) {
-                    (void)name;
-                    conflicted_keys_.insert(code);
-                }
-                for (const auto &[name, code] : buttons_) {
-                    (void)name;
-                    conflicted_buttons_.insert(code);
-                }
+                fence_owned();
                 return {"physical_input_unknown", "Raw input provenance is unavailable"};
             }
+            if (event.xcookie.evtype == XI_HierarchyChanged) {
+                const auto *hierarchy = static_cast<const XIHierarchyEvent *>(event.xcookie.data);
+                device_changed_ = true;
+                if (hierarchy->num_info <= 0 || hierarchy->num_info > 256 || !hierarchy->info)
+                    route_lost_ = true;
+                else
+                    for (int i = 0; i < hierarchy->num_info; ++i) {
+                        const auto &info = hierarchy->info[i];
+                        const auto route = device_route_.find(info.deviceid);
+                        if (route != device_route_.end() &&
+                            (!info.enabled || info.use != route->second.use ||
+                             info.attachment != route->second.attachment ||
+                             (info.flags & (XIMasterRemoved | XISlaveRemoved | XISlaveDetached |
+                                            XIDeviceDisabled))))
+                            route_lost_ = true;
+                    }
+                XFreeEventData(display_, &event.xcookie);
+                continue; // Drain physical events too, before deciding which inputs to release.
+            }
+            if (event.xcookie.evtype == XI_DeviceChanged) {
+                const auto *changed = static_cast<const XIDeviceChangedEvent *>(event.xcookie.data);
+                if (changed->reason != XISlaveSwitch) {
+                    device_changed_ = true;
+                    route_lost_ |= device_route_.contains(changed->deviceid) ||
+                                   injected_sources_.contains(changed->sourceid);
+                }
+                XFreeEventData(display_, &event.xcookie);
+                continue;
+            }
             const auto *raw = static_cast<const XIRawEvent *>(event.xcookie.data);
+            if (raw->sourceid <= 1 ||
+                (injected_sources_.contains(raw->sourceid) &&
+                 raw->deviceid != device_route_.at(raw->sourceid).attachment)) {
+                fence_owned();
+                XFreeEventData(display_, &event.xcookie);
+                return {"physical_input_unknown",
+                        "Raw input source does not match the admitted route"};
+            }
             const bool physical = !injected_sources_.contains(raw->sourceid);
             if (physical) {
                 for (const auto &[name, code] : keys_) {
@@ -245,8 +373,16 @@ class Session final : public InputSessionBackend {
             XFreeEventData(display_, &event.xcookie);
             physical_seen |= physical;
         }
+        if (route_lost_) {
+            fence_owned();
+            return {"input_device_lost", "The admitted input route is no longer reliable"};
+        }
         if (physical_seen)
             return {"physical_takeover", "Physical input interrupted controlled input"};
+        if (device_changed_)
+            return {"input_device_changed", "Device hierarchy changed; readmit explicitly"};
+        if (switcher_manager_ && switcher_manager(display_) != switcher_manager_)
+            return {"target_changed", "Window-switcher manager identity changed"};
         if (target_changed)
             return {"target_changed", "Controlled input target changed"};
         std::array<char, 32> state{};
@@ -324,8 +460,67 @@ class Session final : public InputSessionBackend {
             command.kind == K::key_down || command.kind == K::key_up || command.kind == K::key_tap;
         const bool tap = command.kind == K::key_tap || command.kind == K::button_tap;
         const bool up = command.kind == K::key_up || command.kind == K::button_up;
-        if (command.kind == K::smooth_move)
-            return fail({"unsupported_platform", "Held pointer travel is not enabled"});
+        const auto parsed_key = parse_session_key_name(command.key_name);
+        const bool alt = parsed_key && parsed_key->modifier == SessionKeyName::Modifier::alt;
+        const bool shift = parsed_key && parsed_key->modifier == SessionKeyName::Modifier::shift;
+        const bool tab = command.key_name == "tab";
+        const bool holding_alt = std::any_of(keys_.begin(), keys_.end(), [](const auto &item) {
+            const auto parsed = parse_session_key_name(item.first);
+            return parsed && parsed->modifier == SessionKeyName::Modifier::alt;
+        });
+        if (switcher_manager_) {
+            if (!(key && ((alt && command.kind == K::key_down && keys_.empty()) ||
+                          (shift && holding_alt && (command.kind == K::key_down || up)) ||
+                          (tab && holding_alt && command.kind == K::key_tap))))
+                return fail({"invalid_input_context",
+                             "Switcher accepts only owned Alt/Shift/Tab; release to commit"});
+        } else if ((tab && holding_alt) || (alt && keys_.contains("tab"))) {
+            return fail(
+                {"invalid_input_context", "Use the explicit window-switcher context for Alt-Tab"});
+        }
+        if (command.kind == K::smooth_move) {
+            unsigned mask = 0;
+            PointerPoint origin;
+            if (!pointer(mask, true, &origin) || !contains({command.x, command.y}))
+                return fail({"target_changed", "Pointer travel must stay inside the bound window"});
+            const auto path = build_smooth_move_schedule(origin, {command.x, command.y},
+                                                         command.duration, command.path_points);
+            // Validate the whole path before dispatch. Held travel deliberately uses the
+            // monotonic minimum-jerk baseline: no overshoot beyond the bound target.
+            if (std::any_of(path.begin(), path.end(),
+                            [&](const auto &sample) { return !contains({sample.x, sample.y}); }))
+                return fail({"target_changed", "Pointer path leaves the bound window"});
+            ++commands_;
+            const auto started = std::chrono::steady_clock::now();
+            for (const auto &sample : path) {
+                ProviderError interrupted;
+                const bool waited = pace_input_until(started + sample.at, [&] {
+                    if (stopped())
+                        return false;
+                    interrupted = check();
+                    if (interrupted.code.empty() && !pointer(mask, true))
+                        interrupted = {"target_changed", "Pointer left the bound window"};
+                    return interrupted.code.empty();
+                });
+                if (!waited)
+                    return fail(!interrupted.code.empty()
+                                    ? interrupted
+                                    : ProviderError{cancelled ? "cancelled" : "input_motion_late",
+                                                    "Pointer travel interrupted; no replay"});
+                effects_ = true;
+                if (!XTestFakeMotionEvent(display_, DefaultScreen(display_), sample.x, sample.y,
+                                          CurrentTime))
+                    return fail({"input_dispatch_failed", "Pointer motion was not accepted"});
+                // Deliver every segment now; a buffered trajectory would become a teleport.
+                XSync(display_, False);
+                PointerPoint actual;
+                if (!pointer(mask, true, &actual) || actual.x != sample.x || actual.y != sample.y)
+                    return fail({"input_state_changed", "Pointer motion readback changed"});
+            }
+            if (const auto error = check(); !error.code.empty())
+                return fail(error);
+            return {true, false, effects_, {}};
+        }
         auto &owned = key ? keys_ : buttons_;
         const auto &name = key ? command.key_name : command.button;
         const auto code = key ? keycode(name) : button_code(name);
@@ -411,16 +606,30 @@ class Session final : public InputSessionBackend {
 #endif
 std::unique_ptr<desktop::InputSessionBackend>
 open_x11_input_session(const std::string &name, const desktop::PointerActionScope &scope,
-                       const desktop::CancelToken &cancel) {
+                       const desktop::CancelToken &cancel, bool window_switcher) {
 #ifdef MIRAGE_LINUX_XINPUT2
     auto session = std::make_unique<Session>();
-    if (session->open(name, scope, cancel))
+    if (session->open(name, scope, cancel, window_switcher))
         return session;
 #else
     (void)name;
     (void)scope;
     (void)cancel;
+    (void)window_switcher;
 #endif
     return {};
+}
+bool x11_window_switcher_available(const std::string &name) {
+#ifdef MIRAGE_LINUX_XINPUT2
+    Display *display = XOpenDisplay(name.c_str());
+    if (!display)
+        return false;
+    const bool available = switcher_manager(display) != 0;
+    XCloseDisplay(display);
+    return available;
+#else
+    (void)name;
+    return false;
+#endif
 }
 } // namespace mirage::platform::linux_backend

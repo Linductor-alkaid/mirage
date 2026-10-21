@@ -25,6 +25,9 @@
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
 #include <X11/extensions/XTest.h>
+#ifdef MIRAGE_LINUX_XINPUT2
+#include <X11/extensions/XInput2.h>
+#endif
 #ifdef MIRAGE_LINUX_XRES
 #include <X11/extensions/XRes.h>
 #endif
@@ -268,6 +271,8 @@ struct TextStroke {
 
 struct X11Backend::XConnection {
     Display *display = nullptr;
+    bool controlled_input = false;
+    bool window_switcher = false;
     Atom net_active_window = None;
     Atom net_supported = None;
     Atom net_wm_name = None;
@@ -326,6 +331,15 @@ std::unique_ptr<X11Backend> X11Backend::open(const std::string &display_name) {
         return nullptr; // capability honesty: no X display, no X11 providers
     }
     Display *display = backend->connection_->display;
+#ifdef MIRAGE_LINUX_XINPUT2
+    int xi_opcode = 0, xi_event = 0, xi_error = 0, xi_major = 2, xi_minor = 1;
+    backend->connection_->controlled_input =
+        XQueryExtension(display, "XInputExtension", &xi_opcode, &xi_event, &xi_error) &&
+        XIQueryVersion(display, &xi_major, &xi_minor) == Success &&
+        (xi_major > 2 || (xi_major == 2 && xi_minor >= 1));
+    backend->connection_->window_switcher = backend->connection_->controlled_input &&
+                                            x11_window_switcher_available(DisplayString(display));
+#endif
     backend->connection_->net_active_window = XInternAtom(display, "_NET_ACTIVE_WINDOW", True);
     backend->connection_->net_supported = XInternAtom(display, "_NET_SUPPORTED", True);
     backend->connection_->net_wm_name = XInternAtom(display, "_NET_WM_NAME", False);
@@ -844,12 +858,13 @@ CaptureOutcome X11Backend::capture_roi(const WindowGeometry &roi, const CaptureL
     return capture_region(xconn(), roi, limits);
 }
 
-bool X11Backend::controlled_input_supported() const {
-#ifdef MIRAGE_LINUX_XINPUT2
-    return true;
-#else
-    return false;
-#endif
+bool X11Backend::controlled_input_supported() const { return connection_->controlled_input; }
+bool X11Backend::window_switcher_supported() const { return connection_->window_switcher; }
+std::unique_ptr<mirage::desktop::InputSessionBackend>
+X11Backend::open_window_switcher_session(const mirage::desktop::PointerActionScope &scope,
+                                         const CancelToken &cancel) {
+    std::lock_guard guard(mutex_);
+    return open_x11_input_session(DisplayString(connection_->display), scope, cancel, true);
 }
 std::unique_ptr<mirage::desktop::InputSessionBackend>
 X11Backend::open_input_session(const mirage::desktop::PointerActionScope &scope,

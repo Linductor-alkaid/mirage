@@ -1,0 +1,17 @@
+<?xml version="1.0"?>
+<openbox_config xmlns="http://openbox.org/3.4/rc">
+  <theme><name>Clearlooks</name></theme>
+  <focus><focusNew>yes</focusNew><followMouse>no</followMouse></focus>
+  <keyboard>
+    <keybind key="A-Tab">
+      <action name="NextWindow">
+        <finalactions><action name="Focus"/><action name="Raise"/></finalactions>
+      </action>
+    </keybind>
+    <keybind key="A-S-Tab">
+      <action name="PreviousWindow">
+        <finalactions><action name="Focus"/><action name="Raise"/></finalactions>
+      </action>
+    </keybind>
+  </keyboard>
+</openbox_config>

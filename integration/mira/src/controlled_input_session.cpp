@@ -112,7 +112,7 @@ struct Core {
     void fail(ProviderError error, bool cancelled = false) {
         const bool takeover =
             error.code == "physical_takeover" || error.code == "physical_input_unknown" ||
-            error.code == "input_state_changed" ||
+            error.code == "input_device_lost" || error.code == "input_state_changed" ||
             (error.code == "physical_input_busy" && state.side_effect_may_have_occurred);
         cancelled |= error.code == "cancelled";
         if (takeover)
@@ -181,11 +181,14 @@ struct Core {
                 if (!error && (down || tap) &&
                     context.held_inputs >= input_session_budget::max_held_inputs)
                     error = ProviderError{"result_too_large", "Held input budget exhausted"};
-                if (!error && tap && c.dwell.count() > 0 &&
-                    Clock::now() + c.dwell >=
+                const auto planned = c.kind == InputSessionCommand::Kind::smooth_move ? c.duration
+                                     : tap                                            ? c.dwell
+                                           : std::chrono::milliseconds{0};
+                if (!error && planned.count() > 0 &&
+                    Clock::now() + planned >=
                         std::min(last_command + limits.idle, began + limits.total))
                     error = ProviderError{"input_session_timeout",
-                                          "Planned press exceeds the remaining input budget"};
+                                          "Planned command exceeds the remaining input budget"};
                 if (!error &&
                     (((down || tap) && found != held.end()) || (up && found == held.end())))
                     error = ProviderError{"invalid_input_transition",
