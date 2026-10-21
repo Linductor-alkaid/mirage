@@ -19,14 +19,18 @@
 }
 ```
 
-数字只是示例；矩形使用供给图片的像素，产品依据源比例映射到桌面。窗口内目标改用
+数字只是示例；click 工具 4.0.0 默认本地平滑接近再做点击，无需且不接受 glide_ms。
+到达后仍重验目标；工具返回前已完成点击与释放。矩形使用供给图片的像素，产品依据源比例映射到桌面。窗口内目标改用
 `target_context=window` 和真实 `window_id`。条件在输入前固定；`foreground_changed`
 仅验证前台身份/标题/几何推进，不证明浏览器身份或加载页面。菜单文字可用
 `display_text_exists` + `display_id` + `expected_text`，没有 OCR 时不得选此条件。
 
-3. 使用返回 `action_id` 调用 `desktop.action.verify`。只读重验可吸收窗口晚于输入
-   出现的情况；未验证时不能继续新修改。取得新 `desktop.window.front`/窗口列表和
-   页面证据，确认目标应用；不得激活无关窗口。
+3. `verify_kind` 是可选的局部条件；普通点击省略时直接返回执行结果，不默认截图/OCR。
+   本例显式选择了前台变化，若未匹配可对返回 action_id 调用只读 `desktop.action.verify`。
+   只有依赖该条件的新操作才用 `depends_on: ["<action_id>"]`，条件须在当前 epoch 有新鲜
+   匹配证据；新鲜度在供给本次请求时检查，条件绑定只供下一次修改尝试消费，原目标
+   守卫仍执行（见 DEC-056）。独立观察/恢复不受业务条件的全局封锁。取得新窗口/页面证据确认目标应用，
+   不得激活无关窗口。只读重验不能发送输入、改变原条件或清除输入释放失败。
 4. 每次先取得新的 `observation_scope/environment_epoch`，再对目标窗口依次调用
    `desktop.input.key`（`ctrl+l`）、`desktop.input.type_text`（URL）、
    `desktop.input.key`（`enter`）。局部 `window_focused` 只证明输入留在目标窗口，

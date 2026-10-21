@@ -6,9 +6,64 @@
 > 版本：0.1
 > 负责人：Mirage 维护者
 > 依据：[《Mirage：Linux - Windows 桌面端设计方案》](../design/Mirage：Linux%20-%20Windows%20桌面端设计方案.md)（下称"设计文档"）
-> 更新日期：2026-10-18（M6-46 失败正文保留；M6-43 会话上下文快照补齐；M8-06 排除与隐藏暂停增量；既有里程碑状态保留）
+> 更新日期：2026-10-20（DEC-110 默认自然输入、DEC-111 文本验证与 DEC-109 低资源连续感知补充；既有里程碑状态保留）
 
 ## 当前状态
+
+2026-10-20：M7-25/26 点击子集继续交付：三条物理点击工具 4.0.0 默认本地自动平滑
+接近，不接收模型 glide_ms；同一 lease 内到达重验后才点击释放。Portal 加同源 Cursor
+元数据起点；范围与 native-release 验证见[记录](../compatibility/automatic-pointer-approach-20261020.md)。
+其余键鼠时序、动作组和 Windows 等未交付项保持开放。
+
+2026-10-20：维护者接受 [DEC-056 分层验证修订](../decisions/DEC-056-post-action-verification.md)：
+普通键鼠不默认设逐动作业务验证硬门禁，执行完成后返回实际结果；按动作组、状态依赖
+及任务边界观察验收。显式精确条件仅约束依赖步骤，执行/释放 uncertain 围栏保留。
+DEC-059/068/109/110/111、主设计及安全边界同步；M7-25/26/31 与 M7-32～34 跟踪
+回执、恢复、默认策略及平台验收。同日 v2 门控首增量已接入源码：普通输入无需业务
+条件，显式 depends_on、执行/条件分离回执及无采集结算；新动作组、默认自然时序与
+未验平台保持开放，不改变历史完成范围。
+
+2026-10-20：按维护者要求补充 [DEC-110](../decisions/DEC-110-continuous-input-and-device-compatibility.md)：
+所有键鼠动作默认由本地自动执行自然时序，模型无需提供时间；普通点击完整移动、
+按下并释放后才返回动作结果或进入后置验证。X11/Portal 已交付默认自然接近、
+完整滚动/拖动/键盘自然时序及裸修饰键 tap，相关完整工具 4.0.0 无模型时间入口；
+跨观察 held/IME/设备层与 M7-31 真实模型/平台/手感验收保持开放，
+见[专项计划](m7-continuous-input-and-device-compatibility.md)。
+
+2026-10-20：按维护者要求补充 DEC-091/109：高频轻量观测、变化触发结构更新、
+低频按需 VLM；Mirador 管通用视觉状态，Mira 管任务注意/理解策略，Mirage 管
+采集、调度、产品绑定与动作反馈。当前快照加有界事件日志，先做增量基线、稳定
+身份与事件，再扩展语义解释；MiniCPM-o 4.5 仅参考视觉 token 压缩与时分复用机制，
+不纳入模型后端选型。长期视觉记忆另行立项。
+研究核对见[映射记录](../research/2026-10-20-event-driven-incremental-visual-perception.md)，
+M9-05/07/08/11/12/13/18 验收范围同步，原有未完成状态与平台门禁保留。
+
+端侧低负载补充：首先接通现有变化结果对 OCR/检测的实际门控，减少重复采集/
+拷贝/编码；无消费者停止生产、静态退避、阶段按需选择。基础方案不新增常驻
+编码器、本地 VLM 或推理 GPU 要求，时间分组不另起周期循环。M9-01/07/11/12
+按低端参考设备预登记并验收全产品资源与交互门槛，见
+[资源门禁](../design/m9-resource-and-progress-policy.md)，不能用 token 节省代替。
+
+2026-10-20：[DEC-111](../decisions/DEC-111-target-text-value-verification.md) 已接受
+跨平台目标文本验证方案：系统无障碍读值首选，受控复制可选，局部视觉回退；值条件
+与图像观察分别声明，OCR 未命中不能等同派发失败。
+[M7-32](m7-target-text-verification.md) 已进入 In Progress，交付平台中立读值 SPI
+与一次只读精确比较器；Provider 默认不支持，尚无平台/工具接线。M7-33/34 继续
+Planned；复制事务、默认选路及各平台验收尚未交付，不改变已有门禁与完成声明。
+
+2026-10-19：[DEC-110](../decisions/DEC-110-continuous-input-and-device-compatibility.md)
+（Proposed）与 [M7-25～31 专项计划](m7-continuous-input-and-device-compatibility.md)
+提出连续键鼠动作、跨观察持键、IME 状态及设备层输入兼容性。虚拟设备/外接 HID
+针对应用过滤软件输入的需求，与动作能力并行评估；M7-25 契约冻结稿（能力位、
+会话键词表、数值预算、状态机、版本化回执）已交付 `desktop/environment` 契约层
+并通过独立对账测试，待维护者评审。设备/平台选型与平台验收未改变。
+
+M10-07/08 的工具预览编码与任务事件退出问题按
+[维护记录](maintenance-ui-exit-20261019.md)修复，沿用 DEC-049/095 的契约与预算。
+
+前端、后端本地 OCR 与 pet 性能按[性能维护计划](maintenance-performance-20261019.md)
+推进，工作项 M6-47 / M7-24 / M8-13，依据 DEC-108。基于现有观察修复增量实施，
+目标平台、sanitizer 与性能证据分别记录，不以缓存命中代表远程供应商生成加速。
 
 M6-46 按 [DEC-104](../decisions/DEC-104-failed-turn-output-retention.md) 修复宿主失败
 覆盖模型正文；沿用 Part 承载及失败状态，验证见
@@ -42,6 +97,17 @@ DEC-088 实施计划转为历史记录，未完成请求级与真实长任务验
 DEC-091 同日补充连续帧性能/内存预算、按已提交基线增量更新和对象语义保留；
 M9-13 负责 LLM 对 OCR/detector/闭合/track 对象的来源可追溯标定，M9-07/12
 验证整条链路资源与慢消费者场景，未变化部分不重复识别/标定。
+
+2026-10-19：[DEC-109](../decisions/DEC-109-continuous-perception-attention-and-pet-coexistence.md)
+（Proposed）细化 M9 的 pet 可见共存（17）、任务注意策略/选择性通知（18）、目标
+局部输入门控（19），与 Mirador #41 协同；采集、识别、发布分频，语义绑定由 Mirage
+持有并复用 Mirador 视觉状态。新增工作项均未实施，现行 DEC-107/108 默认值与
+未通过的平台门禁保留，不能以方案讨论宣称每帧整屏无遮挡或硬实时。
+
+同日补充：M9-06/07/08 以模型理解、OCR/YOLO/Tracker 及动作正确性为质量下限，
+采用低清巡检/概览、按需清晰 ROI 与有界轻量跟踪，降低 CPU/内存；
+[调研记录](../research/2026-10-19-lightweight-tracking-and-adaptive-perception.md)核对微型无人机
+与现有 Mirador 能力。实际档位/收益待 12 实测，不改变 pet 素材质量或依赖 pin。
 
 最新 Native 会话的过程展示容量饥饿、输入法干扰和执行/失败期间用量缺失分别登记
 M9-14/15/16（Proposed）；
@@ -471,9 +537,10 @@ Executor 由 pinned `third_party/mira/third_party/executor` 提供，能力路�
 
 | 编号 | 主题 | 暂定默认值 | 负责人 | 最迟冻结 |
 | --- | --- | --- | --- | --- |
+| DEC-110 | 连续输入与设备兼容性 | Proposed：M7-25 已有契约冻结稿；2026-10-20 补全量键鼠默认本地自然时序、无模型时间参数与完整执行后返回/验证要求，契约及兼容迁移待修订；M7-26 已交付 X11/Portal 完整动作默认自然时序与裸修饰键 tap；持键/IME/设备及真实平台验收未完成 | Mirage 维护者 | M7-25 修订/评审；设备原型前 M7-29/30，任务阈值执行前 M7-31 |
 | DEC-095 | 基础 Agent 工具集 | Proposed：四工具/alias、观察与提交点、预算、权限迁移和平台边界见提案 | Mirage 维护者 | M10-02 |
 | DEC-090 | 持续任务与有界资源 | 方向 Accepted；无进展判定、公开循环 API/准入及存量在实施前冻结 | Mira/Mirage 维护者 | M9-01～04 |
-| DEC-091 | 文本观察与本地闭环 | 方向 Accepted；观察/引用/增量字段、连续帧资源预算、对象语义标定/继承、跟踪及动作/等待 schema 待冻结 | Mirage 维护者 | M9-05/07/08/09/10/13 |
+| DEC-091 | 文本观察与本地闭环 | 方向 Accepted；增量状态/事件驱动理解/按需 VLM，观察与事件契约、连续帧预算、语义绑定/跟踪及动作/等待 schema 待冻结（DEC-109 细化） | Mirage 维护者 | M9-05/07/08/09/10/13/18 |
 | DEC-092 | Native pet 完整交付 | 默认携带/自动启动 Accepted；聚合目标、布局、能力/版本诊断在实施前冻结；显式偏好另属 M8-08 | Mirage 维护者 | M8-12/08 |
 | DEC-002 | Mira TLS 通道适配器 | 已定案（[DEC-002](../decisions/DEC-002-build-test-baseline.md) 变更记录）：`MIRA_WITH_MBEDTLS=OFF` 于 M2 复核冻结（运行面无模型网关/TLS 传输，mbedtls pinned 子模块在位可随时重开）；接入真实模型网关且通道要求 Mbed TLS 时按记录触发条件重开 | Mirage 维护者 | M2（已冻结） |
 | DEC-004 | Mira Host 状态集 | 已定案（[DEC-004](../decisions/DEC-004-mira-host-status-set.md)）：五态 `Stopped/Starting/Running/Stopping/Failed`，M1 冻结并写入设计文档第 11.1 节 | Mirage 维护者 | M1（已冻结） |
@@ -797,3 +864,40 @@ TSAN 三类测试通过；Windows 与真实桌面保持开放，见 [M6](m6-nati
 随会话保存；Native Release产品已重建。Release定向、原生渲染与ASAN/UBSAN/TSAN
 通过，Windows和真实供应商缺usage仍待补跑，详见[M6计划](m6-native-frontend.md)与
 [上下文验收](../compatibility/native-context-usage-20261004.md#2026-10-18m6-45-无供应商用量时显示本地估算)。
+
+
+## 2026-10-18：M7 / M8 观察节奏与桌宠恢复
+
+维护者最新重试出现累计帧耗尽、重复截图和桌宠长时间消失。按
+[DEC-107](../decisions/DEC-107-capture-cadence-and-presentation.md) 删除累计截图额度，
+复用近期/区域观察与动作验证回执，保留历史规划意图及独立的新鲜帧守卫；桌宠取帧后恢复，
+隐藏不再清空解码动画。计划归属 M7-10/14/19、M8-06，
+[验证和限制](../compatibility/observation-efficiency-20261018.md) 记录实际测试与补跑条件。
+M7/M8 的真实桌面、在线业务与其他平台门禁保持开放，负责人为 Mirage 维护者。
+
+
+2026-10-20 继续推进 DEC-109/110/111：M9-07 显式后台变化准入与 M7-32
+平台无关精确读值比较均进入 In Progress；Shift 完整 tap 可由既有 key 工具执行。
+生产感知默认、真实持键会话、平台读值与新值条件接线未因此标记完成。实现、
+验证结果及补跑条件见[本轮证据](../compatibility/dec109-111-input-progress-20261020.md)。
+
+
+2026-10-20 最新会话回归归入 M9-01/09/12（BUG-20261020-001）：修正预览坐标
+错误的恢复提示、历史失败事实供给、视觉重复身份与普通动作 epoch 耦合，以及
+可修正参数错误误封整工具。双击/系统快捷键策略同步更新，已有 unknown/release
+和权限守卫保留；不以脚本取代真实聊天应用/模型验收。SSE 最后一次协议错误
+未取得脱敏事件流，不据旧错误字符串宣称归因或已修复。见
+[调查与验证记录](../analysis/native-action-recovery-20261020.md)。
+
+2026-10-21 补查：native-release 离线复验旧 SSE 截断样本 3/3 正确到达 Incomplete；
+公开 provider 诊断转发没有缺失。此次失败流未留存，无法从进程内事件存储恢复，
+本次 SSE 根因继续开放；没有重放原任务或改动依赖解析器。
+
+
+2026-10-21：M7-27 进入 In Progress，首接线为 X11/XInput2 固定前台窗口内的受控
+持键/截图与版本化独立工具族，以及 Portal 同次调用的本地定时长按。看护复用
+ModelLayer 的一个 Executor blocking worker，任务终结与权限换代进入主动释放。
+普通 input_released 回执语义不变；系统切换器焦点转换、未验平台及真实业务门禁
+继续开放。详见[实施与验收证据](../compatibility/controlled-input-sessions-20261021.md)。
+本轮 Debug 全量 106/106、ASan/UBSan/native-release 定向各 15/15；完整 native-release
+product 与公开头文件边界检查通过。M7-27 仍按剩余门禁保持 In Progress。

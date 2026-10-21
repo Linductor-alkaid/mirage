@@ -3,6 +3,7 @@
 // no capability, and no X11 header is touched. See platform/CMakeLists.txt.
 
 #include "x11_backend.hpp"
+#include <mirage/desktop/input_session.hpp>
 
 #include <cstdlib>
 
@@ -30,6 +31,11 @@ using mirage::desktop::WindowQueryOutcome;
 
 struct X11Backend::XConnection {};
 
+bool X11Backend::controlled_input_supported() const { return false; }
+std::unique_ptr<mirage::desktop::InputSessionBackend>
+X11Backend::open_input_session(const mirage::desktop::PointerActionScope &, const CancelToken &) {
+    return {};
+}
 X11Backend::~X11Backend() = default;
 
 std::unique_ptr<X11Backend> X11Backend::open(const std::string &) {

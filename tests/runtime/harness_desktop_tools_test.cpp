@@ -534,11 +534,19 @@ void layer_scenario(const std::string &scenario) {
     const auto result = future.get();
     if (!result.ok)
         std::fprintf(stderr, "scenario %s: %s\n", scenario.c_str(), result.error.c_str());
-    const bool success = scenario == "normal" || read_only || scenario == "backend_scope";
+    // DEC-056 revision: a trailing clean no-effect rejection followed by a
+    // successful desktop observation settles the turn — the guard scenarios
+    // end with the model answering from fresh evidence, not a failed turn.
+    const bool rejected_then_answered = scenario == "denied" || scenario == "focus_changed" ||
+                                        scenario == "stale_scope" || scenario == "stale_epoch" ||
+                                        scenario == "epoch_during_gate";
+    const bool success =
+        scenario == "normal" || read_only || scenario == "backend_scope" || rejected_then_answered;
     MIRAGE_CHECK(result.ok == success);
     // A stale backend reference rejects the click before dispatch. The later
     // fresh observation permits the separately verified keyboard action.
-    MIRAGE_CHECK(desktop->input_log.size() == (success && !read_only ? 3u : 0u));
+    const bool dispatches_input = scenario == "normal" || scenario == "backend_scope";
+    MIRAGE_CHECK(desktop->input_log.size() == (dispatches_input && !read_only ? 3u : 0u));
     MIRAGE_CHECK(script && !script->requests.empty());
     if (!script || script->requests.empty()) {
         layer.shutdown();
@@ -577,10 +585,14 @@ void layer_scenario(const std::string &scenario) {
     if (success) {
         MIRAGE_CHECK(std::find(tool_states.begin(), tool_states.end(), "complete") !=
                      tool_states.end());
-        MIRAGE_CHECK(result.tool_calls == (read_only ? 1u : 9u));
     }
+    // The 9-call count belongs to the dispatching shapes; the guard scenarios
+    // settle from evidence and never dispatch input, so their execution count
+    // is not pinned here.
+    if (dispatches_input)
+        MIRAGE_CHECK(result.tool_calls == (read_only ? 1u : 9u));
     if (scenario == "normal") {
-        MIRAGE_CHECK(pet_acquired == 9 && pet_released == 9 && !pet_hidden);
+        MIRAGE_CHECK(pet_acquired == 4 && pet_released == 4 && !pet_hidden);
         for (const auto &part : result.parts)
             if (part.name == "desktop.input.type_text") {
                 MIRAGE_CHECK(part.input.find("probe") == std::string::npos);
@@ -595,7 +607,7 @@ void layer_scenario(const std::string &scenario) {
                                 })
                                 .get();
         MIRAGE_CHECK(second.ok && second.tool_calls == 9 && desktop->input_log.size() == 6);
-        MIRAGE_CHECK(pet_acquired == 18 && pet_released == 18 && !pet_hidden);
+        MIRAGE_CHECK(pet_acquired == 8 && pet_released == 8 && !pet_hidden);
         MIRAGE_CHECK(script->requests[0].tools.front().tool_id !=
                      script->requests[10].tools.front().tool_id);
     }
@@ -807,6 +819,63 @@ void epoch_reset_scenario() {
     MIRAGE_CHECK(result.tool_failures.size() == 1);
     if (result.tool_failures.size() == 1)
         MIRAGE_CHECK(result.tool_failures.front().count == 3);
+    layer.shutdown();
+    owner.shutdown(true);
+}
+
+// Correctable parameters are not a lost tool capability. A repeated bad
+// key is retained as a recovery lesson, then a valid key still executes.
+// A later SSE failure must not restart the already executed tool history.
+void recoverable_argument_scenario(bool stream_error) {
+    kairo::Executor owner;
+    kairo::ExecutorConfig config;
+    config.min_threads = config.max_threads = 2;
+    MIRAGE_CHECK(static_cast<bool>(owner.initialize(config)));
+    auto desktop = environment();
+    std::shared_ptr<Script> script;
+    integration::ModelProviderOverride provider([&](const auto &profile) {
+        script = std::make_shared<Script>(profile, false);
+        script->actions_override = {
+            {"desktop.window.front", "{}"},
+            {"desktop.input.key", R"({"window_id":"w1","key":"not-a-key"})"},
+            {"desktop.input.key", R"({"window_id":"w1","key":"not-a-key"})"},
+            {"desktop.input.key", R"({"window_id":"w1","key":"not-a-key"})"},
+            {"desktop.input.key", R"({"window_id":"w1","key":"shift"})"}};
+        if (stream_error) {
+            script->provider_error_after = 5;
+            script->provider_error_message = "invalid Messages SSE lifecycle or budget";
+        }
+        return script;
+    });
+    integration::DesktopToolContext tools;
+    tools.environment = desktop;
+    tools.actions = std::make_shared<mirage::desktop::ActionCoordinator>();
+    tools.gate = [](const auto &, const auto &, const auto &) { return true; };
+    integration::ModelLayer layer(owner, model_config(), &provider, tools);
+    auto ctx = mira::make_control_context();
+    ctx.session = mira::SessionId::generate();
+    ctx.deadline = std::chrono::steady_clock::now() + 30s;
+    const auto result =
+        owner
+            .submit_auto([&] {
+                return layer.complete_harness_turn({}, "recover from invalid key", ctx, "", true,
+                                                   [](const auto &, const auto &, bool) {}, {}, {});
+            })
+            .get();
+    MIRAGE_CHECK(script && script->requests.size() == 6);
+    MIRAGE_CHECK(result.tool_calls == 5);
+    MIRAGE_CHECK(result.ok == !stream_error && result.failed == stream_error);
+    MIRAGE_CHECK(desktop->input_log == std::vector<std::string>({"down shift", "up shift"}));
+    for (int n = 2; n <= 4; ++n)
+        MIRAGE_CHECK(failed_result(*script, "call-" + std::to_string(n), "invalid_argument"));
+    MIRAGE_CHECK(!failed_result(*script, "call-5", "permanent_failure"));
+    MIRAGE_CHECK(
+        request_text_contains(script->requests[4], "Untrusted host action recovery facts"));
+    MIRAGE_CHECK(request_text_contains(script->requests[4], "\"same_attempt_failures\":3"));
+    MIRAGE_CHECK(request_text_contains(script->requests[4], "correct_arguments_not_recapture"));
+    if (stream_error)
+        MIRAGE_CHECK(result.error.find("invalid Messages SSE lifecycle or budget") !=
+                     std::string::npos);
     layer.shutdown();
     owner.shutdown(true);
 }
@@ -1935,10 +2004,15 @@ void x11_scenario() {
         MIRAGE_CHECK(keys_released());
         probes = 0;
         limits.timeout = 1ms;
+        const auto refused_key = input->key_chord({"ctrl+shift+t"}, limits, {});
+        MIRAGE_CHECK(!refused_key.ok && refused_key.error.code == "input_timeout" &&
+                     !refused_key.side_effect_may_have_occurred && refused_key.input_released);
+        MIRAGE_CHECK(keys_released());
+        limits.timeout = 1s;
         const auto timed_key =
             input->key_chord({"ctrl+shift+t"}, limits, mirage::desktop::CancelToken{[&] {
                                  if (++probes == 3)
-                                     (void)::poll(nullptr, 0, 5);
+                                     (void)::poll(nullptr, 0, 1100); // after a real modifier down
                                  return false;
                              }});
         MIRAGE_CHECK(!timed_key.ok && timed_key.error.code == "timeout" &&
@@ -2104,16 +2178,10 @@ void service_scenario(bool replacement, bool deny_input, bool uri_handoff = fals
             const auto &turn = view->turns.back();
             if (turn.status != "ok")
                 std::fprintf(stderr, "service turn: %s\n", turn.error.c_str());
-            MIRAGE_CHECK(turn.status == (deny_input ? "failed" : "ok"));
-            if (deny_input) {
-                const auto reply =
-                    std::find_if(turn.parts.begin(), turn.parts.end(), [](const auto &part) {
-                        return part.id == mirage::conversation::terminal_reply_id;
-                    });
-                MIRAGE_CHECK(!turn.error.empty() && !turn.has_reply);
-                MIRAGE_CHECK(reply != turn.parts.end() &&
-                             reply->text == "observed; not business verified");
-            }
+            // DEC-056 revision: a denied input is a clean no-effect rejection;
+            // with a successful desktop observation after it, the turn settles
+            // on the model's evidence-backed answer instead of failing.
+            MIRAGE_CHECK(turn.status == "ok");
             MIRAGE_CHECK(std::count_if(turn.parts.begin(), turn.parts.end(), [](const auto &part) {
                              return part.kind == "tool" && part.status == "complete";
                          }) == (uri_handoff ? (deny_input ? 3 : 5) : (deny_input ? 6 : 9)));
@@ -2824,6 +2892,8 @@ int main() {
                                  "budget_final_turn", "budget_counts"})
         resilience_scenario(scenario);
     epoch_reset_scenario();
+    recoverable_argument_scenario(false);
+    recoverable_argument_scenario(true);
     tool_failure_record_scenario();
     tool_failure_stale_count_probe();
     portal_timeout_scenario();

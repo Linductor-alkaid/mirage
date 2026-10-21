@@ -15,6 +15,7 @@
 #include <mira/adapters/net/openssl_tls.hpp>
 #endif
 
+#include "controlled_input_tools.hpp"
 #include "conversation_capture.hpp"
 #include "desktop_action_verification.hpp"
 #include "desktop_context_builder.hpp"
@@ -189,8 +190,8 @@ namespace {
 /// caller-driven endings (cancellation, bounded-deadline waits) that are
 /// not tool defects; `Transient` failures recover after authorization or a
 /// fresh observation (DEC-068); `Conditional` failures need a missing
-/// precondition; `Permanent` failures repeat identically — platform limits
-/// and illegal arguments — and must never be retried into the turn budget.
+/// precondition; `Permanent` covers unavailable capabilities. Canonical clean
+/// argument/target rejections remain correctable and never blacklist a tool.
 enum class ToolFailureLevel { None, Transient, Conditional, Permanent };
 
 /// Classified failure description: the level drives the blocking policy, the
@@ -199,12 +200,47 @@ enum class ToolFailureLevel { None, Transient, Conditional, Permanent };
 struct FailureClassification {
     ToolFailureLevel level = ToolFailureLevel::None;
     std::string code;
+    bool block_tool = true;
 };
 
 FailureClassification classify_tool_failure(const mira::Error &value,
                                             const mirage::desktop::ScreenCapability capability) {
     using Level = ToolFailureLevel;
     using mira::ErrorCode;
+    // A canonical, effect-free argument/target rejection describes this
+    // attempt, not loss of the tool capability. Corrected input must remain
+    // possible; execution uncertainty never takes this classification path.
+    const auto parsed = mira::parse_json(value.safe_message);
+    if (parsed && parsed.value().as_object()) {
+        const auto text = [&](const char *key) {
+            const auto *v = parsed.value().find(key);
+            return v && v->as_string() ? *v->as_string() : std::string{};
+        };
+        const auto boolean = [&](const char *key, bool expected) {
+            const auto *v = parsed.value().find(key);
+            return v && v->as_boolean() == expected;
+        };
+        const auto code = text("error_code");
+        if (text("status") == "rejected" && boolean("dispatched", false) &&
+            boolean("side_effect_may_have_occurred", false) && boolean("input_released", true)) {
+            const bool arguments = value.code == ErrorCode::InvalidArgument ||
+                                   code == "invalid_argument" || code == "invalid_arguments" ||
+                                   code == "invalid_target_bounds" ||
+                                   text("reason") == "validation_failed_before_dispatch";
+            const bool target = code == "stale_image_scope" || code == "stale_observation" ||
+                                code == "target_pixels_changed" || code == "stale_reference" ||
+                                code == "desktop_busy";
+            if (arguments || target || code == "timed_press_unavailable")
+                return {Level::Conditional, arguments ? "invalid_arguments" : "conditional_failure",
+                        false};
+        }
+    }
+    if (value.domain == "mirage.input_session" && value.code != ErrorCode::UnsupportedCapability &&
+        value.code != ErrorCode::PermissionDenied) {
+        if (value.code == ErrorCode::Cancelled || value.code == ErrorCode::DeadlineExceeded)
+            return {Level::None, {}, false};
+        return {Level::Conditional, "conditional_failure", false};
+    }
     switch (value.code) {
     case ErrorCode::Cancelled:
     case ErrorCode::DeadlineExceeded:
@@ -247,7 +283,7 @@ std::string failure_user_prefix(const std::string &code) {
 }
 
 /// DEC-085 repeated-failure guard with full epoch semantics: the third
-/// non-transient failure of one tool within one environment epoch blocks
+/// eligible non-transient failure of one tool within one environment epoch blocks
 /// further calls with a canonical receipt; a new observation (a new
 /// `desktop.actions` epoch) resets the per-epoch counters while the block
 /// itself persists for the session — a deterministic platform limit does
@@ -281,18 +317,26 @@ class ToolFailureTracker final {
             // A new observation epoch reopens the per-epoch retry budget;
             // the block persists (DEC-085 level-3 semantics).
             state.epoch = epoch;
-            for (auto &entry : state.tools)
+            for (auto &entry : state.tools) {
                 entry.second.epoch_failures = 0;
+                entry.second.epoch_blocking_failures = 0;
+            }
         }
         auto &entry = state.tools[tool];
-        ++entry.total_failures;
-        ++entry.epoch_failures;
+        const auto increment = [](std::uint32_t &count) {
+            if (count < std::numeric_limits<std::uint32_t>::max())
+                ++count;
+        };
+        increment(entry.total_failures);
+        increment(entry.epoch_failures);
+        if (classification.block_tool && classification.level != ToolFailureLevel::Transient)
+            increment(entry.epoch_blocking_failures);
         entry.code = classification.code;
         entry.last_error = value.safe_message.substr(0, 200);
         // Trim a trailing partial UTF-8 sequence introduced by the hard cut.
         while (!entry.last_error.empty() && (entry.last_error.back() & 0xC0) == 0x80)
             entry.last_error.pop_back();
-        if (entry.epoch_failures >= 3 && classification.level != ToolFailureLevel::Transient)
+        if (entry.epoch_blocking_failures >= 3)
             entry.blocked = true;
     }
 
@@ -346,6 +390,7 @@ class ToolFailureTracker final {
   private:
     struct ToolEntry {
         std::uint32_t epoch_failures = 0;
+        std::uint32_t epoch_blocking_failures = 0;
         std::uint32_t total_failures = 0;
         bool blocked = false;
         std::string code;
@@ -463,7 +508,9 @@ bool ModelLayerConfig::valid(std::string &error) const {
 struct ModelLayer::Impl {
     explicit Impl(kairo::Executor &owner_executor, const ModelLayerConfig &layer_config,
                   ModelProviderOverride::Factory factory)
-        : config(layer_config), executor(owner_executor), override_factory(std::move(factory)) {}
+        : config(layer_config), executor(owner_executor), override_factory(std::move(factory)),
+          controlled_input_worker(std::make_shared<detail::ControlledInputWorker>(owner_executor)) {
+    }
 
     bool assemble() {
         const auto dialect = mira::protocol_dialect_from(config.dialect);
@@ -600,6 +647,7 @@ struct ModelLayer::Impl {
     /// running infer is a use-after-free the sanitizers rightly flag.
     std::mutex infer_mutex;
     ModelProviderOverride::Factory override_factory;
+    std::shared_ptr<detail::ControlledInputWorker> controlled_input_worker;
     DesktopToolContext desktop;
     std::shared_ptr<mira::ModelProfile> profile;
     mira::ModelRouter router;
@@ -668,6 +716,7 @@ void ModelLayer::shutdown() {
     // Wait out any in-flight dialog completion first (the drain lock), then
     // release the pinned pieces — never under a running infer.
     std::lock_guard drain(impl_->infer_mutex);
+    impl_->controlled_input_worker->stop();
     if (impl_->transport) {
         impl_->transport->shutdown();
         impl_->transport.reset();
@@ -895,12 +944,24 @@ DialogCompletion ModelLayer::complete_harness_turn(
     // guard, the declared capture capability, and the graceful
     // budget-degradation flag shared between the tool decorator and the
     // model-input supplier (single-threaded within this turn).
+    detail::ControlledInputTools controlled_input(impl_->executor, turn_desktop, turn_context,
+                                                  cancel, impl_->controlled_input_worker);
     const std::string session_key = context.session.to_string();
     const auto screen_capability = turn_desktop.environment
                                        ? turn_desktop.environment->screen_capability()
                                        : mirage::desktop::ScreenCapability::Unavailable;
     bool tools_attempted = false;
     auto finish = [&] {
+        const auto input_error = controlled_input.finish();
+        if (!input_error.code.empty()) {
+            const bool answered = completion.ok;
+            completion.ok = false;
+            completion.failed = !completion.cancelled;
+            if (answered || completion.error.empty())
+                completion.error = input_error.code + ": " + input_error.message;
+            else
+                completion.error += "（输入会话清理：" + input_error.code + "）";
+        }
         capture.settle(completion.cancelled);
         verification.project(capture.parts);
         completion.timings = capture.timings;
@@ -913,54 +974,68 @@ DialogCompletion ModelLayer::complete_harness_turn(
         return completion;
     };
     auto registry = std::make_shared<mira::BuiltinToolRegistry>();
-    const DesktopAtomToolset::Decorator decorate =
-        [&capture, &verification, &tracker = impl_->failure_tracker, session_key, screen_capability,
-         &tools_attempted, &desktop_context = turn_desktop,
-         cancel](const std::string &name, mira::BuiltinToolHandler handler) {
-            return [name, handler = std::move(handler), &capture, &verification, &tracker,
-                    session_key, screen_capability, &tools_attempted, &desktop_context, cancel](
-                       const auto &arguments, const auto &ctx) -> mira::Result<mira::JsonValue> {
-                tools_attempted = true;
-                bool refused = false;
-                auto *part = capture.start_tool(name);
-                auto result = [&]() -> mira::Result<mira::JsonValue> {
-                    if (auto blocked = tracker.blocked_message(session_key, name)) {
-                        refused = true;
-                        mira::Error blocked_error;
-                        blocked_error.code = mira::ErrorCode::UnsupportedCapability;
-                        blocked_error.domain = "mirage.tool";
-                        blocked_error.safe_message = std::move(*blocked);
-                        return blocked_error;
-                    }
-                    try {
-                        auto execute = [&verification, &name, &handler](const auto &args,
-                                                                        const auto &operation) {
-                            return detail::DesktopActionVerification::mutation(name)
-                                       ? verification.execute(name, args, operation, handler)
-                                       : handler(args, operation);
-                        };
-                        return detail::exclude_pet_during(
-                            name, execute, desktop_context.exclude_pet, cancel)(arguments, ctx);
-                    } catch (...) {
-                        mira::Error error;
-                        error.code = mira::ErrorCode::PlatformError;
-                        error.safe_message = "tool handler failed";
-                        return error;
-                    }
-                }();
-                if (!result && !refused)
-                    tracker.record(session_key,
-                                   desktop_context.actions ? desktop_context.actions->epoch() : 0,
-                                   name, classify_tool_failure(result.error(), screen_capability),
-                                   result.error());
-                capture.finish_tool(part, result,
-                                    [&verification](auto &parts) { verification.project(parts); });
-                return result;
-            };
+    const DesktopAtomToolset::Decorator decorate = [&capture, &verification, &controlled_input,
+                                                    &tracker = impl_->failure_tracker, session_key,
+                                                    screen_capability, &tools_attempted,
+                                                    &desktop_context = turn_desktop,
+                                                    cancel](const std::string &name,
+                                                            mira::BuiltinToolHandler handler) {
+        return [name, handler = std::move(handler), &capture, &verification, &controlled_input,
+                &tracker, session_key, screen_capability, &tools_attempted, &desktop_context,
+                cancel](const auto &arguments, const auto &ctx) -> mira::Result<mira::JsonValue> {
+            tools_attempted = true;
+            bool refused = false;
+            auto *part = capture.start_tool(name);
+            auto result = [&]() -> mira::Result<mira::JsonValue> {
+                if (auto blocked = (name == "desktop.input_session.release" ||
+                                    name == "desktop.input_session.observe")
+                                       ? std::optional<std::string>{}
+                                       : tracker.blocked_message(session_key, name)) {
+                    refused = true;
+                    mira::Error blocked_error;
+                    blocked_error.code = mira::ErrorCode::UnsupportedCapability;
+                    blocked_error.domain = "mirage.tool";
+                    blocked_error.safe_message = std::move(*blocked);
+                    return blocked_error;
+                }
+                try {
+                    // The dispatch lease ends before postcondition capture/OCR.
+                    auto dispatch = detail::exclude_pet_during(name, handler,
+                                                               desktop_context.exclude_pet, cancel);
+                    return detail::DesktopActionVerification::mutation(name)
+                               ? verification.execute(name, arguments, ctx, dispatch)
+                               : dispatch(arguments, ctx);
+                } catch (...) {
+                    mira::Error error;
+                    error.code = mira::ErrorCode::PlatformError;
+                    error.safe_message = "tool handler failed";
+                    return error;
+                }
+            }();
+            if (!result && !refused)
+                tracker.record(
+                    session_key, desktop_context.actions ? desktop_context.actions->epoch() : 0,
+                    name, classify_tool_failure(result.error(), screen_capability), result.error());
+            // DEC-056 settlement evidence: a successful desktop
+            // observation after the trailing action record lets a clean
+            // no-effect rejection settle instead of failing the turn.
+            if (result && !refused && detail::DesktopActionVerification::observation(name)) {
+                verification.note_observation();
+                const auto *epoch = result.value().find("environment_epoch");
+                const auto observed_epoch = epoch ? epoch->as_integer().value_or(0) : 0;
+                controlled_input.note_observation(
+                    observed_epoch > 0 ? static_cast<std::uint64_t>(observed_epoch) : 0);
+            }
+            capture.finish_tool(part, result,
+                                [&verification](auto &parts) { verification.project(parts); });
+            return result;
         };
+    };
     DesktopAtomToolset::register_harness_tools(*registry, turn_desktop, tools_allowed, cancel,
                                                decorate);
     detail::register_ocr_tool(*registry, turn_desktop, cancel, decorate);
+    if (tools_allowed)
+        controlled_input.register_tools(*registry, decorate);
     // M10-07 (DEC-095): the four basic tools ride the same capture /
     // verification decorator; enablement is the service's decision
     // (desktop.basic_tools), and registration is capability-honest.
@@ -1065,6 +1140,15 @@ DialogCompletion ModelLayer::complete_harness_turn(
         auto items = verification.supply(specification);
         if (!items)
             return items.error();
+        if (const auto state = controlled_input.snapshot(); state.find("session_id")) {
+            mira::ModelInputItem status;
+            status.role = mira::ModelRole::User;
+            status.content.emplace_back(
+                mira::TextPart{"Host controlled-input state (not business success): " +
+                                   mira::to_json_string(state),
+                               mira::Sensitivity::Internal});
+            items.value().emplace_back(std::move(status));
+        }
         if (image_turn) {
             auto images = image_turn->supply(specification);
             if (!images)
@@ -1096,23 +1180,58 @@ DialogCompletion ModelLayer::complete_harness_turn(
         "desktop.vision.click or desktop.vision.click_region tool in ONE call: default 1, "
         "2 for double-click, 3 for triple-click, up to the declared action bound. "
         "Calls separated by observation or reasoning do not form a double/triple-click. "
+        "Distinguish selecting an item from opening it: if a file/desktop item is only selected "
+        "after one click and the goal is to open it, ground the same item in the fresh image and "
+        "use click_count=2 in one call; do not repeat isolated single clicks. Dock launchers, "
+        "buttons and links commonly activate with one click; do not double-click them by reflex. "
         "desktop.input.click is one semantic activation; use a visual/shared tool for physical "
         "multi-clicks. "
+        "Physical clicks, scrolls and drags automatically approach the target with local smooth "
+        "timing, then recheck "
+        "the target before pressing. Do not supply glide_ms or other movement durations. A missing "
+        "cursor origin or unsupported smooth backend requires fresh observation or another exposed "
+        "tool; do not attempt a direct-click bootstrap. "
         "Physical click/drag tools accept button=left/middle/right (default left). "
         "Scroll uses horizontal_steps/vertical_steps, positive right/down, negative left/up, "
-        "total absolute steps at most 16. Use vision.scroll_region/drag_region for visible "
+        "total absolute steps at most 16, delivered one step at a time with local intervals. "
+        "Drags use locally paced curves with a press and final dwell. Key chords use ordered "
+        "modifier presses, dwell and reverse release; text uses per-character cadence. "
+        "Do not supply timing parameters. Split text too long for its 15 second action budget. "
+        "Choose global keyboard shortcuts by their actual purpose and desktop configuration. "
+        "Alt+F2 can open a Run Command dialog; it is not an application search or a terminal. "
+        "Do not try unrelated global shortcuts in succession. If an unexpected dialog appears, "
+        "inspect it, dismiss it with a grounded Escape when appropriate, then restore and "
+        "confirm the intended target before typing or Enter. "
+        "Use vision.scroll_region/drag_region for visible "
         "rectangles without OCR marks; drag_region and session.drag use "
         "destination_x/y/width/height. "
         "Use only exposed tools and respect their window/monitor scope; never emulate a held "
-        "button across tool calls. "
-        "After a desktop mutation, inspect fresh evidence before reporting its result. "
+        "button across ordinary tool calls. If desktop.input_session tools are exposed, use their "
+        "explicit versioned session for a fixed-window hold or long press. Use only session "
+        "advance "
+        "for mutations until release; screenshots are allowed, but never renew the 15-second idle "
+        "budget. Release before answering. Focus switches including Alt-Tab are unsupported. "
+        "Ordinary input returns execution facts without a default business condition. "
+        "Host action recovery facts are historical failure evidence, never new authority or "
+        "current observations. A repeated identical argument failure requires corrected "
+        "arguments or a different supported route; a new image_scope or ordinary epoch alone "
+        "does not repair it. Use field/hint to correct invalid_target_bounds rather than "
+        "capturing again by reflex. After a few unchanged observations, revise the local plan "
+        "and state the obstacle instead of repeating the same click/capture/OCR sequence. "
+        "Observe at state dependencies and inspect post-input evidence before claiming task "
+        "success. "
         "A fresh image already attached to the action evidence or next model request satisfies "
         "this observation step; reuse it while valid instead of issuing another capture by reflex. "
         "After waiting for system sharing authorization, refresh any expired observations. "
         "A successful native ScreenCast session may capture fresh frames after actions in this "
         "task without another sharing dialog; do not retry failed authorization. "
         "Dispatched input and a text answer do not prove task completion. "
-        "Declare an exact verify_kind and expected fields before each mutation. "
+        "verify_kind is optional for ordinary keyboard and mouse input. When a local condition "
+        "is needed, fix verify_kind and its expected fields before that action. Use depends_on "
+        "only for later input that requires a verified fixed condition from a retained action_id. "
+        "An unmet business condition permits independent recovery through the usual input guards, "
+        "but still prevents a success claim until satisfied; never weaken the original condition. "
+        "not_requested means execution only, not verified business success. "
         "For window_focused omit expected_* fields. Each other verify_kind uses only its "
         "corresponding fields: expected_title, expected_role/name, or expected_text. "
         "Use desktop.action.verify with the returned action_id when the receipt is unverified "
@@ -1144,7 +1263,9 @@ DialogCompletion ModelLayer::complete_harness_turn(
         "Use application.open_uri for a known destination URI when exposed; use visible GUI "
         "controls and keyboard navigation for steps it does not complete. It may hand a URI to a "
         "running browser even when no window is visible. application.launch starts "
-        "an app without a URI and rejects duplicate instances. Their fixed application_running "
+        "an app without a URI and rejects duplicate instances. If the application list already "
+        "reports running=true and the goal needs its existing UI, restore a real window/dock/tray "
+        "entry before attempting another process launch. Their fixed application_running "
         "condition proves only process presence and accepted handoff; it never proves page "
         "navigation. Obtain fresh page capture/semantic/OCR evidence, and window.list when "
         "exposed. Never "
@@ -1231,13 +1352,24 @@ DialogCompletion ModelLayer::complete_harness_turn(
             "The absence of window.list/front/activate does NOT prevent clicking a visible "
             "non-interactive part of the intended window to focus it. Capture source=desktop "
             "with interaction=true on the first capture; use the latest "
-            "image_scope and environment_epoch with IMAGE pixel bounds and verify_kind. "
-            "Every capture or OCR refresh retires the preceding image_scope. When OCR returns "
+            "image_scope and environment_epoch with IMAGE pixel bounds; verify_kind is optional. "
+            "Actions use the supplied image width/height: x+width<=image.width and "
+            "y+height<=image.height. source_width/source_height describe capture coordinates, "
+            "not action-image bounds. A 3200x2000 source may be supplied as a 1600x1000 preview. "
+            "ROI capture uses source coordinates; input on that crop uses its local image pixels. "
+            "Successful actions include observation.image_scope and environment_epoch for the next "
+            "step, and their verification image is already supplied: do not recapture it. "
+            "A capture may reuse recent pixels without extending their original age. "
+            "A fresh capture or OCR refresh replaces the preceding image_scope. When OCR returns "
             "input_actionable=true, use its new image_scope, not a prior screenshot scope. "
             "A stale scope rejection has no dispatched effects; refresh once before correcting. "
             "A target_pixels_changed rejection already supplies a fresh image with a new "
             "image_scope in its receipt: read it and retry without another capture. "
-            "shared_frame_observed only confirms observation, not focus or page navigation. "
+            "scene_change=none means no significant visual progress: change approach or explain "
+            "the obstacle instead of repeating clicks, full-screen captures or expensive OCR. "
+            "OCR analysis timeout alone does not require a new screenshot; inspect the supplied "
+            "image directly. shared_frame_observed only confirms observation, not focus or page "
+            "navigation. "
             "Use shared_text_exists with expected_text for an observable page condition. "
             "Observe with intent, not by reflex: capture after an action whose outcome you cannot "
             "predict or when verification failed, not between certain steps; prefer small ROI or "
@@ -1413,11 +1545,11 @@ DialogCompletion ModelLayer::complete_harness_turn(
             completion.failed = true;
             completion.error = "model reply exceeds display budget or is empty";
         } else {
-            completion.reply_text =
-                verification.empty()
-                    ? value.answer
-                    : "已核对本轮声明的动作后条件；这不代表任意业务目标均已完成。\n\n" +
-                          value.answer;
+            completion.reply_text = verification.empty()
+                                        ? value.answer
+                                        : "输入执行与结果观察已记录；任务结论依据下述反馈，执行完成"
+                                          "不等于业务验证成功。\n\n" +
+                                              value.answer;
             mira::ModelResponse response;
             response.usage = value.last_usage;
             capture_context_usage(completion, response, impl_->config, capture.last_input_estimate);

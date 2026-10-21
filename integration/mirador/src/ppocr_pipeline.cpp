@@ -9,6 +9,7 @@
 #include <fstream>
 #include <set>
 #include <stdexcept>
+#include <thread>
 #ifdef MIRAGE_WITH_PPOCR
 #include <ppocr_backend.hpp>
 #ifdef MIRAGE_WITH_YOLO
@@ -244,6 +245,14 @@ std::unique_ptr<PpOcrPipeline> PpOcrPipeline::create(kairo::Executor &executor,
         // DEC-076: native candidate analysis is bounded separately from
         // the 128-region wire prefix. The five-second deadline still applies.
         det.postprocess.max_boxes = screen.desktop_observation_only() ? 512 : 128;
+        // The pinned backends default to single-threaded ncnn. Measured on the
+        // bundled PP-OCRv5-mobile model (1600x1000 dense frame, 359 det boxes):
+        // det drops ~2x at four threads, while per-line rec degrades 1.6-1.8x
+        // under default libgomp scheduling (fork/join overhead dominates the
+        // tiny line tensors), so only det fans out.
+        det.num_threads =
+            std::clamp<int>(static_cast<int>(std::thread::hardware_concurrency() / 2), 1, 4);
+        rec.num_threads = 1;
         auto backend = mirador::integrations::PpOcrBackend::create(det, rec);
         if (!backend)
             throw std::runtime_error("OCR backend could not load verified resources");
@@ -365,22 +374,32 @@ PpOcrPipeline::refresh(bool analyze, const desktop::CancelToken &cancel,
                        const std::optional<std::chrono::steady_clock::time_point> &deadline) {
     return refresh_impl(analyze, false, std::nullopt, cancel, deadline);
 }
+EnvironmentVisualRefresh PpOcrPipeline::refresh_presented(
+    bool analyze, const desktop::CancelToken &cancel,
+    const std::optional<std::chrono::steady_clock::time_point> &deadline,
+    const desktop::CapturePresentation &presentation) {
+    return refresh_impl(analyze, false, std::nullopt, cancel, deadline, presentation);
+}
 EnvironmentVisualRefresh
 PpOcrPipeline::mark(const std::optional<desktop::WindowGeometry> &crop,
                     const desktop::CancelToken &cancel,
-                    const std::optional<std::chrono::steady_clock::time_point> &deadline) {
-    return refresh_impl(true, true, crop, cancel, deadline);
+                    const std::optional<std::chrono::steady_clock::time_point> &deadline,
+                    const desktop::CapturePresentation &presentation) {
+    return refresh_impl(true, true, crop, cancel, deadline, presentation);
 }
-EnvironmentVisualRefresh PpOcrPipeline::refresh_region(
-    const desktop::WindowGeometry &area, const desktop::CancelToken &cancel,
-    const std::optional<std::chrono::steady_clock::time_point> &deadline) {
-    return refresh_impl(true, false, area, cancel, deadline);
+EnvironmentVisualRefresh
+PpOcrPipeline::refresh_region(const desktop::WindowGeometry &area,
+                              const desktop::CancelToken &cancel,
+                              const std::optional<std::chrono::steady_clock::time_point> &deadline,
+                              const desktop::CapturePresentation &presentation) {
+    return refresh_impl(true, false, area, cancel, deadline, presentation);
 }
 EnvironmentVisualRefresh
 PpOcrPipeline::refresh_impl(bool analyze, bool marks,
                             const std::optional<desktop::WindowGeometry> &crop,
                             const desktop::CancelToken &cancel,
-                            const std::optional<std::chrono::steady_clock::time_point> &deadline) {
+                            const std::optional<std::chrono::steady_clock::time_point> &deadline,
+                            const desktop::CapturePresentation &presentation) {
     const desktop::CancelToken bounded([cancel, deadline] {
         return cancel.cancelled() || (deadline && std::chrono::steady_clock::now() >= *deadline);
     });
@@ -408,9 +427,10 @@ PpOcrPipeline::refresh_impl(bool analyze, bool marks,
         target = &before.displays.front();
     if (!target)
         return reject("OCR display unavailable");
-    auto result = marks  ? impl_->pipeline->refresh_marked(crop, bounded, deadline)
-                  : crop ? impl_->pipeline->refresh_region(*crop, analyze, bounded, deadline)
-                         : impl_->pipeline->refresh(analyze, bounded, deadline);
+    auto result =
+        marks  ? impl_->pipeline->refresh_marked(crop, bounded, deadline, presentation)
+        : crop ? impl_->pipeline->refresh_region(*crop, analyze, bounded, deadline, presentation)
+               : impl_->pipeline->refresh_presented(analyze, bounded, deadline, presentation);
     if (!result.captured || (analyze && !result.analyzed) || bounded.cancelled()) {
         impl_->registry.clear();
         return result;

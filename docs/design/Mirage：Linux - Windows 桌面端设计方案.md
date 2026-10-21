@@ -7,6 +7,18 @@
 
 ## 1. 项目概述
 
+2026-10-20 决策增量（已接受，首个契约增量实施中）：
+[DEC-111](../decisions/DEC-111-target-text-value-verification.md) 采用平台中立的目标
+文本值验证：通过 AccessibilityProvider 按需读取同一控件的实际值，受控复制作为
+默认关闭的可选增强，局部图像／OCR 作为视觉回退。实际值、视觉存在和新帧观察的
+证明范围分开，不事后弱化固定条件，不从 OCR 未匹配推导输入派发失败。
+目标身份、完整替换／插入语义、IME 已提交状态、权限、取消和恢复规则见决策；
+`action.verify` 保持只读。Platform Backend 封装 AT-SPI／UIA／Portal，公开接口不
+暴露平台类型。Provider 已加入独立 opt-in 的完整读值 SPI 和一次只读精确比较器，
+默认明确不支持；M7-32 为 In Progress，AT-SPI/UIA 身份绑定、工具条件与任务/授权/
+epoch 接线尚待交付。完整复制事务与选路验收 M7-33/34 保持 Planned，见
+[M7-32～34](../plans/m7-target-text-verification.md)。
+
 2026-10-15 决策增量（设计方向已接受，实现待交付）：
 [DEC-090](../decisions/DEC-090-continuous-task-execution.md) 定义主任务不按累计
 步骤/工具次数终止、单次推进及资源存量有界；
@@ -21,6 +33,37 @@ DEC-091 同日补充：连续帧按最后已提交基线增量处理，限制像
 快照旧代及 GPU/track/语义存量。Mirage 可接收 LLM 对 OCR/detector/闭合/track
 对象的语义标定，保留未受变化影响的绑定；目标身份和语义依赖变化分别处理，
 不将模型标注升级为平台事实或动作后证据。由 M9-05/07/08/13 冻结和实施。
+
+2026-10-19：[DEC-109](../decisions/DEC-109-continuous-perception-attention-and-pet-coexistence.md)
+（Proposed）补充可见 pet 与持续采集共存、任务驱动注意策略、状态/通知基线分离及
+目标局部输入重验，新增 M9-17/18/19；与 Mirador #41 协同。未实施或验证的平台能力
+不作保证，现行采集呈现默认值及动作证据约束继续生效。
+
+机器感知画质按任务可用性取最低档：低清整屏巡检/概览、任务相关局部跟踪、按需
+清晰证据 ROI；模型理解与 OCR/YOLO/Tracker、动作正确性和 CPU/内存联合验收，
+具体档位按 DEC-109 和 M9-06/07/08/12 冻结，不降低 pet 素材呈现质量。
+
+2026-10-20 连续帧方向补充：采用**轻量级增量视觉状态 + 事件驱动语义理解 +
+按需 VLM 推理**。Mirador 负责变化检测、OCR/YOLO/tracker 融合、跨帧身份、
+几何空间关系和差分；Mira 根据任务提供焦点、重要性与观察策略；Mirage 负责
+受权采集、kairo 调度、产品语义绑定、操作执行与视觉反馈关联。当前状态快照
+配合有界事件日志，事件携带来源、代际、时间窗及生命周期；低成本持续维护状态，
+关键变化/歧义/任务需要时才供 ROI 或有界关键时间窗口给 VLM。现有 pin 提供
+视觉原语，完整连续事件契约仍由 MIRADOR-20261019-001 跟踪。
+
+研究依据及适用边界见[研究映射](../research/2026-10-20-event-driven-incremental-visual-perception.md)，
+具体契约与验收见 DEC-109。MiniCPM-o 4.5 仅参考视觉 token 压缩与时分复用：
+在推理前控制视觉表示预算，按共同时间轴分组观察、变化与动作反馈并有界交错推进。
+模型内重采样与生成期间输入注入依赖模型公开能力，不据此宣称已实现。
+不引入 MiniCPM 模型或将其列为后端候选。先完成增量状态、稳定身份和事件检测，
+再扩展任务注意与 VLM 解释；长期视觉记忆另行立项。该增量仅为文档，未声明
+低端设备资源收益已验证。
+
+端侧低负载约束优先：不增加常驻神经编码、本地 VLM 或推理 GPU 要求，复用
+已有视觉 worker、对象增量及任务模型供给。无观察消费者停止生产，静态退避，
+变化时只投入所缺证据阶段；时间分组按消费装配，不增加周期模型循环。首要
+实施项是将变化结果接到昂贵识别的实际门控，并减少重复采集/拷贝/编码。验收
+覆盖 Runtime/native/pet 总 CPU、唤醒、RSS、拷贝与用户应用响应，见资源门禁。
 
 Mirage 是基于 Mira 构建的 Linux / Windows 桌面端产品，为 Mira 提供完整的 PC 运行环境、桌面交互能力与产品界面，使通用 Agent 能够进入用户真实的桌面工作环境执行任务。
 
@@ -239,6 +282,65 @@ activate(element_ref)
 在 Windows 上可以最终转换为 UI Automation Pattern，在 Linux 上可以转换为 AT-SPI Action；如果目标来自视觉定位，则可以转换为对应位置的 Pointer Action。
 
 这样 Mira 的 Workflow 和 Agent 行为可以尽可能保持平台无关。
+
+### 5.1 连续输入与设备兼容性提案
+
+[DEC-110](../decisions/DEC-110-continuous-input-and-device-compatibility.md)（2026-10-19，
+Proposed）拟扩展 InputProvider：提供从当前位置出发的平滑移动、定时按压、独立
+修饰键及由 Task 所有的跨观察持键会话。Runtime 保持单写者，持键期间可取图并
+继续决策；取消、接管、失联、撤权与关闭必须释放并报告结果。正常受控持有与
+释放失败分开表达；契约与预算冻结稿（能力位、会话键词表、数值预算、状态机、
+版本化回执）已于 2026-10-19 随 M7-25 交付至 `desktop/environment` 契约层与
+golden 矩阵，待维护者评审，详见 DEC-110"M7-25 契约冻结稿"一节。
+
+2026-10-20 维护者明确目标默认：所有键鼠动作由 Mirage 本地动作层自动规划自然
+时序，模型只表达意图，无需传入时长或逐点指挥；常规工具以不暴露通用时间入口
+为目标。移动、点击/多击、拖动、滚动、按键/组合键及逐键文本输入均纳入覆盖。
+普通点击在同一动作 lease 内完成连续移动、到达重验、按下及释放，再返回动作
+结果或进入 DEC-056/109 后置观察与验证；前置/途中安全守卫持续有效。显式受控
+持键允许步骤完成后返回 `holding` 并观察，最终验证仍等待释放确认。当前
+`glide_ms` opt-in 尚不满足新默认；自动时序、总预算、工具兼容及完成顺序由
+M7-25 修订冻结，M7-26/31 接线验收，未交付为现行默认。
+
+验证粒度按 DEC-056 2026-10-20 已接受修订：普通完整输入默认不要求业务条件，
+执行完毕即可回报执行事实；动作组末、状态依赖处和任务结束时按需观察/验收。
+执行、观察、业务条件分别表达，未请求条件不形成全局 unverified 围栏；显式条件
+只约束依赖步骤，恢复不降低原条件。权限/目标守卫及执行/释放不确定性围栏保留。
+精确文本取证按 DEC-111 按需选择；分层门控 v2 首增量已接入会话工具（修改工具
+3.0.0、verify 2.0.0、可选 depends_on），结算复用有效观察且不采集。默认自然时序、
+新动作组与平台实测仍由 M7-25/26/31 继续推进，精确值能力由 M7-32～34 交付。
+
+2026-10-20 后续：三条物理点击工具 4.0.0 已按 DEC-110 点击子集迁移为默认本地
+自动接近，无模型移动时长参数；距离/目标宽度计算基础时长，再加入 ±12% 波动，
+限制为 120～650 ms。pointer_motion_policy v2 在平滑主进度上叠加有界弧线、末端微调
+与部分轻微过冲；平台边界裁剪中间点，最终精确回到目标，到达守卫后才点击释放。
+同一随机种子可重建计划，宿主每次操作生成新种子；旧显式时长 API 未指定 variation
+时仍使用确定性直线。没有新增线程/循环 owner 或模型参数。
+Portal 起点从当前授权流 Cursor metadata 回读；不可得时拒绝，不瞬移建立起点。
+DesktopCaptureSession::pointer_position 只读已采集帧的起点/尺寸/来源序号；共享点击
+在输入租约前检查一致性，无副作用的起点拒绝不推进 epoch。PipeWire 按 Format
+完成元数据协商，Cursor 容量覆盖 Mutter 46 固定 384×384，保持 512×512 有界上限。
+Cursor-only 的空/损坏像素缓冲仅消费元数据，不覆盖有效像素或推进画面新鲜度；在
+既有期限/取消范围内等待有效像素，不把这类更新误判为共享流不可用。
+策略与 native-release 验证见[自动接近点击验收](../compatibility/automatic-pointer-approach-20261020.md)。
+后续完整动作自然时序按 DEC-110 / input_cadence_policy v1 推进：X11/Portal 滚动与
+拖动同样先自动接近并重验起点/目标，再逐步滚动或按住执行 220～900 ms 有界曲线；
+拖动禁用前向过冲。键盘采用 45～85 ms 停留，组合键分阶段按下/逆序释放，文本逐字符
+派发并留间隔。完整动作预算 3 s，文本预算 15 s，完整计划超预算在输入前拒绝。
+时序只在宿主产生，复用既有有限 Executor 调用；取消/失败立即清理本动作拥有的按键，
+动作结果和可选后置观察仍在释放结算之后。具体默认与平台限制见 DEC-110 及专项验收。
+完整 key 工具另接受裸 ctrl/alt/shift/meta，映射逻辑左侧键，按下、自然停留并在
+同次调用中释放；不接受以修饰键为主键的组合。跨观察持键、左右侧独立工具键、
+IME、动作组及 Windows 自然时序仍未交付。
+
+设备层输入为提高应用兼容性的独立需求：针对过滤软件注入或依赖设备输入的应用，
+并行评估 Linux uinput / Windows VHF 与外接 USB HID。平台设备/驱动/协议留在
+Backend，共享动作语义与所有权；按具体应用、版本和环境验证接收与业务效果。
+活动会话不热切换设备，未知副作用不自动换后端重发。输入法状态与候选选择独立
+建模，设备输入不代替焦点、布局和文本回显验证。
+
+后续实施与验收见 [M7-25～31](../plans/m7-continuous-input-and-device-compatibility.md)。
+本节为提案索引，DEC-054/100 的现有完整动作及当前授权/释放契约继续生效。
 
 ## 6. Desktop Observation
 
@@ -509,7 +611,7 @@ M7-04/05 按 [DEC-055](../decisions/DEC-055-desktop-image-supply.md) 接通标�
 取消不发布，更新/过期/动作/轮次结束时退役；Source 使用 MemoryArtifactStore 与
 kairo LatestMailbox，不另建循环、队列或 owner。Guard 阻止缺图/旧图的纯文本继续。
 
-底层动作成功只表示 dispatched，不能证明业务完成。M7-08 按
+底层动作成功只表示 dispatched，不能证明业务完成。M7-08 首交付按
 [DEC-056](../decisions/DEC-056-post-action-verification.md) 在会话 Adapter 固定修改前
 声明的窗口/语义后条件，租约结算后强制新观察。复用 Mira 的观察质量/时间评估和
 每请求 supplier，不自建 Agent 循环。只读 desktop.action.verify 可重验最近动作，
@@ -517,6 +619,8 @@ kairo LatestMailbox，不另建循环、队列或 owner。Guard 阻止缺图/旧
 规范工具失败才能保留回答，并声明局部核验范围。工具卡区分派发与核验，含目标、
 观察身份/摘要/时间。Linux X11 三类本地任务证据见
 [后条件验证](../compatibility/post-action-verification-20261009.md)。
+上述逐动作强制观察和全历史 verified 规则是历史实现；2026-10-20 已接受的
+DEC-056 分层策略的 v2 首增量见第 5.1 节；原 M7-08 验收保留，不替代新策略的验证记录。
 OCR/视觉编号属于 M7-06/07。不开放裸坐标或独立 down/up。公开示例、隐私与恢复边界见
 [桌面动作安全契约](../security/desktop-actions.md)，测试证据见
 [作用域与完整输入验证](../compatibility/scoped-complete-input-20261009.md)。
@@ -1377,14 +1481,16 @@ image_scope、可执行 VisualReference 或 ROI/SoM。授权等待不计入五�
 
 DesktopImageTurn 通过纯 std 的 DesktopCaptureSession 持有本轮 Platform 私有共享；
 ScreenProvider 默认不支持，创建不弹授权。ScreenCast 成功后保留专属总线、Session
-和 node，每次重新取得 PipeWire remote 与新帧，每帧销毁 stream/core/context/loop；
-没有后台 worker 或循环。任务对象持有 DesktopToolContext 的
+和 node，复用任务内单个 PipeWire consumer，调用方在有限循环内推进取帧；
+没有后台 worker 或循环，任务结束关闭 consumer/session。任务对象持有 DesktopToolContext 的
 环境 owner，先析构会话，再释放环境；会话禁止跨任务共享或并发调用。
 
-每轮最多八帧，每次重新检查权限；首授权失败不重复，后续失败、取消或授权代际失效
+按 [DEC-107](../decisions/DEC-107-capture-cadence-and-presentation.md) 不设任务累计帧数上限，
+每次重新检查权限；首授权失败不重复，后续共享路径失败、取消或授权代际失效
 关闭会话。ActionCoordinator 的 environment epoch 淘汰旧图，authority_epoch 则只在
-接管/恢复/释放失败变化，fenced 时为零；普通动作后允许读取新图。旧图五秒期限与
-输入引用安全边界不变，系统共享最长 30 秒，后续单帧最长五秒。
+接管/恢复/释放失败变化，fenced 时为零；普通动作后允许读取新图。新鲜证据五秒期限与
+输入引用安全边界不变；已供给的交互规划意图可在原 60 秒本地重验窗口内保留历史预览，
+不作为新鲜完成证据。系统首次授权最长 30 秒，后续单帧最长五秒。
 
 application.list 候选绑定最新 scope/session/task/environment_epoch，最多 60 秒；
 派发前及权限等待后调用已有 ApplicationProvider 本地重新枚举，精确核对同一安装 ID。
@@ -1432,8 +1538,11 @@ Linux Portal 后端私有地映射为 Start 返回 size 的流内 compositor 坐
 
 Mira DesktopImageTurn 拥有会话，授权同任务 source=desktop 的 screen.capture / input.inject；
 通过图像已供给证明、task/session/epoch/authority、60 秒意图和动作前目标矩形重验（逐像素承诺由 [DEC-083](../decisions/DEC-083-target-region-stability-reverification.md) 修订为主体稳定判定）
-保护输入。普通动作保留共享但淘汰旧图；接管/取消/失败关闭会话。32 帧预算包含
-前置重验和后置取图；只读八帧不变。当前 Portal 文本最多 4096 字节 printable ASCII，
+保护输入。普通动作保留共享但淘汰旧图；接管/取消/共享路径失败关闭会话。
+DEC-107 删除前置重验、后置取图及只读截图的累计帧数额度，仍保留单帧内存、单次时间和
+权限/取消边界。成功动作直接返回后置观察的 image_scope，后续输入不必额外重截。
+桌宠租约仅覆盖实际采集/输入派发，授权/编码/OCR 不隐藏；平台限制和验证见 DEC-107。
+当前 Portal 文本最多 4096 字节 printable ASCII，
 禁止控制字符；非 ASCII 返回 text_transport_unavailable，无部分输入。按键通知不证明
 输入法/应用已消费文字。会话复用单个 PipeWire consumer、最多一张 pending buffer；
 私有循环由调用者推进，consumer 在 Portal session 前关闭，静态画面超时仍显式失败。
@@ -1498,3 +1607,35 @@ Mira公开请求输入估算，不改变ModelResponse.usage。结算时优先供
 缺失时以估算回填；`estimated` 来源标记随事件、历史与逐会话快照保存。原生界面明确
 标注估算，未知窗口仍不显示百分比。该路径不新增Executor任务或共享状态所有者，
 失败/取消与迟到事件语义沿DEC-036。详情见[DEC-102](../decisions/DEC-102-estimated-context-usage.md)。
+
+
+2026-10-20 DEC-109 / M9-07 首个增量：VisualSessionHost 增加显式后台
+`when_changed` 准入，只有相对最后完整分析基线无变化才跳过昂贵阶段。
+结果为独立 skipped 终态，不发布空快照或当前动作证据；默认、Refresh、登记与
+marks 请求继续执行。固定 64×64 灰度签名额外 4096 字节/源，比较使用 Mirador
+公开 API，跳过不推进基线，异常/取消/超时清除基线。可信调用方必须提供非零
+analysis_policy_revision，参数、目标位置或授权变化时推进版本，跨版本不跳过。
+现有生产观察/动作核验不启用近似后台筛选；真实持续生产、消费者退避和全产品
+资源门禁继续开放。实现边界与证据见
+[DEC-109～111 推进记录](../compatibility/dec109-111-input-progress-20261020.md)。
+
+
+2026-10-20 连续任务错误恢复：按 DEC-085/088 和 BUG-20261020-001，既有动作记录
+派生最多 4 条/2048 字节历史恢复事实，每记录新增摘要/代码/字段/提示正文合计
+最多 280 字节（64/64/32/120；对象及分配器开销另计），不增加记录容量或 owner。
+普通动作 epoch 变化不抹除同参数错误统计或静态图片重复注记；任务/authority/
+图源映射变化隔离。它们不是当前观察、执行授权或业务成功证据。canonical 干净
+的参数/目标拒绝不再永久封锁整个工具，纠正参数后仍走全部原输入守卫。
+越界动作返回当前图片尺寸与字段提示；双击、选择/打开与系统快捷键按实际 UI
+选路。实现与真实模型/SSE 尚未验收的边界见
+[会话调查](../analysis/native-action-recovery-20261020.md)。
+
+
+2026-10-21 M7-27 首接线：受控持键使用平台中立 InputSessionBackend opt-in，
+X11/XInput2 首先提供固定窗口内的 down/up/tap 与持有期间截图，使用独立
+input_session_v1 回执，不复用普通释放失败标记。一个 ModelLayer 的 blocking worker
+通过有界 FIFO/LatestMailbox 承载单一会话推进与状态，普通输入共享同一
+ActionCoordinator lease。Portal 仅增加完整长按，跨调用持有继续拒绝；取消、
+权限换代、接管、超时与任务结束均主动释放，归属/释放不确定则保持写入围栏。
+预算、剩余平台与验证范围见 DEC-110 2026-10-21 增量及
+[本轮证据](../compatibility/controlled-input-sessions-20261021.md)。

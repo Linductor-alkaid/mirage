@@ -1,0 +1,14 @@
+{
+  "policy_version": 1,
+  "click_tool_major": 4,
+  "model_timing_parameter": false,
+  "action_timeout_ms": 3000,
+  "min_duration_ms": 120,
+  "max_duration_ms": 650,
+  "cases": [
+    {"distance": 0, "width": 32, "duration_ms": 0},
+    {"distance": 32, "width": 32, "duration_ms": 210},
+    {"distance": 320, "width": 32, "duration_ms": 432},
+    {"distance": 100000, "width": 0, "duration_ms": 650}
+  ]
+}

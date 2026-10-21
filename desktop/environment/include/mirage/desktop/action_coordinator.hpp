@@ -37,6 +37,9 @@ class ActionCoordinator {
     std::uint64_t authority_epoch() const;
     /// Supervisor-only: cancels current action and fences new mutations.
     void takeover();
+    /// Permission-policy replacement invalidates active input without creating
+    /// a takeover fence. New actions must authorize under the replacement policy.
+    void invalidate_authority();
     bool resume();
     bool input_released() const;
 

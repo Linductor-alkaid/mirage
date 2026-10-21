@@ -2,6 +2,8 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <limits>
+#include <mirador/change_detection.hpp>
 #include <mirador/resize.hpp>
 #include <stdexcept>
 
@@ -92,13 +94,13 @@ mira::Result<std::vector<std::byte>> DesktopImageSource::fetch(const mira::Artif
 }
 
 mira::InputReuseMeta DesktopImageSource::record_input_reuse(const std::string &digest,
-                                                            std::uint64_t desktop_epoch) {
+                                                            const std::string &scope) {
     const std::lock_guard lock(reuse_mutex_);
-    if (desktop_epoch != reuse_epoch_ || digest != reuse_digest_) {
+    if (scope != reuse_scope_ || digest != reuse_digest_) {
         reuse_digest_ = digest;
-        reuse_epoch_ = desktop_epoch;
+        reuse_scope_ = scope;
         reuse_count_ = 0;
-    } else {
+    } else if (reuse_count_ < std::numeric_limits<std::uint32_t>::max()) {
         ++reuse_count_;
     }
     return {digest, reuse_count_, "desktop screenshot"};
@@ -195,7 +197,7 @@ void DesktopImageTurn::register_tool(mira::BuiltinToolRegistry &registry,
         "origin/scale metadata; smaller captures (including small ROIs) are 1:1 for precise "
         "grounding. "
         "Only source=roi accepts x/y/width/height (all required, desktop pixels). "
-        "Max raw acquisition 32 MiB, ROI/PNG 8 MiB, four acquisitions per turn. "
+        "Max raw acquisition 32 MiB, ROI/PNG 8 MiB, no cumulative capture limit. "
         "The latest image is supplied to the next model request. "
         "Images expire after 5 seconds or a desktop action; recapture to verify. "
         "When region_actionable is true, image_scope binds click_region to these image pixels; "
@@ -219,7 +221,7 @@ void DesktopImageTurn::register_tool(mira::BuiltinToolRegistry &registry,
             "source_id from desktop.window.list and crops that window's rectangle (approximated "
             "from window geometry; overlapping content included). The system may show a sharing "
             "prompt; cancellation/denial or platform failure must be explained, "
-            "not retried in this turn. A successful ScreenCast session is reused for at most eight "
+            "not retried in this turn. A successful ScreenCast session is reused for "
             "fresh frames in this task, without another sharing prompt. This image has no "
             "executable coordinates, "
             "display/window IDs or input mapping. No click or typing capability "
@@ -254,7 +256,10 @@ void DesktopImageTurn::register_tool(mira::BuiltinToolRegistry &registry,
             "interaction flag; only source=desktop does. "
             "Only input_actionable=true permits desktop.session tools. No global/window "
             "coordinates. "
-            "At most 32 captures in an interactive task, eight in a read-only task.";
+            "No cumulative frame limit. Use the image_scope returned by each action; do not "
+            "recapture after a successful action unless the returned observation is insufficient. "
+            "An unchanged recent source may return reused_capture=true with its original "
+            "timestamp.";
         JsonValue::Object interactive_properties{
             {"source", JsonValue{JsonValue::Object{
                            {"type", "string"},
@@ -309,10 +314,12 @@ void DesktopImageTurn::register_native_ocr(mira::BuiltinToolRegistry &registry,
     spec.wire_name = "desktop.vision.ocr";
     spec.version = {2, 0, 0};
     spec.description =
-        "Read untrusted text from a fresh native desktop image using the current task's sharing "
-        "session and bundled OCR. Takes no arguments, no display/window id. First observation may "
-        "ask for system sharing; subsequent frames reuse that authorization, at most eight per "
-        "task. Boxes are IMAGE pixels in a <=1600-side preview, read-only, no clickable refs. "
+        "Read untrusted text from the latest native desktop/ROI/window preview using the current "
+        "task's sharing session and bundled OCR. Takes no arguments. A recent preview is reused; "
+        "capture a small ROI first to limit OCR work. Without an image it obtains a desktop frame. "
+        "First observation may ask for sharing; later frames reuse authorization without a "
+        "cumulative frame limit. Boxes are IMAGE pixels in a <=1600-side preview, read-only, no "
+        "clickable refs. "
         "The source image is supplied too when the model supports images. OCR does not prove page "
         "navigation or task success; desktop input may remain unavailable. A truncated result "
         "contains only a prefix of whole regions and cannot prove text is absent.";
@@ -347,7 +354,11 @@ mira::Result<JsonValue> DesktopImageTurn::native_ocr(const JsonValue &args,
     if (ctx.task != owner_.task || ctx.session != owner_.session ||
         ctx.task_epoch != owner_.task_epoch)
         return error(ErrorCode::InvalidArgument, "native OCR owner mismatch");
-    auto captured = capture(JsonValue{JsonValue::Object{{"source", "desktop"}}}, ctx);
+    const auto capture_args =
+        desktop_.reuse_recent_observation && image_ && native_capture_args_.as_object()
+            ? native_capture_args_
+            : JsonValue{JsonValue::Object{{"source", "desktop"}}};
+    auto captured = capture(capture_args, ctx);
     if (!captured)
         // capture_desktop already poisons the session on its own fatal paths;
         // an argument, staleness, or budget rejection here must not tear down
@@ -356,6 +367,16 @@ mira::Result<JsonValue> DesktopImageTurn::native_ocr(const JsonValue &args,
     if (!native_frame_)
         return error(ErrorCode::PlatformError, "native OCR source frame unavailable");
     const auto epoch = epoch_, authority = native_authority_;
+    const auto digest = image_->digest.to_string();
+    if (desktop_.reuse_recent_observation && ocr_failed_result_ && ocr_failed_epoch_ == epoch &&
+        ocr_failed_digest_ == digest)
+        return *ocr_failed_result_;
+    const auto failed_analysis = [&](mira::Error failure) -> mira::Result<JsonValue> {
+        ocr_failed_digest_ = digest;
+        ocr_failed_epoch_ = epoch;
+        ocr_failed_result_ = failure;
+        return failure;
+    };
     const auto end =
         std::min(ctx.deadline.value_or(std::chrono::steady_clock::now() + std::chrono::seconds(5)),
                  std::chrono::steady_clock::now() + std::chrono::seconds(5));
@@ -365,22 +386,29 @@ mira::Result<JsonValue> DesktopImageTurn::native_ocr(const JsonValue &args,
                    actions->epoch() != epoch || actions->authority_epoch() != authority ||
                    std::chrono::steady_clock::now() >= end;
         });
-    auto read = measure_phase(timings_ ? &timings_->ocr : nullptr,
-                              [&] { return desktop_.ocr_image(*native_frame_, bounded, end); });
+    const bool reused = desktop_.reuse_recent_observation && ocr_success_ &&
+                        ocr_success_digest_ == digest && ocr_success_epoch_ == epoch &&
+                        ocr_success_authority_ == authority;
+    auto read = reused ? *ocr_success_ : measure_phase(timings_ ? &timings_->ocr : nullptr, [&] {
+        return desktop_.ocr_image(*native_frame_, bounded, end);
+    });
     if (cancel_.cancelled() || desktop_.actions->authority_epoch() != authority) {
         native_session_.reset();
         native_failed_ = true;
         return error(ErrorCode::Cancelled, "native OCR sharing authority withdrawn");
     }
     if (bounded.cancelled() || read.cancelled)
-        return error(ErrorCode::PlatformError, "native_ocr_expired: obtain a new observation");
+        return failed_analysis(error(ErrorCode::PlatformError,
+                                     "native_ocr_expired: analysis timed out; use the supplied "
+                                     "image, do not recapture or repeat OCR on unchanged pixels"));
     if (!read.ok) {
         std::string code = read.error.code;
         if (code.empty() || code.size() > 64 ||
             !std::all_of(code.begin(), code.end(),
                          [](unsigned char c) { return (c >= 'a' && c <= 'z') || c == '_'; }))
             code = "analysis_failed";
-        return error(ErrorCode::PlatformError, "native_ocr_analysis_failed: " + code);
+        return failed_analysis(
+            error(ErrorCode::PlatformError, "native_ocr_analysis_failed: " + code));
     }
     if (read.regions.size() > 128 || read.model_revision.size() > 256 ||
         read.backend_calls > std::uint64_t(INT64_MAX))
@@ -404,10 +432,16 @@ mira::Result<JsonValue> DesktopImageTurn::native_ocr(const JsonValue &args,
                                                {"width", r.width},
                                                {"height", r.height}});
     }
+    if (!reused && desktop_.reuse_recent_observation) {
+        ocr_success_digest_ = digest;
+        ocr_success_epoch_ = epoch;
+        ocr_success_authority_ = authority;
+        ocr_success_ = read;
+    }
     JsonValue result{JsonValue::Object{
         {"schema", std::int64_t(2)},
         {"source", "ocr"},
-        {"source_kind", "desktop"},
+        {"source_kind", text(metadata_, "source")},
         {"image_artifact_id", *metadata_.find("artifact_id")},
         {"width", std::int64_t(native_frame_->width)},
         {"height", std::int64_t(native_frame_->height)},
@@ -501,20 +535,18 @@ mira::Result<JsonValue> DesktopImageTurn::capture_desktop(const JsonValue &args,
         return error(ErrorCode::UnsupportedCapability,
                      "native desktop observation cannot satisfy a window capture scope");
     const auto authority = desktop_.actions->authority_epoch();
-    if (!authority || (captures_ && native_authority_ != authority)) {
+    if (!authority || (native_started_ && native_authority_ != authority)) {
         native_session_.reset();
         native_failed_ = true;
         return error(ErrorCode::Cancelled, "desktop sharing authority was withdrawn");
     }
-    if (native_failed_ || (captures_ && (!native_session_ || !native_session_->reusable())))
+    if (native_failed_ || (native_started_ && (!native_session_ || !native_session_->reusable())))
         return error(
             ErrorCode::ResourceExhausted,
             "native sharing ended or failed; explain the result, no reauthorization in this task");
-    if (captures_ && interactive &&
+    if (native_started_ && interactive &&
         requested != (native_session_ && native_session_->input_supported()))
         return error(ErrorCode::InvalidArgument, "sharing mode cannot change within this task");
-    if (captures_ >= (native_session_ && native_session_->input_supported() ? 32u : 8u))
-        return error(ErrorCode::ResourceExhausted, "native desktop frame budget exhausted");
     const auto allowed =
         desktop_.authorize
             ? desktop_.authorize(
@@ -527,7 +559,19 @@ mira::Result<JsonValue> DesktopImageTurn::capture_desktop(const JsonValue &args,
         return error(!allowed ? ErrorCode::PermissionDenied : ErrorCode::Cancelled,
                      "screen.capture permission or sharing authority withdrawn");
     }
-    if (!captures_) {
+    auto key_args = *args.as_object();
+    std::erase_if(key_args, [](const auto &field) { return field.first == "interaction"; });
+    const auto capture_key =
+        mira::canonical_json_digest(JsonValue{std::move(key_args)}).to_string();
+    if (desktop_.reuse_recent_observation && image_ && native_frame_ &&
+        !native_newer_than_sequence_ && epoch_ == desktop_.actions->epoch() &&
+        native_capture_key_ == capture_key &&
+        std::chrono::steady_clock::now() - captured_ < image_max_age_) {
+        auto reused = metadata_;
+        reused.set("reused_capture", true);
+        return reused; // original capture time, reference lifetime and source sequence
+    }
+    if (!native_started_) {
         if (requested) {
             const auto input_allowed =
                 desktop_.authorize
@@ -550,7 +594,7 @@ mira::Result<JsonValue> DesktopImageTurn::capture_desktop(const JsonValue &args,
             return error(ErrorCode::UnsupportedCapability, "interactive sharing unavailable");
     }
     native_authority_ = authority;
-    ++captures_;
+    native_started_ = true;
     const auto epoch = desktop_.actions->epoch();
     desktop::CaptureLimits limits;
     limits.max_bytes = desktop_capture_bytes;
@@ -559,8 +603,11 @@ mira::Result<JsonValue> DesktopImageTurn::capture_desktop(const JsonValue &args,
         return cancel_.cancelled() || desktop_.actions->authority_epoch() != authority;
     });
     const auto out = measure_phase(timings_ ? &timings_->capture : nullptr, [&] {
-        return native_session_ ? native_session_->capture(limits, active)
-                               : desktop_.environment->screen()->capture_desktop(limits, active);
+        return native_session_
+                   ? native_session_->capture_presented(limits, active, desktop_.exclude_pet)
+                   : desktop::capture_with_presentation(desktop_.exclude_pet, active, [&] {
+                         return desktop_.environment->screen()->capture_desktop(limits, active);
+                     });
     });
     if (out.ok && limits.newer_than_sequence &&
         out.frame.source_sequence <= limits.newer_than_sequence) {
@@ -581,7 +628,7 @@ mira::Result<JsonValue> DesktopImageTurn::capture_desktop(const JsonValue &args,
     if (!valid_image_frame(frame, desktop_capture_bytes))
         return error(ErrorCode::InvalidArgument, "invalid native desktop frame");
     // M7-18: region sources crop the fresh shared-monitor frame locally — no
-    // extra authorization, no extra stream, one frame budget per capture.
+    // extra authorization, no extra stream, one bounded pixel acquisition.
     Geometry area{0, 0, frame.width, frame.height};
     std::string kind = "desktop";
     std::string kind_id;
@@ -648,8 +695,20 @@ mira::Result<JsonValue> DesktopImageTurn::capture_desktop(const JsonValue &args,
         scaled.source_sequence = frame.source_sequence;
         frame = std::move(scaled);
     }
-    return finish_native_publish(std::move(frame), out.frame, area, kind, kind_id,
-                                 out.frame.source_sequence, epoch);
+    auto published = finish_native_publish(std::move(frame), out.frame, area, kind, kind_id,
+                                           out.frame.source_sequence, epoch);
+    if (published) {
+        native_capture_key_ = capture_key;
+        native_capture_args_ = args;
+        if (out.presentation_excluded == false) {
+            metadata_.set("pet_presentation",
+                          JsonValue{JsonValue::Object{{"excluded", false},
+                                                      {"reason", "unsupported_compositor"},
+                                                      {"pixels_may_include_pet", true}}});
+            published = metadata_;
+        }
+    }
+    return published;
 }
 
 mira::Result<JsonValue>
@@ -662,6 +721,33 @@ DesktopImageTurn::finish_native_publish(desktop::ImageFrame frame,
         return cancel_.cancelled() ||
                std::chrono::steady_clock::now() - captured >= std::chrono::seconds(5);
     });
+    std::string scene_change = "unknown";
+    const auto coordinate = [&](const char *key) -> std::int64_t {
+        const auto *value = metadata_.find(key);
+        return value && value->as_integer() ? *value->as_integer() : 0;
+    };
+    if (coordinate("origin_x") == area.x && coordinate("origin_y") == area.y && native_frame_ &&
+        text(metadata_, "source") == kind && text(metadata_, "source_id") == kind_id &&
+        native_frame_->width == frame.width && native_frame_->height == frame.height) {
+        const auto view = [](const desktop::ImageFrame &value) {
+            mirador::ImageView result;
+            result.data = reinterpret_cast<const std::byte *>(value.pixels.data());
+            result.width = value.width;
+            result.height = value.height;
+            result.row_stride_bytes = static_cast<std::int64_t>(value.stride);
+            result.format = mirador::PixelFormat::kBgra8;
+            return result;
+        };
+        mirador::ChangeDetectionParams params;
+        params.fingerprint_early_exit = false;
+        const auto changed = mirador::detect_change(view(*native_frame_), view(frame), params);
+        if (changed.ok()) {
+            const auto classification = changed.value().classification;
+            scene_change = classification == mirador::ChangeClassification::kNone      ? "none"
+                           : classification == mirador::ChangeClassification::kPartial ? "partial"
+                                                                                       : "global";
+        }
+    }
     auto result = publish_image(frame, area, kind, kind_id, epoch, captured, bounded);
     if (!result)
         return result;
@@ -672,6 +758,11 @@ DesktopImageTurn::finish_native_publish(desktop::ImageFrame frame,
                    item.first.starts_with("origin_") || item.first.starts_with("scale_");
         });
     metadata_ = JsonValue{std::move(fields)};
+    metadata_.set("scene_change", scene_change);
+    if (scene_change == "none")
+        metadata_.set("observation_hint",
+                      "No significant visual change; use existing evidence or choose a different "
+                      "action instead of recapturing. This does not prove task completion.");
     metadata_.set("region_actionable", false);
     metadata_.set("desktop_coordinates_available", false);
     metadata_.set("observation_only", !(native_session_ && native_session_->input_supported()));
@@ -705,10 +796,10 @@ mira::Result<JsonValue> DesktopImageTurn::capture(const JsonValue &args,
     if (ctx.task != owner_.task || ctx.session != owner_.session ||
         ctx.task_epoch != owner_.task_epoch)
         return error(ErrorCode::InvalidArgument, "desktop capture owner mismatch");
-    clear();
-    const auto kind = text(args, "source"), id = text(args, "source_id");
     if (desktop_.environment->screen()->desktop_observation_only())
         return capture_desktop(args, ctx);
+    clear();
+    const auto kind = text(args, "source"), id = text(args, "source_id");
     // DEC-085 capability honesty: a degraded (Wayland) screen capability
     // must surface as a canonical platform limitation, never as a generic
     // argument or I/O failure the model cannot tell apart from its own
@@ -722,8 +813,6 @@ mira::Result<JsonValue> DesktopImageTurn::capture(const JsonValue &args,
                          "observation capture or a window capture, or explain the limitation");
         return error(ErrorCode::InvalidArgument, "invalid capture source");
     }
-    if (captures_ == 4)
-        return error(ErrorCode::ResourceExhausted, "desktop capture count exceeds 4 per turn");
     const auto allowed = desktop_.authorize ? desktop_.authorize(
                                                   "screen.capture", kind + ":" + id,
                                                   [this] { return cancel_.cancelled(); },
@@ -800,13 +889,14 @@ mira::Result<JsonValue> DesktopImageTurn::capture(const JsonValue &args,
         return error(ErrorCode::ResourceExhausted,
                      "capture exceeds raw pixel budget; request a smaller ROI");
     const auto source_displays = screen.list_displays({}, bounded);
-    ++captures_;
     desktop::CaptureLimits limits;
     limits.max_bytes = kind == "roi" ? desktop_image_bytes : desktop_capture_bytes;
     const auto outcome = measure_phase(timings_ ? &timings_->capture : nullptr, [&] {
-        return kind == "window"    ? screen.capture_window(id, limits, bounded)
-               : kind == "display" ? screen.capture_display(id, limits, bounded)
-                                   : screen.capture_roi(area, limits, bounded);
+        return desktop::capture_with_presentation(desktop_.exclude_pet, bounded, [&] {
+            return kind == "window"    ? screen.capture_window(id, limits, bounded)
+                   : kind == "display" ? screen.capture_display(id, limits, bounded)
+                                       : screen.capture_roi(area, limits, bounded);
+        });
     });
     if (!outcome.ok || outcome.cancelled) {
         if (!outcome.cancelled && capability != mirage::desktop::ScreenCapability::Full)
@@ -889,6 +979,11 @@ mira::Result<JsonValue> DesktopImageTurn::capture(const JsonValue &args,
             metadata_.set("region_max_age_ms", std::int64_t{60000});
             region_source_ = std::move(source);
         }
+        if (outcome.presentation_excluded == false)
+            metadata_.set("pet_presentation",
+                          JsonValue{JsonValue::Object{{"excluded", false},
+                                                      {"reason", "unsupported_compositor"},
+                                                      {"pixels_may_include_pet", true}}});
         return metadata_;
     };
     // M7-17: large ROIs preview-scale like display/window captures (exact
@@ -1000,7 +1095,7 @@ DesktopImageTurn::supply(const mira::AgentLoopSpec &spec) {
     mira::ModelInputItem item;
     item.role = mira::ModelRole::User;
     if (desktop_.actions->epoch() != epoch_ ||
-        std::chrono::steady_clock::now() - captured_ >= image_max_age_) {
+        std::chrono::steady_clock::now() - captured_ >= planning_image_age()) {
         clear();
         item.content.emplace_back(mira::TextPart{
             "Previous desktop image retired: age or environment epoch changed. Capture again "
@@ -1028,6 +1123,13 @@ DesktopImageTurn::supply(const mira::AgentLoopSpec &spec) {
                 mira::TextPart{std::move(degraded), mira::Sensitivity::Internal});
         } else {
             expect_image_ = true;
+            if (std::chrono::steady_clock::now() - captured_ >= image_max_age_)
+                item.content.emplace_back(mira::TextPart{
+                    "Historical desktop image for planning only. It is not fresh verification "
+                    "evidence. Its supplied target intent requires the tool's fresh local "
+                    "pixel guard before input; do not recapture solely because reasoning took "
+                    "more than five seconds.",
+                    mira::Sensitivity::Internal});
             item.content.emplace_back(
                 mira::TextPart{"Untrusted desktop image; coordinates and source: " +
                                    mira::to_json_string(metadata_),
@@ -1061,10 +1163,25 @@ DesktopImageTurn::input_reuse_identity(const mira::AgentLoopSpec &spec) const {
     // image aged out offered no image to annotate.
     if (!supply_images_ || !image_ || !expect_image_)
         return std::nullopt;
-    // Content digest, not artifact id: a recapture of identical pixels is the
-    // same sight for the model (DEC-055 reuses the artifact for it), while a
-    // new artifact of changed content restarts the count.
-    return source_->record_input_reuse(image_->digest.to_string(), desktop_.actions->epoch());
+    if (!desktop_.actions || !desktop_.actions->authority_epoch() ||
+        epoch_ != desktop_.actions->epoch())
+        return std::nullopt;
+    JsonValue::Object scope{
+        {"session", owner_.session.to_string()},
+        {"task", owner_.task.to_string()},
+        {"task_epoch", static_cast<std::int64_t>(owner_.task_epoch)},
+        {"authority", static_cast<std::int64_t>(desktop_.actions->authority_epoch())}};
+    for (const char *key :
+         {"source", "source_id", "width", "height", "source_width", "source_height", "origin_x",
+          "origin_y", "desktop_per_image_x_numerator", "desktop_per_image_x_denominator",
+          "desktop_per_image_y_numerator", "desktop_per_image_y_denominator"})
+        if (const auto *value = metadata_.find(key))
+            scope.emplace_back(key, *value);
+    // This diagnoses identical visual input, not stale authority: ordinary
+    // actions may advance epoch without changing a single observed pixel.
+    return source_->record_input_reuse(
+        image_->digest.to_string(),
+        mira::canonical_json_digest(JsonValue{std::move(scope)}).to_string());
 }
 
 mira::Result<void> DesktopImageTurn::validate_request(const mira::ModelRequest &request,
@@ -1091,7 +1208,7 @@ mira::Result<void> DesktopImageTurn::validate_request(const mira::ModelRequest &
     if (!expect_image_)
         return {};
     if (!image_ || epoch_ != desktop_.actions->epoch() ||
-        std::chrono::steady_clock::now() - captured_ >= image_max_age_)
+        std::chrono::steady_clock::now() - captured_ >= planning_image_age())
         return error(ErrorCode::InvalidArgument, "desktop image invalidated before inference");
     for (const auto &item : request.input)
         for (const auto &part : item.content)

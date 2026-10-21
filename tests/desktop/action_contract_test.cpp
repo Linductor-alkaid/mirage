@@ -44,7 +44,10 @@ int main() {
             const auto *required = tool.parameters_schema.root.find("required");
             MIRAGE_CHECK(required && expected &&
                          mira::to_json_string(*required) == mira::to_json_string(*expected));
-            MIRAGE_CHECK(tool.version.major == 2);
+            MIRAGE_CHECK(tool.version.major == ((tool.wire_name == "desktop.input.key" ||
+                                                 tool.wire_name == "desktop.input.type_text")
+                                                    ? 4
+                                                    : 2));
         }
     }
     auto context = mira::make_control_context();

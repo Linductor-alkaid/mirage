@@ -25,9 +25,9 @@ DesktopObservationRead read_desktop_observation(const DesktopObservationSource &
     desktop::CancelToken bounded{[cancel, deadline] {
         return cancel.cancelled() || std::chrono::steady_clock::now() >= deadline;
     }};
-    desktop::PresentationExclusion exclusion;
     DesktopObservationRead result;
     std::uint64_t epoch = 0;
+    std::optional<bool> presentation_excluded;
     try {
         if (bounded.cancelled())
             return unavailable("observation cancelled_or_expired");
@@ -48,21 +48,13 @@ DesktopObservationRead read_desktop_observation(const DesktopObservationSource &
         if (bounded.cancelled())
             return unavailable("observation cancelled_or_expired");
         epoch = source.actions ? source.actions->epoch() : 0;
-        if (source.exclude_pet)
-            exclusion = source.exclude_pet(bounded);
+
         result = [&]() -> DesktopObservationRead {
-            if (!exclusion.error.code.empty())
-                return unavailable(detail(exclusion.error));
-            if (source.exclude_pet && !exclusion.lease)
-                return unavailable("pet_exclusion_failed: owner returned no exclusion lease");
-            if (exclusion.lease) {
-                const auto error = exclusion.lease->verify(bounded);
-                if (!error.code.empty())
-                    return unavailable(detail(error));
-            }
             std::optional<desktop::VisualSnapshot> fresh_visual;
             if (visual && source.pipeline) {
-                const auto fresh = source.pipeline->refresh(true, bounded, deadline);
+                const auto fresh =
+                    source.pipeline->refresh_presented(true, bounded, deadline, source.exclude_pet);
+                presentation_excluded = fresh.presentation_excluded;
                 if (bounded.cancelled() || fresh.capture_cancelled || fresh.analysis_cancelled)
                     return unavailable("OCR capture or analysis failed: cancelled_or_expired");
                 if (!fresh.captured || !fresh.analyzed || !fresh.publish.ok ||
@@ -89,7 +81,7 @@ DesktopObservationRead read_desktop_observation(const DesktopObservationSource &
             if (source.actions && source.actions->epoch() != epoch)
                 return unavailable("observation unavailable: desktop_epoch_changed");
             auto observation = assembled.observation;
-            if (exclusion.lease && !exclusion.lease->excluded())
+            if (presentation_excluded == false)
                 observation.environment_state +=
                     "; pet_presentation=not_excluded; pet_exclusion=unsupported_compositor";
             if (fresh_visual) {
@@ -102,25 +94,6 @@ DesktopObservationRead read_desktop_observation(const DesktopObservationSource &
         }();
     } catch (...) {
         result = unavailable("observation provider or pet exclusion failed");
-    }
-    // Always restore before sending any response, including provider failures,
-    // exceptions and expired operations. A throwing verifier cannot skip release.
-    if (exclusion.lease) {
-        desktop::ProviderError verified, restored;
-        try {
-            verified = exclusion.lease->verify({});
-        } catch (...) {
-            verified = {"pet_exclusion_failed", "pet verification threw"};
-        }
-        try {
-            restored = exclusion.lease->release();
-        } catch (...) {
-            restored = {"pet_restore_failed", "pet restore threw"};
-        }
-        if (!restored.code.empty())
-            return unavailable(detail(restored));
-        if (!verified.code.empty())
-            return unavailable(detail(verified));
     }
     if (bounded.cancelled())
         return unavailable("observation cancelled_or_expired");

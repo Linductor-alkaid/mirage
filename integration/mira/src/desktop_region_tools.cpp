@@ -1,9 +1,13 @@
+#include "desktop_action_verification.hpp"
 #include "desktop_image_supply.hpp"
+#include "desktop_stability_guard.hpp"
 #include "tool_click.hpp"
 #include "tool_geometry.hpp"
 #include <algorithm>
 #include <cmath>
 #include <mirador/transform.hpp>
+#include <mirage/desktop/input_cadence.hpp>
+#include <mirage/desktop/input_session.hpp>
 #include <stdexcept>
 
 namespace mirage::integration::detail {
@@ -47,7 +51,7 @@ void DesktopImageTurn::register_region_tool(mira::BuiltinToolRegistry &registry,
             continue;
         mira::BuiltinToolSpec spec;
         spec.wire_name = std::string("desktop.vision.") + operation + "_region";
-        spec.version = {1, 0, 0};
+        spec.version = {4, 0, 0};
         spec.has_side_effects = true;
         spec.description =
             std::string(operation) +
@@ -55,21 +59,28 @@ void DesktopImageTurn::register_region_tool(mira::BuiltinToolRegistry &registry,
             "(region_actionable=true). Requires image_scope, environment_epoch and target_context. "
             "click accepts button=left/middle/right (default left) and click_count=1..32 (default "
             "1); "
+            "click automatically travels from the current pointer position along a locally "
+            "timed minimum-jerk path, then rechecks the target before pressing. No model timing "
+            "parameter; hover effects on the way are real. "
             "scroll accepts horizontal_steps/vertical_steps (default 0), positive right/down, "
             "total "
             "absolute steps 1..16. drag accepts button and destination_x/y/width/height rectangle; "
-            "complete 16-segment linear drag between rectangle centers, max 2048 desktop pixels. "
+            "complete locally paced curved drag between rectangle centers, max 2048 desktop "
+            "pixels. "
+            "Scroll and drag also approach/revalidate first; wheel steps are paced individually. "
             "scroll/drag require target_context=window, window_id, both targets in the same "
             "focused window. "
             "click also permits target_context=display and display_id for desktop/panel/menu. "
             "Rechecks source geometry/focus and fresh pixels of both targets before input; "
-            "max one second, no held-button continuation. Supplied intent expires after 60 "
+            "max three seconds including approach/guards. No model timing parameters. "
+            "No held-button continuation. Supplied intent expires after 60 "
             "seconds. "
-            "Declare verify_kind before input; foreground_changed proves UI progress only. "
+            "verify_kind is optional; foreground_changed proves UI progress only. "
             "Inspect fresh postcondition evidence before reporting task success.";
         Json::Object props;
-        if (click)
+        if (click) {
             props.emplace_back("click_count", click_count_schema());
+        }
         if (click || drag)
             props.emplace_back("button", button_schema());
         if (std::string_view(operation) == "scroll")
@@ -95,8 +106,7 @@ void DesktopImageTurn::register_region_tool(mira::BuiltinToolRegistry &registry,
             "environment_epoch",
             Json{Json::Object{{"type", "integer"}, {"minimum", 1}, {"maximum", INT64_MAX}}});
         Json::Array required{
-            "image_scope", "environment_epoch", "target_context", "x", "y", "width",
-            "height",      "verify_kind"};
+            "image_scope", "environment_epoch", "target_context", "x", "y", "width", "height"};
         if (drag)
             for (const auto *key :
                  {"destination_x", "destination_y", "destination_width", "destination_height"})
@@ -115,8 +125,10 @@ void DesktopImageTurn::register_region_tool(mira::BuiltinToolRegistry &registry,
                     return mira::Result<Json>{failure("observation_exception")};
                 }
             };
-        if (decorate)
+        if (decorate) {
+            DesktopActionVerification::configure_policy(spec);
             handler = decorate(spec.wire_name, std::move(handler));
+        }
         if (!registry.register_tool(std::move(spec), std::move(handler)))
             throw std::logic_error("region tool registration rejected");
     }
@@ -134,15 +146,16 @@ mira::Result<Json> DesktopImageTurn::pointer_region(const Json &args,
     if (!clicks || !button || !horizontal || !vertical ||
         ((drag || scroll) && args.find("click_count")) || (scroll && args.find("button")) ||
         (!scroll && (args.find("horizontal_steps") || args.find("vertical_steps"))) ||
-        (scroll && !desktop::valid_scroll_steps(*horizontal, *vertical)))
+        args.find("glide_ms") || (scroll && !desktop::valid_scroll_steps(*horizontal, *vertical)))
         return failure("invalid_argument");
     for (const auto *key :
          {"destination_x", "destination_y", "destination_width", "destination_height"})
         if (!drag && args.find(key))
             return failure("invalid_argument");
-    const auto end =
-        std::min(ctx.deadline.value_or(std::chrono::steady_clock::now() + std::chrono::seconds{1}),
-                 std::chrono::steady_clock::now() + std::chrono::seconds{1});
+    const auto cap = operation == "click" ? desktop::pointer_motion_policy::action_timeout
+                                          : desktop::input_cadence_policy::action_timeout;
+    const auto end = std::min(ctx.deadline.value_or(std::chrono::steady_clock::now() + cap),
+                              std::chrono::steady_clock::now() + cap);
     const desktop::CancelToken bounded([this, ctx, end] {
         return cancel_.cancelled() || ctx.cancelled_or_expired(mira::Timestamp::now()) ||
                std::chrono::steady_clock::now() >= end;
@@ -234,8 +247,6 @@ mira::Result<Json> DesktopImageTurn::pointer_region(const Json &args,
          (!source.front.found || source.front.window.id != desktop_.capture_scope ||
           !geometry_contains(source.front.window.geometry, area))))
         return failure("invalid_target_context");
-    if (captures_ >= 4)
-        return failure("capture_budget_exceeded");
     const auto authorize = [&](const std::string &capability, const std::string &resource) {
         const AtomCancelProbe probe = [&] { return bounded.cancelled(); };
         return desktop_.authorize
@@ -278,7 +289,6 @@ mira::Result<Json> DesktopImageTurn::pointer_region(const Json &args,
     };
     if (!stable())
         return failure(bounded.cancelled() ? "cancelled" : "stale_observation");
-    ++captures_;
     const auto fresh = measure_phase(timings_ ? &timings_->capture : nullptr,
                                      [&] { return screen->capture_roi(area, {}, bounded); });
     if (!fresh.ok || fresh.cancelled || bounded.cancelled())
@@ -311,12 +321,39 @@ mira::Result<Json> DesktopImageTurn::pointer_region(const Json &args,
         auto *input = desktop_.environment->input();
         const desktop::PointerActionScope scope{source.front.window.id,
                                                 source.front.window.geometry};
-        if (drag)
-            outcome = input->drag_with_button(scope, from, to, *button, limits, bounded);
-        else if (scroll)
-            outcome = input->scroll_at(scope, from, *horizontal, *vertical, limits, bounded);
-        else
-            outcome = input->click_sequence_at(from.x, from.y, *button, *clicks, limits, bounded);
+        {
+            const auto travel = input->approach_target(from, std::min(start->width, start->height),
+                                                       limits, bounded);
+            if (!travel.input_released)
+                lease.release_failed();
+            if (!travel.ok)
+                return failure(travel.error.code, travel.side_effect_may_have_occurred,
+                               travel.input_released);
+            // Hover can change menus/targets. Recheck the arrival before any
+            // press, without publishing a new model image or action result.
+            const auto arrived = screen->capture_roi(area, {}, bounded);
+            bool unchanged = arrived.ok && valid_image_frame(arrived.frame, desktop_image_bytes) &&
+                             arrived.frame.width == area.width &&
+                             arrived.frame.height == area.height;
+            if (unchanged)
+                unchanged = assess_target_stability(fresh.frame, arrived.frame,
+                                                    {0, 0, area.width, area.height}) ==
+                            TargetStability::kStable;
+            if (!unchanged || !stable())
+                return failure(bounded.cancelled() ? "cancelled" : "arrival_target_changed",
+                               travel.side_effect_may_have_occurred);
+            limits.timeout = std::min(desktop::input_cadence_policy::action_timeout,
+                                      std::chrono::duration_cast<std::chrono::milliseconds>(
+                                          end - std::chrono::steady_clock::now()));
+            if (drag)
+                outcome = input->drag_with_button(scope, from, to, *button, limits, bounded);
+            else if (scroll)
+                outcome = input->scroll_at(scope, from, *horizontal, *vertical, limits, bounded);
+            else
+                outcome =
+                    input->click_sequence_at(from.x, from.y, *button, *clicks, limits, bounded);
+            outcome.side_effect_may_have_occurred |= travel.side_effect_may_have_occurred;
+        }
     } catch (...) {
         lease.release_failed();
         return failure("provider_exception", true, false);

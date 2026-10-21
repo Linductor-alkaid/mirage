@@ -3,7 +3,9 @@
 #include "../../platform/linux/src/portal_authorization.hpp"
 #include "../../platform/linux/src/portal_screen_backend.hpp"
 #include "../support/test.hpp"
+#include <array>
 #include <chrono>
+#include <cstring>
 #include <poll.h>
 #ifdef MIRAGE_TEST_PIPEWIRE
 #include "../../platform/linux/src/portal_pipewire_capture.hpp"
@@ -41,6 +43,23 @@ int main(int argc, char **argv) {
         desktop::CancelToken stop;
         stop.request_cancel();
         MIRAGE_CHECK(copy_portal_pixels(input, 2, 2, 12, PackedPixels::Bgra, {32}, stop).cancelled);
+        // Wire-shaped metadata, deliberately unaligned/truncated cases included.
+        std::array<std::uint32_t, 7> cursor{1, 0, 200, 120, 0, 0, 0};
+        std::array<std::uint8_t, 29> cursor_bytes{};
+        const auto metadata = [&] {
+            std::memcpy(cursor_bytes.data() + 1, cursor.data(), sizeof(cursor));
+            return std::span(cursor_bytes).subspan(1);
+        };
+        auto position = decode_portal_cursor(metadata(), 320, 200);
+        MIRAGE_CHECK(position && position->x == 200 && position->y == 120);
+        MIRAGE_CHECK(!decode_portal_cursor(metadata().first(20), 320, 200));
+        cursor[0] = 0;
+        MIRAGE_CHECK(!decode_portal_cursor(metadata(), 320, 200));
+        cursor[0] = 1;
+        cursor[2] = 320;
+        MIRAGE_CHECK(!decode_portal_cursor(metadata(), 320, 200));
+        cursor[2] = UINT32_MAX;
+        MIRAGE_CHECK(!decode_portal_cursor(metadata(), 320, 200));
         return testing::finish("portal_stream_pixels");
     }
 #endif

@@ -3,7 +3,7 @@
 > 状态：In Progress
 > 负责人：Mirage 维护者
 > 所属计划：[实施总计划](mirage-implementation-plan.md)
-> 更新日期：2026-10-18
+> 更新日期：2026-10-19
 > 决策：[DEC-033](../decisions/DEC-033-native-agent-frontend.md)
 > 前置：既有 M5 服务与 IPC；本轮交付不依赖完整 M5 发布验收。
 > 建议发布点：暂不新增发布标签。
@@ -18,6 +18,7 @@
 
 | 编号 | 状态 | 结果与验收 |
 | --- | --- | --- |
+| M6-47 | In Progress | DEC-108：历史消息保留行几何，仅构建视口及预留区的正文/控件；性能和回归见[维护计划](maintenance-performance-20261019.md)。 |
 | M6-46 | In Progress | DEC-104：失败轮次保留已生成正文，错误单列；Native全量101/101、ASAN/UBSAN/TSAN各6/6（含fixture）、原生28,636 checks通过；维护者重启实例与Windows待补验，[证据](../compatibility/native-failed-output-retention-20261018.md)。 |
 | M6-45 | Completed（Linux本地） | DEC-102：缺有效供应商用量时复用Mira请求输入估算并标注来源，随会话保存；Release7/7、原生28,457 checks、ASAN/UBSAN各7/7、TSAN5/5（含fixture）；Windows及真实供应商缺usage待补跑，[证据](../compatibility/native-context-usage-20261004.md#2026-10-18m6-45-无供应商用量时显示本地估算) |
 | M6-44 | In Progress | DEC-101 Linux 数据路径与原生缓存验证通过：默认不限个数、逐会话 JSON、旧格式迁移、坏文件隔离、删除/失败回滚；Release/ASAN/UBSAN 五类测试、TSAN 三类测试通过。真实 Wayland 桌面8会话19轮迁移/退出重开、服务39会话准入通过；Windows待补跑，[证据](../compatibility/session-files-20261018.md)。 |
@@ -738,3 +739,20 @@ usage时的输入估算。复用Mira公开请求估算，不改ModelUsage或预�
 checks无失败，ASAN/UBSAN各7/7、TSAN5/5。真实报告优先与零值、低质量降级、
 工具最终请求、普通对话、重启及未知窗口均有覆盖。Windows与真实供应商无usage实测
 未执行，负责人维护者，条件及命令见[验收记录](../compatibility/native-context-usage-20261004.md#2026-10-18m6-45-无供应商用量时显示本地估算)。
+
+
+### 2026-10-19：M6-47 性能增量
+
+40 轮长历史仅构建视口附近正文与控件，几何/跟随保留；Linux 私有性能与 sanitizer 子门禁已通过，真实桌面/Windows 留开放。
+详见[性能记录](../benchmarks/native-runtime-pet-20261019.md)和
+[维护计划](maintenance-performance-20261019.md)。
+
+
+### 2026-10-20：本机运行目录误删恢复（M6-04/M6-12 维护）
+
+维护者确认另一会话误删整个 build/，运行中字体与 pet 动画资源随之丢失。
+按当前源码完整重建并重新启动 native-release，恢复桌面入口；31 项资源摘要、
+定向 8/8（含夹具）及真实窗口中文/动画检查通过，19 个会话/状态文件摘要未变。
+这是一轮环境恢复，未修改渲染器/动画实现，也不关闭原未完成平台或模型门禁。
+准确命令、作用域及证据见
+[运行目录恢复记录](../compatibility/native-build-recovery-20261020.md)。

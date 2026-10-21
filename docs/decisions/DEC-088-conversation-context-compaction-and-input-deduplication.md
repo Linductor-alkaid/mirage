@@ -600,8 +600,18 @@ std::vector<mira::ModelInputItem> supply_image_as_text_description(
   输出预算与 preflight（本决策的输入侧对偶）
 - [DEC-085](DEC-085-session-loop-resilience-and-tool-failure-handling.md)：
   会话韧性（续写、失败分类）
-- [DEC-053](../../../third_party/mira/docs/decisions/DEC-053-conversation-image-supply-seam.md)：
+- [DEC-053](../../third_party/mira/docs/decisions/DEC-053-conversation-image-supply-seam.md)：
   图片供给缝（本决策扩展其 reuse 语义）
 - [session-failure-final-report-20261013.md](../compatibility/session-failure-final-report-20261013.md)：
   实际会话证据（问题来源）
 - ZCode `compact.ts`：三级压缩参考实现（micro/auto/reactive）
+
+
+## 2026-10-20：视觉重复身份与普通动作 epoch 分离
+
+BUG-20261020-001 修正 capability 1 的宿主身份：相同像素在普通动作 epoch 推进后
+仍是重复视觉输入。身份键为 session/task/task_epoch、authority、图源与坐标映射
+及 PNG 摘要；新任务/权限/源映射/像素变化清零，计数饱和不回绕。沿 pinned Mira
+的 identity provider 渲染第三次重复提示，不新增调度、重试或累计任务终止器。
+原 epoch/新鲜度/owner 检查继续决定该图片是否能供给和派发，重复提示不放宽它们。
+验收与已知 SSE 限制见[会话调查](../analysis/native-action-recovery-20261020.md)。

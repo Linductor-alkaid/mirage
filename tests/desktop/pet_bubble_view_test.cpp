@@ -42,7 +42,7 @@ int main(int argc, char **argv) {
         "assets/pet", *mirage::runtime::pet::clip_for_display("thinking"), clip, diagnostic));
     auto images = std::make_shared<eui::ImageStream>(1);
     eui::ImageFrame image;
-    image.pixels = clip.rgba_frames[22];
+    image.pixels = clip.pixels(22);
     image.width = image.height = 512;
     image.stride = 2048;
     image.format = eui::ImagePixelFormat::RGBA8;

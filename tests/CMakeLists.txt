@@ -235,6 +235,27 @@ if(X11_FOUND AND X11_Xtst_FOUND)
         LABELS "integration"
         TIMEOUT 120
     )
+
+    # DEC-110 / M7-26 smooth pointer travel: real X11 event-level evidence on
+    # a private headless Xvfb (corridor sampling through an independent Xlib
+    # connection, landing tolerance, wall-clock budget, mid-travel cancel,
+    # negative budget matrix, click-after-travel). Same precondition as
+    # x11_backend_test.
+    add_executable(x11_smooth_move_test platform/x11_smooth_move_test.cpp)
+    target_compile_features(x11_smooth_move_test PUBLIC cxx_std_20)
+    mirage_enable_warnings(x11_smooth_move_test)
+    target_link_libraries(x11_smooth_move_test
+        PRIVATE
+            Mirage::platform
+            Mirage::desktop
+            ${X11_X11_LIB}
+            ${X11_Xtst_LIB}
+    )
+    add_test(NAME x11_smooth_move_test COMMAND x11_smooth_move_test)
+    set_tests_properties(x11_smooth_move_test PROPERTIES
+        LABELS "integration;platform"
+        TIMEOUT 60
+    )
 endif()
 
 # M5-09 X11 shape overlay carrier (DEC-029): exercised against a private
@@ -1174,6 +1195,13 @@ if(UNIX)
 endif()
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND MIRAGE_ENABLE_NATIVE_FRONTEND)
+    add_executable(pet_texture_test desktop/pet_texture_test.cpp)
+    target_include_directories(pet_texture_test SYSTEM PRIVATE
+        ${CMAKE_SOURCE_DIR}/third_party/eui-neo ${CMAKE_SOURCE_DIR}/third_party/eui-neo/include)
+    target_link_libraries(pet_texture_test PRIVATE eui::neo Mirage::ipc Mirage::platform)
+    mirage_enable_warnings(pet_texture_test)
+    add_test(NAME pet_texture_test COMMAND pet_texture_test)
+    set_tests_properties(pet_texture_test PROPERTIES LABELS "integration;ui;pet" TIMEOUT 30)
     add_executable(native_conversation_view_test desktop/native_conversation_view_test.cpp
         ${CMAKE_SOURCE_DIR}/apps/native/chat_model.cpp
         ${CMAKE_SOURCE_DIR}/apps/native/window_controls.cpp
@@ -1257,6 +1285,56 @@ mirage_enable_warnings(action_contract_test)
 add_test(NAME action_contract_test COMMAND action_contract_test)
 set_tests_properties(action_contract_test PROPERTIES LABELS "integration;runtime" TIMEOUT 30)
 
+# DEC-110 / M7-25 input session contract: platform-neutral golden
+# reconciliation (capabilities, budgets, states/events, full transition
+# matrix, key vocabulary, command matrix) plus the legacy chord-vocabulary
+# regression that shares the base-key table.
+add_executable(input_session_contract_test desktop/input_session_contract_test.cpp)
+target_compile_definitions(input_session_contract_test PRIVATE
+    MIRAGE_INPUT_SESSION_CONTRACT_GOLDEN="${CMAKE_CURRENT_SOURCE_DIR}/desktop/data/m7_input_session_contract.json")
+target_link_libraries(input_session_contract_test PRIVATE Mirage::desktop Mirage::integration_mira Mirage::kairo_consumer)
+mirage_enable_warnings(input_session_contract_test)
+add_test(NAME input_session_contract_test COMMAND input_session_contract_test)
+set_tests_properties(input_session_contract_test PROPERTIES LABELS "unit;desktop" TIMEOUT 30)
+
+# DEC-110 / M7-26 smooth pointer travel: the platform-neutral default
+# implementation contract (budget validation through the shared timing
+# validator, unsupported until a backend opts in).
+mirage_add_test(smooth_move_contract_test
+    SOURCES desktop/smooth_move_contract_test.cpp
+    LIBS Mirage::desktop
+    LABELS "unit;desktop"
+    TIMEOUT 30
+    )
+
+# DEC-110 / M7-26 smooth pointer travel: the shared platform-neutral schedule
+# generator consumed by both the X11 backend and the Portal glide path
+# (zero distance, segment budget with the 4 ms cadence floor, minimum-jerk
+# easing, exact landing).
+mirage_add_test(smooth_move_schedule_test
+    SOURCES desktop/smooth_move_schedule_test.cpp
+    LIBS Mirage::desktop
+    LABELS "unit;desktop"
+    TIMEOUT 30
+    )
+
+mirage_add_test(input_cadence_test
+    SOURCES desktop/input_cadence_test.cpp
+    LIBS Mirage::desktop
+    LABELS "unit;desktop"
+    TIMEOUT 30
+    )
+
+# DEC-110 / M7-26 smooth pointer travel tool surface: the glide_ms opt-in of
+# desktop.vision.click / desktop.vision.click_region over the fake desktop
+# environment (gate order, honest failure receipts, deadline cap extension).
+mirage_add_test(visual_glide_tools_test
+    SOURCES integration/visual_glide_tools_test.cpp
+    LIBS Mirage::integration_mirador mirador::fusion Mirage::kairo_consumer
+    LABELS "integration;runtime;security"
+    TIMEOUT 60
+    )
+
 # POSIX-coupled: the pretimeout scenario sleeps through <poll.h>; see the
 # ppocr_pipeline_test note above.
 if(UNIX)
@@ -1266,6 +1344,11 @@ mirage_add_test(desktop_image_supply_test
     LABELS "integration;runtime"
     TIMEOUT 30
     )
+if(CMAKE_CXX_FLAGS MATCHES "fsanitize=thread")
+    # The full PNG/content matrix is much slower under instrumentation; this
+    # only bounds the test process, never the production acquisition deadline.
+    set_tests_properties(desktop_image_supply_test PROPERTIES TIMEOUT 120)
+endif()
 
     # DEC-088 capability 2/3: DesktopContextBuilder compaction mapping and its
     # ConversationLoop seam wiring over the scripted-provider harness path.
@@ -1290,6 +1373,10 @@ if(UNIX AND MIRAGE_PNG_CHECK_PYTHON)
 endif()
 
 add_executable(post_action_verification_test integration/post_action_verification_test.cpp)
+mirage_add_test(desktop_action_policy_test
+    SOURCES integration/desktop_action_policy_test.cpp
+    LIBS Mirage::integration_mira Mirage::kairo_consumer
+    LABELS "integration;runtime;security")
 target_link_libraries(post_action_verification_test PRIVATE Mirage::integration_mira Mirage::kairo_consumer)
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND X11_FOUND AND X11_Xtst_FOUND AND X11_Xrandr_FOUND)
     target_compile_definitions(post_action_verification_test PRIVATE MIRAGE_POST_ACTION_X11)
@@ -1345,6 +1432,11 @@ endif()
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     get_target_property(_mirage_portal_available mirage_platform MIRAGE_PORTAL_AVAILABLE)
     if(_mirage_portal_available)
+        # Manual opt-in diagnostic, excluded from ctest and default builds.
+        add_executable(portal_cursor_probe EXCLUDE_FROM_ALL manual/portal_cursor_probe.cpp)
+        target_compile_features(portal_cursor_probe PRIVATE cxx_std_20)
+        mirage_enable_warnings(portal_cursor_probe)
+        target_link_libraries(portal_cursor_probe PRIVATE Mirage::platform Mirage::kairo_consumer)
         add_executable(portal_screen_test platform/portal_screen_test.cpp)
         target_compile_features(portal_screen_test PRIVATE cxx_std_20)
         mirage_enable_warnings(portal_screen_test)
@@ -1477,7 +1569,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND _mirage_pipewire_available)
     endif()
     target_link_options(portal_stream_retention_test PRIVATE
         -Wl,--wrap=pw_stream_dequeue_buffer -Wl,--wrap=pw_stream_queue_buffer
-        -Wl,--wrap=pw_stream_destroy)
+        -Wl,--wrap=pw_stream_destroy -Wl,--wrap=pw_stream_update_params)
     mirage_enable_warnings(portal_stream_retention_test)
     add_test(NAME portal_stream_retention_test COMMAND portal_stream_retention_test)
     set_tests_properties(portal_stream_retention_test PROPERTIES LABELS "platform;wayland;unit" TIMEOUT 30)
@@ -1554,7 +1646,7 @@ if(UNIX)
 mirage_add_test(basic_agent_toolset_test
     SOURCES integration/basic_agent_toolset_test.cpp ${CMAKE_SOURCE_DIR}/runtime/service/src/basic_output_store.cpp
     INCLUDE_DIRS ${CMAKE_SOURCE_DIR}/runtime/service/include
-    LIBS Mirage::integration_mira Mirage::desktop Mirage::platform
+    LIBS Mirage::integration_mira Mirage::desktop Mirage::platform Mirage::ipc Mirage::persistence
     LABELS "integration;runtime"
     TIMEOUT 120
     )
@@ -1634,3 +1726,32 @@ mirage_add_test(pet_exclusion_tools_test
     LIBS Mirage::integration_mira
     LABELS "integration;pet"
     TIMEOUT 20)
+
+mirage_add_test(target_text_value_test
+    SOURCES desktop/target_text_value_test.cpp
+    LIBS Mirage::desktop
+    LABELS "unit;desktop"
+    TIMEOUT 30
+    )
+
+mirage_add_test(action_recovery_facts_test
+    SOURCES integration/action_recovery_facts_test.cpp
+    LIBS Mirage::integration_mira Mirage::kairo_consumer
+    LABELS "integration;runtime;security"
+    TIMEOUT 30
+    )
+
+mirage_add_test(controlled_input_session_test
+    SOURCES integration/controlled_input_session_test.cpp
+    LIBS Mirage::integration_mira Mirage::kairo_consumer
+    LABELS "integration;runtime;input"
+    TIMEOUT 30)
+
+get_target_property(MIRAGE_CONTROLLED_XINPUT2 mirage_platform MIRAGE_XINPUT2_AVAILABLE)
+if(MIRAGE_CONTROLLED_XINPUT2)
+mirage_add_test(controlled_input_x11_test
+    SOURCES platform/controlled_input_x11_test.cpp
+    LIBS Mirage::platform Mirage::integration_mira Mirage::kairo_consumer ${X11_X11_LIB} ${X11_Xtst_LIB}
+    LABELS "integration;platform;input"
+    TIMEOUT 30)
+endif()

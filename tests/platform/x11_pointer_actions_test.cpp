@@ -41,7 +41,10 @@ class Fixture {
         const auto root = DefaultRootWindow(client);
         window = XCreateSimpleWindow(client, root, 40, 40, 360, 240, 0, 0, 0xffffff);
         other = XCreateSimpleWindow(client, root, 440, 40, 100, 100, 0, 0, 0xffffff);
-        XSelectInput(client, window, ButtonPressMask | ButtonReleaseMask | PointerMotionMask);
+        XSelectInput(client, window,
+                     ButtonPressMask | ButtonReleaseMask | PointerMotionMask | KeyPressMask |
+                         KeyReleaseMask);
+        XSelectInput(client, other, KeyPressMask | KeyReleaseMask);
         XMapWindow(client, window);
         XMapWindow(client, other);
         XSetInputFocus(client, window, RevertToParent, CurrentTime);
@@ -82,7 +85,7 @@ class Fixture {
             XEvent event{};
             XNextEvent(client, &event);
             if (event.type == ButtonPress || event.type == ButtonRelease ||
-                event.type == MotionNotify)
+                event.type == MotionNotify || event.type == KeyPress || event.type == KeyRelease)
                 events.push_back(event);
         }
     }
@@ -108,6 +111,18 @@ void normal_and_budgets() {
     MIRAGE_CHECK(f.count(ButtonPress, 6) == 2 && f.count(ButtonRelease, 6) == 2);
     MIRAGE_CHECK(f.count(ButtonPress) == 5 && f.count(ButtonRelease) == 5);
     MIRAGE_CHECK(!(f.mask() & (Button1Mask | Button4Mask | Button5Mask)));
+    // Independent X server timestamps, not just the final wheel count.
+    Time last_up = 0, down = 0;
+    for (const auto &event : f.events) {
+        if (event.type == ButtonPress) {
+            if (last_up)
+                MIRAGE_CHECK(event.xbutton.time - last_up >= 29);
+            down = event.xbutton.time;
+        } else if (event.type == ButtonRelease) {
+            MIRAGE_CHECK(event.xbutton.time - down >= 7);
+            last_up = event.xbutton.time;
+        }
+    }
     f.reset();
     MIRAGE_CHECK(input->scroll_at(f.scope, {90, 100}, 1, -1, {}, {}).ok);
     MIRAGE_CHECK(f.count(ButtonPress, 4) == 1 && f.count(ButtonPress, 7) == 1);
@@ -148,7 +163,21 @@ void normal_and_budgets() {
     for (const auto &event : f.events)
         if (event.type == MotionNotify && (event.xmotion.state & Button1Mask))
             ++held_motion;
-    MIRAGE_CHECK(held_motion > 0 && held_motion <= 16);
+    MIRAGE_CHECK(held_motion > 0 && held_motion <= 32);
+    Time pressed = 0, first_motion = 0, last_motion = 0, lifted = 0;
+    for (const auto &event : f.events) {
+        if (event.type == ButtonPress)
+            pressed = event.xbutton.time;
+        if (event.type == MotionNotify && (event.xmotion.state & Button1Mask)) {
+            if (!first_motion)
+                first_motion = event.xmotion.time;
+            last_motion = event.xmotion.time;
+        }
+        if (event.type == ButtonRelease)
+            lifted = event.xbutton.time;
+    }
+    MIRAGE_CHECK(first_motion - pressed >= 44 && last_motion - first_motion >= 180 &&
+                 lifted - last_motion >= 34);
     f.reset();
     for (const auto steps : {0, 17, std::numeric_limits<int>::min()}) {
         const auto failed = input->scroll_at(f.scope, {90, 100}, steps, 0, {}, {});
@@ -159,13 +188,122 @@ void normal_and_budgets() {
     MIRAGE_CHECK(!input->drag_to(f.scope, {90, 100}, {90, 100}, {}, {}).ok);
     MIRAGE_CHECK(!input->drag_to(f.scope, {90, 100}, {400, 100}, {}, {}).ok);
     d::InputLimits invalid;
-    invalid.timeout = std::chrono::milliseconds{1001};
+    invalid.timeout = std::chrono::milliseconds{3001};
     MIRAGE_CHECK(!input->scroll_at(f.scope, {90, 100}, 1, 0, invalid, {}).ok);
     MIRAGE_CHECK(f.count(ButtonPress) == 0 && f.count(ButtonRelease) == 0);
     MIRAGE_CHECK(!d::valid_drag_path({std::numeric_limits<int>::min(), 0},
                                      {std::numeric_limits<int>::max(), 0}));
     MIRAGE_CHECK(d::valid_drag_path({-2000, -100}, {0, -100}));
     MIRAGE_CHECK(!d::valid_drag_path({0, 0}, {2048, 1}));
+}
+
+void keyboard_cadence() {
+    Fixture f;
+    auto *input = f.env.input();
+    const auto key_down = [&](KeySym symbol) {
+        char keys[32]{};
+        XQueryKeymap(f.client, keys);
+        const auto code = XKeysymToKeycode(f.client, symbol);
+        return (keys[code / 8] & (1 << (code % 8))) != 0;
+    };
+    auto key_events = [&] {
+        f.drain();
+        std::vector<XKeyEvent> result;
+        for (const auto &event : f.events)
+            if (event.type == KeyPress || event.type == KeyRelease)
+                result.push_back(event.xkey);
+        return result;
+    };
+    const auto chord = input->key_chord({"ctrl+shift+t"}, {}, {});
+    MIRAGE_CHECK(chord.ok && chord.input_released);
+    auto keys = key_events();
+    MIRAGE_CHECK(keys.size() == 6);
+    if (keys.size() == 6) {
+        MIRAGE_CHECK(keys[1].time - keys[0].time >= 11 && keys[2].time - keys[1].time >= 11);
+        MIRAGE_CHECK(keys[3].time - keys[2].time >= 44);
+        MIRAGE_CHECK(keys[4].time - keys[3].time >= 7 && keys[5].time - keys[4].time >= 7);
+        MIRAGE_CHECK(keys[0].keycode == keys[5].keycode && keys[1].keycode == keys[4].keycode &&
+                     keys[2].keycode == keys[3].keycode);
+    }
+    MIRAGE_CHECK(!key_down(XK_Control_L) && !key_down(XK_Shift_L) && !key_down(XK_t));
+    f.reset();
+    const auto shift = input->key_chord({"shift"}, {}, {});
+    MIRAGE_CHECK(shift.ok && shift.input_released && shift.side_effect_may_have_occurred);
+    keys = key_events();
+    MIRAGE_CHECK(keys.size() == 2);
+    if (keys.size() == 2) {
+        MIRAGE_CHECK(keys[0].type == KeyPress && keys[1].type == KeyRelease);
+        MIRAGE_CHECK(keys[0].keycode == XKeysymToKeycode(f.client, XK_Shift_L));
+        MIRAGE_CHECK(keys[0].keycode == keys[1].keycode && keys[1].time - keys[0].time >= 44);
+    }
+    MIRAGE_CHECK(!key_down(XK_Shift_L));
+    f.reset();
+    const auto text = input->type_text("aB", {}, {});
+    MIRAGE_CHECK(text.ok && text.input_released);
+    keys = key_events();
+    MIRAGE_CHECK(keys.size() == 6);
+    if (keys.size() == 6) {
+        MIRAGE_CHECK(keys[1].time - keys[0].time >= 44);
+        MIRAGE_CHECK(keys[2].time - keys[1].time >= 34);
+        MIRAGE_CHECK(keys[3].time - keys[2].time >= 11 && keys[4].time - keys[3].time >= 44);
+        MIRAGE_CHECK(keys[5].time - keys[4].time >= 7);
+    }
+    f.reset();
+    d::InputLimits tiny;
+    tiny.timeout = std::chrono::milliseconds{1};
+    MIRAGE_CHECK(!input->key_chord({"ctrl+t"}, tiny, {}).side_effect_may_have_occurred);
+    MIRAGE_CHECK(!input->type_text("abc", tiny, {}).side_effect_may_have_occurred);
+    MIRAGE_CHECK(key_events().empty());
+    const auto too_long = input->type_text(std::string(300, 'a'), {}, {});
+    MIRAGE_CHECK(!too_long.ok && too_long.error.code == "input_timeout" &&
+                 !too_long.side_effect_may_have_occurred && key_events().empty());
+    int planning_probes = 0;
+    d::CancelToken planning_cancel([&] { return ++planning_probes >= 2; });
+    const auto plan_cancelled = input->type_text("abc", {}, planning_cancel);
+    MIRAGE_CHECK(plan_cancelled.cancelled && !plan_cancelled.side_effect_may_have_occurred &&
+                 key_events().empty());
+    for (const bool text_mode : {false, true}) {
+        f.reset();
+        d::CancelToken cancel([&] { return key_down(text_mode ? XK_b : XK_t); });
+        const auto stopped = text_mode ? input->type_text("abc", {}, cancel)
+                                       : input->key_chord({"ctrl+shift+t"}, {}, cancel);
+        MIRAGE_CHECK(!stopped.ok && stopped.cancelled && stopped.input_released &&
+                     stopped.side_effect_may_have_occurred);
+        MIRAGE_CHECK(!key_down(XK_Control_L) && !key_down(XK_Shift_L) && !key_down(XK_t) &&
+                     !key_down(XK_b) && !key_down(XK_c));
+        const auto events = key_events();
+        MIRAGE_CHECK(events.size() == (text_mode ? 4u : 6u));
+    }
+    f.reset();
+    const auto shift_code = XKeysymToKeycode(f.client, XK_Shift_L);
+    XTestFakeKeyEvent(f.client, shift_code, True, CurrentTime);
+    XSync(f.client, False);
+    f.reset();
+    const auto busy_shift = input->key_chord({"shift"}, {}, {});
+    MIRAGE_CHECK(!busy_shift.ok && busy_shift.error.code == "input_busy" &&
+                 !busy_shift.side_effect_may_have_occurred && key_down(XK_Shift_L));
+    MIRAGE_CHECK(key_events().empty());
+    XTestFakeKeyEvent(f.client, shift_code, False, CurrentTime);
+    XSync(f.client, False);
+    f.reset();
+    d::CancelToken shift_cancel([&] { return key_down(XK_Shift_L); });
+    const auto cancelled_shift = input->key_chord({"shift"}, {}, shift_cancel);
+    MIRAGE_CHECK(cancelled_shift.cancelled && cancelled_shift.input_released &&
+                 cancelled_shift.side_effect_may_have_occurred && !key_down(XK_Shift_L));
+    MIRAGE_CHECK(key_events().size() == 2);
+    f.reset();
+    bool moved = false;
+    d::CancelToken focus_change([&] {
+        if (!moved && key_down(XK_a)) {
+            moved = true;
+            XSetInputFocus(f.client, f.other, RevertToParent, CurrentTime);
+            XSync(f.client, False);
+        }
+        return false;
+    });
+    const auto changed = input->type_text("abc", {}, focus_change);
+    MIRAGE_CHECK(!changed.ok && changed.error.code == "focus_changed" && changed.input_released);
+    MIRAGE_CHECK(moved && key_events().size() == 2 && !key_down(XK_a));
 }
 
 void preflight_guards() {
@@ -224,7 +362,7 @@ void running_guards() {
                 if (scenario == "exception")
                     throw std::runtime_error("probe fault");
                 if (scenario == "timeout")
-                    (void)::poll(nullptr, 0, 550); // bounded test-only deadline fault
+                    (void)::poll(nullptr, 0, 1600); // bounded test-only deadline fault
                 if (scenario == "focus")
                     XSetInputFocus(f.client, f.other, RevertToParent, CurrentTime);
                 if (scenario == "move")
@@ -237,7 +375,7 @@ void running_guards() {
         }};
         d::InputLimits limits;
         if (scenario == "timeout")
-            limits.timeout = std::chrono::milliseconds{500};
+            limits.timeout = std::chrono::milliseconds{1500};
         d::InputOutcome result;
         {
             auto lease = owner->try_begin(probe);
@@ -268,7 +406,9 @@ void running_guards() {
         }
         return stop.cancelled();
     }};
-    const auto result = f.env.input()->scroll_at(f.scope, {90, 100}, 0, 16, {}, probe);
+    d::InputLimits wheel_limits;
+    wheel_limits.timeout = std::chrono::milliseconds{3000};
+    const auto result = f.env.input()->scroll_at(f.scope, {90, 100}, 0, 16, wheel_limits, probe);
     MIRAGE_CHECK(result.cancelled && result.input_released && injected);
     MIRAGE_CHECK(f.count(ButtonPress, 5) == 1 && f.count(ButtonRelease, 5) == 1);
     MIRAGE_CHECK(!(f.mask() & Button5Mask));
@@ -577,6 +717,7 @@ int main(int argc, char **argv) {
         executor
             .submit_auto([&] {
                 normal_and_budgets();
+                keyboard_cadence();
                 preflight_guards();
                 running_guards();
                 drag_helper_guards(helpers);

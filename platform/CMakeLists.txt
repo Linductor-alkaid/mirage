@@ -36,7 +36,12 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     # reports no window/screen/input capability (fail closed, DEC-015).
     find_package(X11 QUIET)
     if(X11_FOUND AND X11_Xtst_FOUND AND X11_Xrandr_FOUND)
-        target_sources(mirage_platform PRIVATE linux/src/x11_backend.cpp)
+        target_sources(mirage_platform PRIVATE linux/src/x11_backend.cpp linux/src/x11_input_session.cpp)
+        if(X11_Xi_FOUND)
+            target_link_libraries(mirage_platform PRIVATE X11::Xi)
+            target_compile_definitions(mirage_platform PRIVATE MIRAGE_LINUX_XINPUT2=1)
+            set_property(TARGET mirage_platform PROPERTY MIRAGE_XINPUT2_AVAILABLE TRUE)
+        endif()
         target_link_libraries(mirage_platform PRIVATE ${X11_X11_LIB} ${X11_Xtst_LIB}
                                                       ${X11_Xrandr_LIB})
         target_compile_definitions(mirage_platform PRIVATE MIRAGE_LINUX_X11=1)

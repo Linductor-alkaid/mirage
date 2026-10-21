@@ -227,6 +227,8 @@ struct CastSession {
     guint subscription = 0;
     guint32 node = 0, devices = 0;
     int logical_width = 0, logical_height = 0, frame_width = 0, frame_height = 0;
+    std::optional<desktop::PointerPoint> observed_pointer;
+    std::uint64_t observed_pointer_sequence = 0;
     bool interaction = false;
     std::unique_ptr<PortalPipeWireStream> stream;
     ~CastSession() {
@@ -247,7 +249,8 @@ struct ContextScope {
 desktop::CaptureOutcome capture_cast_frame(CastSession &state, const desktop::CaptureLimits &limits,
                                            const desktop::CancelToken &cancel,
                                            std::chrono::steady_clock::time_point deadline,
-                                           std::int64_t not_before_ns = 0) {
+                                           std::shared_ptr<PresentationContext> presentation = {},
+                                           const desktop::CapturePresentation &acquire = {}) {
     ContextScope context(state.context);
     const desktop::CancelToken bounded([&] {
         (void)g_main_context_iteration(state.context, FALSE);
@@ -270,9 +273,14 @@ desktop::CaptureOutcome capture_cast_frame(CastSession &state, const desktop::Ca
         return rejected("cancelled");
     if (state.stream) {
         stage = "stream";
-        auto frame = state.stream->capture(limits, bounded, not_before_ns);
+        auto frame = desktop::capture_with_presentation(acquire, bounded, [&] {
+            return state.stream->capture(limits, bounded,
+                                         presentation ? presentation->not_before_ns.load() : 0);
+        });
         if (!frame.ok || bounded.cancelled())
             return rejected(frame.error.code, frame.error.message);
+        state.observed_pointer = state.stream->cursor_position();
+        state.observed_pointer_sequence = frame.frame.source_sequence;
         state.frame_width = frame.frame.width;
         state.frame_height = frame.frame.height;
         return frame;
@@ -305,11 +313,23 @@ desktop::CaptureOutcome capture_cast_frame(CastSession &state, const desktop::Ca
         return rejected("portal_remote_failed");
     stage = "stream";
     state.stream = std::make_unique<PortalPipeWireStream>(fd, state.node);
-    auto frame = state.stream->capture(limits, bounded, not_before_ns);
+    // Negotiate/prime the stream while the pet is visible. These pixels are
+    // never published; the subsequent capture applies the post-hide fence.
+    if (acquire) {
+        const auto primed = state.stream->capture(limits, bounded);
+        if (!primed.ok || bounded.cancelled())
+            return rejected(primed.error.code, primed.error.message);
+    }
+    auto frame = desktop::capture_with_presentation(acquire, bounded, [&] {
+        return state.stream->capture(limits, bounded,
+                                     presentation ? presentation->not_before_ns.load() : 0);
+    });
     if (!frame.ok || bounded.cancelled())
         return rejected(frame.error.code, frame.error.message);
     // A live stream changing pixel extent invalidates input rather than silently
     // applying an old image's coordinate transform.
+    state.observed_pointer = state.stream->cursor_position();
+    state.observed_pointer_sequence = frame.frame.source_sequence;
     state.frame_width = frame.frame.width;
     state.frame_height = frame.frame.height;
     return frame;
@@ -320,7 +340,8 @@ screencast(Connection connection, const char *sender, const std::string &identit
            std::chrono::steady_clock::time_point deadline, std::unique_ptr<CastSession> *retained,
            bool interaction = false, PortalAuthorization *authorization = nullptr,
            const std::string &restore_token = {}, bool authorization_only = false,
-           std::int64_t not_before_ns = 0) {
+           std::shared_ptr<PresentationContext> presentation = {},
+           const desktop::CapturePresentation &acquire = {}) {
     auto state = std::make_unique<CastSession>();
     state->connection = std::move(connection);
     state->sender = sender;
@@ -393,6 +414,19 @@ screencast(Connection connection, const char *sender, const std::string &identit
     g_variant_builder_init(&options, G_VARIANT_TYPE_VARDICT);
     g_variant_builder_add(&options, "{sv}", "types", g_variant_new_uint32(1));
     g_variant_builder_add(&options, "{sv}", "multiple", g_variant_new_boolean(FALSE));
+    if (interaction) {
+        const auto modes =
+            call(state->connection.get(), root, "org.freedesktop.DBus.Properties", "Get",
+                 g_variant_new("(ss)", screencast_interface, "AvailableCursorModes"),
+                 G_VARIANT_TYPE("(v)"));
+        GVariant *boxed = nullptr;
+        if (modes)
+            g_variant_get(modes.get(), "(v)", &boxed);
+        Variant available(boxed);
+        if (available && g_variant_is_of_type(available.get(), G_VARIANT_TYPE_UINT32) &&
+            (g_variant_get_uint32(available.get()) & 4u))
+            g_variant_builder_add(&options, "{sv}", "cursor_mode", g_variant_new_uint32(4));
+    }
     auto selected = session_request(state->connection.get(), state->sender.c_str(), identity,
                                     "SelectSources", state->path, options, state->context, bounded);
     if (!selected.values)
@@ -442,7 +476,7 @@ screencast(Connection connection, const char *sender, const std::string &identit
     }
     auto frame = capture_cast_frame(*state, limits, cancel,
                                     std::chrono::steady_clock::now() + std::chrono::seconds(5),
-                                    not_before_ns);
+                                    presentation, acquire);
     if (frame.ok && retained)
         *retained = std::move(state);
     return frame;
@@ -450,10 +484,32 @@ screencast(Connection connection, const char *sender, const std::string &identit
 
 desktop::InputOutcome shared_input(CastSession &s, const desktop::SharedInputAction &action,
                                    const desktop::InputLimits &limits,
-                                   const desktop::CancelToken &cancel) {
+                                   const desktop::CancelToken &cancel,
+                                   PortalPointerState &pointer) {
     ContextScope context(s.context);
-    PortalInputContext input{
-        s.devices, s.logical_width, s.logical_height, s.frame_width, s.frame_height, {}, {}};
+    PortalInputContext input;
+    input.devices = s.devices;
+    input.logical_width = s.logical_width;
+    input.logical_height = s.logical_height;
+    input.frame_width = s.frame_width;
+    input.frame_height = s.frame_height;
+    {
+        const std::lock_guard guard(pointer.mutex);
+        input.has_pointer_origin = pointer.known;
+        input.pointer_origin_x = pointer.x;
+        input.pointer_origin_y = pointer.y;
+    }
+    if (action.kind == desktop::SharedInputAction::Kind::Move) {
+        // An old injection from another cast/source is not a pointer query.
+        // Automatic approach uses only the current authorized stream's cursor.
+        input.has_pointer_origin = s.observed_pointer.has_value();
+        if (s.observed_pointer) {
+            input.pointer_origin_x =
+                double(s.observed_pointer->x) * s.logical_width / s.frame_width;
+            input.pointer_origin_y =
+                double(s.observed_pointer->y) * s.logical_height / s.frame_height;
+        }
+    }
     input.stopped = [&] {
         (void)g_main_context_iteration(s.context, FALSE);
         return s.closed || g_dbus_connection_is_closed(s.connection.get());
@@ -479,14 +535,21 @@ desktop::InputOutcome shared_input(CastSession &s, const desktop::SharedInputAct
         }
         const bool accepted = bool(call(s.connection.get(), root, remote_desktop_interface, method,
                                         args, G_VARIANT_TYPE_UNIT, s.sender.c_str()));
-        // A Portal reply acknowledges dispatch, not delivery to the focused
-        // client. Keep keys bounded and paced on this same Executor task so
-        // compositor/IME processing can consume each complete transition.
-        if (accepted && event.kind == Kind::Key)
-            (void)::poll(nullptr, 0, 10);
+        // Dispatch acknowledgement only. The complete action owns cancellable
+        // cadence centrally; cleanup releases have no artificial transport delay.
         return accepted;
     };
     auto out = dispatch_portal_input(input, action, limits, cancel);
+    // Keep the same-origin glide start current even for partial travels: the
+    // pointer physically sits at the last accepted motion, not at the target.
+    // The state lives on the backend, so cast recreation and turn boundaries
+    // do not forget it.
+    {
+        const std::lock_guard guard(pointer.mutex);
+        pointer.known = input.pointer_known;
+        pointer.x = input.pointer_x;
+        pointer.y = input.pointer_y;
+    }
     if (!out.ok && out.side_effect_may_have_occurred)
         s.closed = true;
     return out;
@@ -500,7 +563,8 @@ PortalScreenBackend::PortalScreenBackend(std::shared_ptr<PortalAuthorization> au
                                          std::shared_ptr<PresentationContext> presentation)
     : authorization_(authorization ? std::move(authorization)
                                    : std::make_shared<PortalAuthorization>()),
-      presentation_(std::move(presentation)) {
+      presentation_(std::move(presentation)),
+      pointer_state_(std::make_shared<PortalPointerState>()) {
 #ifdef MIRAGE_LINUX_PIPEWIRE
     pw_init(nullptr, nullptr);
 #endif
@@ -528,6 +592,8 @@ struct NativeObservation {
     bool authorization_only = false;
     std::shared_ptr<PortalAuthorization> authorization;
     std::shared_ptr<PresentationContext> presentation;
+    std::shared_ptr<PortalPointerState> pointer;
+    desktop::CapturePresentation acquire;
 #ifdef MIRAGE_LINUX_PIPEWIRE
     std::unique_ptr<CastSession> cast;
 #endif
@@ -542,12 +608,10 @@ desktop::CaptureOutcome capture_portal(const desktop::CaptureLimits &limits,
         return failure("invalid_argument", "Portal capture requires a positive pixel budget");
 #ifdef MIRAGE_LINUX_PORTAL
 #ifdef MIRAGE_LINUX_PIPEWIRE
-    const auto not_before_ns =
-        retained && retained->presentation ? retained->presentation->not_before_ns.load() : 0;
     if (retained && retained->cast) {
         auto frame = capture_cast_frame(*retained->cast, limits, cancel,
                                         std::chrono::steady_clock::now() + std::chrono::seconds(5),
-                                        not_before_ns);
+                                        retained->presentation, retained->acquire);
         if (!frame.ok)
             retained->cast.reset();
         return frame;
@@ -637,7 +701,9 @@ desktop::CaptureOutcome capture_portal(const desktop::CaptureLimits &limits,
             return screencast(std::move(connection), sender, identity, limits, cancel, deadline,
                               retained ? &retained->cast : nullptr, remote,
                               authorization && remote ? authorization : nullptr, restore_token,
-                              retained && retained->authorization_only, not_before_ns);
+                              retained && retained->authorization_only,
+                              retained ? retained->presentation : nullptr,
+                              retained ? retained->acquire : desktop::CapturePresentation{});
         return failure("portal_protocol_error",
                        "ScreenCast capability returned an invalid version");
     }
@@ -680,15 +746,18 @@ class PortalObservation final : public desktop::DesktopCaptureSession {
   public:
     explicit PortalObservation(bool interaction = false,
                                std::shared_ptr<PortalAuthorization> authorization = {},
-                               std::shared_ptr<PresentationContext> presentation = {}) {
+                               std::shared_ptr<PresentationContext> presentation = {},
+                               std::shared_ptr<PortalPointerState> pointer = {}) {
         state_.interaction = interaction;
         state_.authorization = std::move(authorization);
         state_.presentation = std::move(presentation);
+        state_.pointer = std::move(pointer);
         generation_ = state_.authorization ? state_.authorization->generation() : 0;
     }
     bool revoked() const {
         return state_.authorization && generation_ != state_.authorization->generation();
     }
+    bool timed_press_supported() const override { return input_supported(); }
     bool input_supported() const override {
 #ifdef MIRAGE_LINUX_PIPEWIRE
         return state_.interaction && reusable() && state_.cast->interaction &&
@@ -696,6 +765,30 @@ class PortalObservation final : public desktop::DesktopCaptureSession {
 #else
         return false;
 #endif
+    }
+    desktop::SharedPointerQueryOutcome
+    pointer_position(const desktop::CancelToken &cancel) override {
+#ifdef MIRAGE_LINUX_PIPEWIRE
+        if (cancel.cancelled() || revoked())
+            return {false, true, {}, 0, 0, 0, { "cancelled", "Shared cursor query cancelled" }};
+        if (state_.cast && !state_.cast->closed && state_.cast->observed_pointer)
+            return {true,
+                    false,
+                    *state_.cast->observed_pointer,
+                    state_.cast->frame_width,
+                    state_.cast->frame_height,
+                    state_.cast->observed_pointer_sequence,
+                    {}};
+#else
+        (void)cancel;
+#endif
+        return {false,
+                false,
+                {},
+                0,
+                0,
+                0,
+                {"pointer_origin_unknown", "No cursor metadata in the current authorized stream"}};
     }
     desktop::InputOutcome input(const desktop::SharedInputAction &action,
                                 const desktop::InputLimits &limits,
@@ -711,7 +804,7 @@ class PortalObservation final : public desktop::DesktopCaptureSession {
         }
         if (input_supported()) {
             const desktop::CancelToken bounded([&] { return cancel.cancelled() || revoked(); });
-            auto out = shared_input(*state_.cast, action, limits, bounded);
+            auto out = shared_input(*state_.cast, action, limits, bounded, *state_.pointer);
             if (out.side_effect_may_have_occurred && !out.ok) {
                 failed_ = true;
                 state_.cast.reset();
@@ -741,6 +834,17 @@ class PortalObservation final : public desktop::DesktopCaptureSession {
 #endif
         return out;
     }
+    desktop::CaptureOutcome
+    capture_presented(const desktop::CaptureLimits &limits, const desktop::CancelToken &cancel,
+                      const desktop::CapturePresentation &acquire) override {
+        // Serialized task owner; no callback survives this finite invocation.
+        state_.acquire = acquire;
+        struct Reset {
+            desktop::CapturePresentation &value;
+            ~Reset() { value = {}; }
+        } reset{state_.acquire};
+        return capture(limits, cancel);
+    }
     bool reusable() const override {
 #ifdef MIRAGE_LINUX_PIPEWIRE
         return !revoked() && state_.cast && !state_.cast->closed;
@@ -757,7 +861,8 @@ class PortalObservation final : public desktop::DesktopCaptureSession {
 } // namespace
 std::unique_ptr<desktop::DesktopCaptureSession>
 PortalScreenBackend::create_desktop_capture_session() {
-    return std::make_unique<PortalObservation>(false, authorization_, presentation_);
+    return std::make_unique<PortalObservation>(false, authorization_, presentation_,
+                                               pointer_state_);
 }
 bool PortalScreenBackend::desktop_interaction_supported() const {
 #ifdef MIRAGE_LINUX_PIPEWIRE
@@ -769,7 +874,8 @@ bool PortalScreenBackend::desktop_interaction_supported() const {
 std::unique_ptr<desktop::DesktopCaptureSession>
 PortalScreenBackend::create_desktop_interaction_session() {
     return desktop_interaction_supported()
-               ? std::make_unique<PortalObservation>(true, authorization_, presentation_)
+               ? std::make_unique<PortalObservation>(true, authorization_, presentation_,
+                                                     pointer_state_)
                : nullptr;
 }
 void PortalScreenBackend::configure_desktop_authorization(bool remember) {

@@ -3,8 +3,10 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 
 #include <mirage/desktop/cancellation.hpp>
 #include <mirage/desktop/desktop_observation.hpp>
@@ -18,7 +20,9 @@ namespace mirage::desktop {
 /// "delete", "home", "end", "left", "right", "up", "down", "f1".."f12",
 /// with modifier prefixes "ctrl+", "alt+", "shift+", "meta+" applied in
 /// this order, e.g. "ctrl+shift+t"). Unknown names are rejected before any
-/// injection.
+/// injection. key_chord treats standalone "ctrl", "alt", "shift", "meta" as
+/// complete taps of the logical (left) modifier. The low-level inject_key
+/// primitive still follows its explicit pressed argument.
 struct KeySym {
     std::string name;
 };
@@ -37,8 +41,8 @@ constexpr bool valid_click_count(std::uint32_t count) {
     return count >= 1 && count <= max_click_count;
 }
 
-/// Budget for one input action (RULE-07). Injection itself is fast; the
-/// timeout is cooperative: backends check it between platform steps; it does
+/// Budget for one complete, locally timed input action (RULE-07).
+/// The timeout is cooperative: backends check it between platform steps; it does
 /// not forcibly interrupt a blocked platform round-trip or suppress cleanup.
 struct InputLimits {
     std::chrono::milliseconds timeout{1000};
@@ -73,6 +77,12 @@ struct PointerActionScope {
 struct PointerPoint {
     std::int32_t x = 0, y = 0;
 };
+/// Host-only parameters for reproducible natural approach; never model input.
+struct PointerMotionVariation {
+    std::uint64_t seed = 0;
+    std::int32_t target_width = 0;
+    bool allow_overshoot = true; ///< Held drags disable forward overshoot.
+};
 
 /// Common, overflow-safe preflight for bounded complete pointer paths.
 bool valid_pointer_scope(const PointerActionScope &, PointerPoint, const InputLimits &);
@@ -89,9 +99,16 @@ bool valid_drag_path(PointerPoint from, PointerPoint to);
 /// provider stays permission-agnostic. Coordinates are in global desktop
 /// coordinates, consistent with WindowGeometry. Methods are synchronous and
 /// bounded by their limits; callers decide the execution context.
+class InputSessionBackend;
+
 class InputProvider {
   public:
     virtual ~InputProvider() = default;
+    /// Independent opt-in for fixed-window controlled holds. A complete click
+    /// never implies this capability. The returned driver owns its connection.
+    virtual bool controlled_input_supported() const { return false; }
+    virtual std::unique_ptr<InputSessionBackend> open_input_session(const PointerActionScope &,
+                                                                    const CancelToken &);
     /// Complete discrete actions require explicit backend opt-in. The backend
     /// preflights physical input, owns its presses and reports cleanup failure.
     /// This includes type_text. Cancellation/deadline never suppress release;
@@ -102,7 +119,7 @@ class InputProvider {
     virtual InputOutcome scroll_at(const PointerActionScope &, PointerPoint,
                                    std::int32_t horizontal, std::int32_t vertical,
                                    const InputLimits &, const CancelToken &);
-    /// Left-button complete action, 16 linear segments, no held-button API.
+    /// Left-button complete action, locally paced curve, no held-button continuation.
     virtual InputOutcome drag_to(const PointerActionScope &, PointerPoint from, PointerPoint to,
                                  const InputLimits &, const CancelToken &);
     virtual InputOutcome key_chord(const KeySym &key, const InputLimits &limits,
@@ -120,6 +137,32 @@ class InputProvider {
     virtual InputOutcome click_sequence_at(std::int32_t x, std::int32_t y,
                                            const MouseButton &button, std::uint32_t count,
                                            const InputLimits &limits, const CancelToken &cancel);
+
+    /// DEC-110 (M7-26): separate opt-in — timed pointer travel from the
+    /// read-back current position to (x, y) along the reproducible
+    /// minimum-jerk baseline (default_move_profile). Arrival is a click's
+    /// precondition, never its substitute: hover side effects on the way are
+    /// real, the endpoint needs the caller's usual freshness re-verification,
+    /// and a failed/behind-schedule/cancelled travel must be followed by a
+    /// click only after a new observation. Backends pace segments locally
+    /// (cooperative cancellation between segments), stop instead of
+    /// replaying a backlog when delivery falls behind, and never teleport.
+    /// `duration` must satisfy the frozen smooth-move budgets; `path_points`
+    /// 0 selects default_path_points. `limits.timeout` must cover the whole
+    /// travel. Host-only variation enables bounded curves/corrections; absent
+    /// variation preserves the deterministic baseline. Never call with held buttons.
+    virtual bool timed_pointer_actions_supported() const { return false; }
+    virtual InputOutcome
+    smooth_move_to(std::int32_t x, std::int32_t y, std::chrono::milliseconds duration,
+                   std::uint32_t path_points, const InputLimits &limits, const CancelToken &cancel,
+                   std::optional<PointerMotionVariation> variation = std::nullopt);
+
+    /// Locally timed approach for model-facing physical clicks (DEC-110).
+    /// Queries the current position, plans distance/target-width timing, and
+    /// completes varied smooth_move_to before returning. No teleport fallback.
+    /// The caller owns the lease and must revalidate the target before pressing.
+    virtual InputOutcome approach_target(PointerPoint target, std::int32_t target_width,
+                                         const InputLimits &, const CancelToken &);
 
     /// Presses or releases a key per the KeySym vocabulary. Combination
     /// names ("ctrl+c") inject the full chord.
@@ -188,6 +231,12 @@ std::optional<KeyChord> parse_key_chord(const std::string &name);
 /// implementations must reject invalid names with "invalid_argument" before
 /// any injection.
 bool is_valid_key_name(const std::string &name);
+
+/// True when `name` is one base key of the KeySym vocabulary (a printable
+/// character or a named key, without modifier prefixes). Shared so the
+/// session-layer vocabulary (input_session.hpp) extends exactly this table
+/// instead of duplicating it.
+bool is_base_key_symbol(std::string_view name);
 
 /// Returns true when `text` is well-formed UTF-8 (type_text contract).
 bool is_valid_utf8(const std::string &text);

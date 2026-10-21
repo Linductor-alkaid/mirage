@@ -68,6 +68,10 @@ class X11Backend final : public mirage::desktop::WindowProvider,
     mirage::desktop::InputOutcome inject_key(const mirage::desktop::KeySym &key, bool pressed,
                                              const mirage::desktop::InputLimits &limits,
                                              const mirage::desktop::CancelToken &cancel) override;
+    bool controlled_input_supported() const override;
+    std::unique_ptr<mirage::desktop::InputSessionBackend>
+    open_input_session(const mirage::desktop::PointerActionScope &,
+                       const mirage::desktop::CancelToken &) override;
     bool complete_actions_supported() const override { return true; }
     bool bounded_pointer_actions_supported() const override { return true; }
     mirage::desktop::InputOutcome scroll_at(const mirage::desktop::PointerActionScope &,
@@ -97,6 +101,12 @@ class X11Backend final : public mirage::desktop::WindowProvider,
     click_sequence_at(std::int32_t x, std::int32_t y, const mirage::desktop::MouseButton &button,
                       std::uint32_t count, const mirage::desktop::InputLimits &limits,
                       const mirage::desktop::CancelToken &cancel) override;
+    bool timed_pointer_actions_supported() const override { return true; }
+    mirage::desktop::InputOutcome smooth_move_to(
+        std::int32_t x, std::int32_t y, std::chrono::milliseconds duration,
+        std::uint32_t path_points, const mirage::desktop::InputLimits &limits,
+        const mirage::desktop::CancelToken &cancel,
+        std::optional<mirage::desktop::PointerMotionVariation> variation = std::nullopt) override;
     mirage::desktop::InputOutcome type_text(const std::string &text,
                                             const mirage::desktop::InputLimits &limits,
                                             const mirage::desktop::CancelToken &cancel) override;

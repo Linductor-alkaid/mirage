@@ -228,6 +228,19 @@ int main() {
     std::printf("=== DEC-093 Categorized Budget Allocation Test ===\n");
 
     {
+        Part part;
+        part.id = "malformed-output";
+        part.kind = "tool";
+        part.name = "exec";
+        part.output = "中文";
+        MIRAGE_CHECK(valid_parts({part}));
+        part.output.pop_back(); // partial process UTF-8 must fail before IPC/persistence
+        MIRAGE_CHECK(!valid_parts({part}));
+        part.output = "\xff";
+        MIRAGE_CHECK(!valid_parts({part}));
+    }
+
+    {
         std::vector<Part> retained;
         for (std::size_t i = 0; i < max_parts; ++i) {
             Part part;

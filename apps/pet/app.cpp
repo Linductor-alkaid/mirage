@@ -2,6 +2,7 @@
 #include "../common/typography.hpp"
 #include "bridge.hpp"
 #include "bubble_view.hpp"
+#include "frame_texture.hpp"
 #include "frames.hpp"
 #include "presentation.hpp"
 #include <core/render/text.h>
@@ -25,7 +26,7 @@ using Clock = runtime::pet::AnimationPlayer::Clock;
 using namespace std::chrono_literals;
 struct State {
     std::unique_ptr<Bridge> bridge;
-    std::shared_ptr<eui::ImageStream> images = std::make_shared<eui::ImageStream>(1);
+    FrameTexture texture;
     FramePresentation presentation;
     runtime::pet::AnimationPlayer player;
     runtime::pet::Status status;
@@ -38,7 +39,6 @@ struct State {
     const runtime::pet::Clip *asset_attempt = nullptr;
     std::uint64_t asset_generation = 0;
     bool asset_failed = false;
-    std::uint64_t frame_sequence = 0;
     Clock::time_point started{}, lost_at{}, exit_at{};
     bool have_status = false;
 };
@@ -51,19 +51,14 @@ void clear_image(State &model) {
     model.presentation.clear();
 }
 bool submit_pixels(State &model, FramePresentation::Pixels pixels) {
-    const auto region_pixels = pixels;
-    eui::ImageFrame image_frame{};
-    image_frame.pixels = std::move(pixels);
-    image_frame.width = image_frame.height = 512;
-    image_frame.stride = 512 * 4;
-    image_frame.format = eui::ImagePixelFormat::RGBA8;
-    image_frame.sequence = ++model.frame_sequence;
-    if (model.images->submit(std::move(image_frame))) {
-        platform::pet_window::update_hit_region(*region_pixels, model.layout);
+    if (model.texture.upload(*pixels)) {
+        platform::pet_window::update_hit_region(*pixels, model.layout);
         return true;
     }
     model.asset_failed = true;
-    std::cerr << "mira_pet: RGBA ImageStream admission failed\n";
+    model.texture.hide();
+    platform::pet_window::update_hit_region({}, model.layout);
+    std::cerr << "mira_pet: RGBA texture upload failed\n";
     return false;
 }
 } // namespace
@@ -116,7 +111,7 @@ void stop() {
     model.bridge.reset();
     model.decoded = {};
     model.presentation.suspend();
-    model.images.reset();
+    model.texture.shutdown();
 }
 void tick() {
     auto &model = state();
@@ -124,25 +119,28 @@ void tick() {
         return;
     platform::pet_window::watch_visibility([&model](bool visible) {
         model.bridge->set_visible(visible);
-        model.bridge->set_animating(false);
-        model.bridge->loader().cancel();
-        model.decoded = {};
-        model.presentation.suspend();
-        model.asset_attempt = nullptr;
-        model.player.reset();
-        model.bubble = {};
-        model.have_status = false;
-        clear_image(model);
-        if (visible)
-            app::requestUpdate();
+        if (!visible) {
+            model.bridge->set_animating(false);
+            model.bridge->loader().cancel();
+            // Keep the single bounded decoded clip and last GPU frame.
+            // Capture withdrawal must not turn into a decode-length blank on
+            // restoration. Hidden windows still stop animation and bubble wakes.
+            if (!model.decoded.clip)
+                model.asset_attempt = nullptr;
+            model.bubble = {};
+            return;
+        }
+        // Rebind/re-upload the retained frame in the restored UI scope. A
+        // changed status can select a different clip through the ordinary path.
+        model.presentation.restart();
+        model.asset_attempt = model.decoded.clip;
+        app::requestUpdate();
     });
     const auto now = Clock::now();
     if (!model.bridge->visible()) {
         // Drain the cancelled generation without accepting another decode.
         LoadUpdate discarded;
         (void)model.bridge->loader().poll(discarded, now);
-        if (auto pixels = model.presentation.next({}, {}, true))
-            (void)submit_pixels(model, std::move(pixels));
         if (!model.bridge->connected()) {
             if (model.lost_at == Clock::time_point{})
                 model.lost_at = now;
@@ -238,15 +236,19 @@ void tick() {
     const bool scroll_bubble =
         !disconnected && model.exit_at == Clock::time_point{} && model.bubble.visible(now) &&
         model.bubble.value()->kind == "thinking" && !model.preferences.reduced_motion;
-    model.bridge->set_animating(scroll_bubble || model.bridge->loader().busy() ||
-                                (model.decoded.clip && !frame.finished && !frame.static_fallback) ||
-                                model.exit_at != Clock::time_point{});
+    model.bridge->set_animating(
+        scroll_bubble || model.bridge->loader().busy() ||
+            (model.decoded.clip && !frame.finished && !frame.static_fallback) ||
+            model.exit_at != Clock::time_point{},
+        scroll_bubble || model.bridge->loader().busy()
+            ? 33ms
+            : std::chrono::milliseconds{frame.clip->frame_duration_ms});
     if (model.exit_at != Clock::time_point{} && frame.finished)
         platform::pet_window::request_close();
     else if (disconnected && model.exit_at == Clock::time_point{} && now - model.lost_at >= 5s)
         platform::pet_window::request_close();
 }
-std::shared_ptr<eui::ImageStream> images() { return state().images; }
+const FrameTexture &texture() { return state().texture; }
 void set_layout(platform::pet_window::Layout layout) { state().layout = layout; }
 bool presented() { return state().bridge && state().bridge->visible(); }
 void compose_bubble(eui::Ui &ui) {
@@ -290,14 +292,13 @@ void compose(eui::Ui &ui, const eui::Screen &screen) {
     ui.stack("pet.root")
         .size(screen.width, screen.height)
         .content([&] {
-            // EUI's public ImageStream contract keeps bound elements active.
-            // Remove the binding while paused so only control wakes remain.
+            // Presentation is driven by the process Executor, only when needed.
             if (!mirage::pet_ui::presented())
                 return;
             ui.image("pet.animation")
                 .position(layout.image_x, layout.image_y)
                 .size(layout.image_side, layout.image_side)
-                .stream(mirage::pet_ui::images())
+                .texture(mirage::pet_ui::texture().image(), mirage::pet_ui::texture().revision())
                 .contain()
                 .hitTestMode(eui::dsl::HitTestMode::None)
                 .build();

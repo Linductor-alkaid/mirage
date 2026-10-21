@@ -27,7 +27,9 @@ struct Capture {
     pw_stream_state state = PW_STREAM_STATE_UNCONNECTED;
     pw_buffer *pending = nullptr;
     std::uint64_t source_sequence = 0;
+    std::uint64_t discarded_pixel_buffers = 0;
     std::optional<desktop::ImageFrame> latest;
+    std::optional<desktop::PointerPoint> cursor;
     std::int64_t latest_pts_ns = 0;
     ~Capture() {
         if (pending && stream)
@@ -58,13 +60,38 @@ void param_changed(void *data, std::uint32_t id, const spa_pod *param) {
         return;
     // A format change invalidates the previously retained frame before parsing.
     capture.latest.reset();
+    capture.cursor.reset();
     if (capture.pending) {
         pw_stream_queue_buffer(capture.stream, capture.pending);
         capture.pending = nullptr;
     }
     capture.formatted =
         SPA_POD_SIZE(param) <= 4096 && spa_format_video_raw_parse(param, &capture.format) >= 0;
-    if (!capture.formatted)
+    if (!capture.formatted) {
+        capture.error = true;
+        return;
+    }
+    // pw_stream_connect advertises formats. Complete buffer negotiation on
+    // EVERY Format event, requesting the required buffer metadata through
+    // pw_stream_update_params as specified by the PipeWire stream API.
+    std::uint8_t storage[512];
+    auto builder = SPA_POD_BUILDER_INIT(storage, sizeof(storage));
+    // Mutter 46 advertises a fixed 384x384 sprite. A 256px ceiling silently
+    // prevents Cursor metadata intersection even though video still succeeds.
+    const auto cursor_size = [](int side) {
+        return static_cast<int>(sizeof(spa_meta_cursor) + sizeof(spa_meta_bitmap)) +
+               side * side * 4;
+    };
+    const spa_pod *params[] = {
+        static_cast<const spa_pod *>(
+            spa_pod_builder_add_object(&builder, SPA_TYPE_OBJECT_ParamMeta, SPA_PARAM_Meta,
+                                       SPA_PARAM_META_type, SPA_POD_Id(SPA_META_Header),
+                                       SPA_PARAM_META_size, SPA_POD_Int(sizeof(spa_meta_header)))),
+        static_cast<const spa_pod *>(spa_pod_builder_add_object(
+            &builder, SPA_TYPE_OBJECT_ParamMeta, SPA_PARAM_Meta, SPA_PARAM_META_type,
+            SPA_POD_Id(SPA_META_Cursor), SPA_PARAM_META_size,
+            SPA_POD_CHOICE_RANGE_Int(cursor_size(64), cursor_size(1), cursor_size(512))))};
+    if (pw_stream_update_params(capture.stream, params, 2) < 0)
         capture.error = true;
 }
 void process(void *data) {
@@ -77,6 +104,31 @@ void process(void *data) {
         auto *next = pw_stream_dequeue_buffer(capture.stream);
         if (!next)
             break;
+        const auto *cursor = next->buffer
+                                 ? static_cast<const spa_meta_cursor *>(spa_buffer_find_meta_data(
+                                       next->buffer, SPA_META_Cursor, sizeof(spa_meta_cursor)))
+                                 : nullptr;
+        if (!cursor)
+            capture.cursor.reset();
+        else if (spa_meta_cursor_is_valid(cursor))
+            capture.cursor = decode_portal_cursor(
+                {reinterpret_cast<const std::uint8_t *>(cursor), sizeof(*cursor)},
+                capture.format.size.width, capture.format.size.height);
+        const auto *buffer = next->buffer;
+        if (buffer && buffer->n_datas == 1 && buffer->datas && buffer->datas[0].chunk) {
+            const auto &chunk = *buffer->datas[0].chunk;
+            if (!chunk.size || (chunk.flags & SPA_CHUNK_FLAG_CORRUPTED)) {
+                // Mutter's cursor-only updates carry size=0 + CORRUPTED.
+                // Consume metadata, but do not evict pending pixels, close the
+                // stream, or promote retained pixels to a fresh observation.
+                // A dropped corrupt image likewise waits for valid pixels
+                // within the existing caller cancellation/deadline budget.
+                pw_stream_queue_buffer(capture.stream, next);
+                if (capture.discarded_pixel_buffers != UINT64_MAX)
+                    ++capture.discarded_pixel_buffers;
+                continue;
+            }
+        }
         if (capture.pending)
             pw_stream_queue_buffer(capture.stream, capture.pending);
         capture.pending = next;
@@ -107,10 +159,16 @@ desktop::CaptureOutcome copy_frame(const Capture &capture, const desktop::Captur
         return failure("invalid_stream_frame", "ScreenCast frame has an unsupported plane layout");
     const auto &plane = buffer->datas[0];
     if (!plane.data || !plane.chunk ||
-        (plane.type != SPA_DATA_MemPtr && plane.type != SPA_DATA_MemFd) ||
-        (plane.chunk->flags & SPA_CHUNK_FLAG_CORRUPTED))
-        return failure("invalid_stream_frame",
-                       "ScreenCast frame is not mapped readable CPU memory");
+        (plane.type != SPA_DATA_MemPtr && plane.type != SPA_DATA_MemFd)) {
+        auto out =
+            failure("invalid_stream_frame", "ScreenCast frame is not mapped readable CPU memory");
+        out.error.message += "; data_type=" + std::to_string(plane.type) +
+                             "; mapped=" + std::to_string(plane.data != nullptr) +
+                             "; chunk_present=" + std::to_string(plane.chunk != nullptr);
+        return out;
+    }
+    if (plane.chunk->flags & SPA_CHUNK_FLAG_CORRUPTED)
+        return failure("invalid_stream_frame", "ScreenCast frame contains corrupt pixel data");
     const auto &chunk = *plane.chunk;
     const auto row = std::uint64_t{width} * 4;
     const auto extent = chunk.stride > 0 ? std::uint64_t{height - 1} * chunk.stride + row : 0;
@@ -131,6 +189,18 @@ using pipewire_detail::failure;
 using pipewire_detail::param_changed;
 using pipewire_detail::process;
 using pipewire_detail::state_changed;
+
+std::optional<desktop::PointerPoint> decode_portal_cursor(std::span<const std::uint8_t> bytes,
+                                                          std::int32_t width, std::int32_t height) {
+    if (bytes.size() < sizeof(spa_meta_cursor) || width <= 0 || height <= 0)
+        return std::nullopt;
+    spa_meta_cursor meta{};
+    std::memcpy(&meta, bytes.data(), sizeof(meta));
+    if (!spa_meta_cursor_is_valid(&meta) || meta.position.x < 0 || meta.position.y < 0 ||
+        meta.position.x >= width || meta.position.y >= height)
+        return std::nullopt;
+    return desktop::PointerPoint{meta.position.x, meta.position.y};
+}
 
 desktop::CaptureOutcome copy_portal_pixels(std::span<const std::uint8_t> pixels,
                                            std::uint32_t width, std::uint32_t height,
@@ -215,25 +285,23 @@ PortalPipeWireStream::PortalPipeWireStream(int fd, std::uint32_t node)
     std::uint8_t storage[1024];
     auto builder = SPA_POD_BUILDER_INIT(storage, sizeof(storage));
     const spa_rectangle min{1, 1}, max{16384, 16384}, preferred{1920, 1080};
-    const spa_pod *params[] = {
-        static_cast<const spa_pod *>(spa_pod_builder_add_object(
-            &builder, SPA_TYPE_OBJECT_Format, SPA_PARAM_EnumFormat, SPA_FORMAT_mediaType,
-            SPA_POD_Id(SPA_MEDIA_TYPE_video), SPA_FORMAT_mediaSubtype,
-            SPA_POD_Id(SPA_MEDIA_SUBTYPE_raw), SPA_FORMAT_VIDEO_format,
-            SPA_POD_CHOICE_ENUM_Id(4, SPA_VIDEO_FORMAT_BGRA, SPA_VIDEO_FORMAT_BGRx,
-                                   SPA_VIDEO_FORMAT_RGBA, SPA_VIDEO_FORMAT_RGBx),
-            SPA_FORMAT_VIDEO_size, SPA_POD_CHOICE_RANGE_Rectangle(&preferred, &min, &max))),
-        static_cast<const spa_pod *>(
-            spa_pod_builder_add_object(&builder, SPA_TYPE_OBJECT_ParamMeta, SPA_PARAM_Meta,
-                                       SPA_PARAM_META_type, SPA_POD_Id(SPA_META_Header),
-                                       SPA_PARAM_META_size, SPA_POD_Int(sizeof(spa_meta_header))))};
+    const spa_pod *params[] = {static_cast<const spa_pod *>(spa_pod_builder_add_object(
+        &builder, SPA_TYPE_OBJECT_Format, SPA_PARAM_EnumFormat, SPA_FORMAT_mediaType,
+        SPA_POD_Id(SPA_MEDIA_TYPE_video), SPA_FORMAT_mediaSubtype,
+        SPA_POD_Id(SPA_MEDIA_SUBTYPE_raw), SPA_FORMAT_VIDEO_format,
+        SPA_POD_CHOICE_ENUM_Id(4, SPA_VIDEO_FORMAT_BGRA, SPA_VIDEO_FORMAT_BGRx,
+                               SPA_VIDEO_FORMAT_RGBA, SPA_VIDEO_FORMAT_RGBx),
+        SPA_FORMAT_VIDEO_size, SPA_POD_CHOICE_RANGE_Rectangle(&preferred, &min, &max)))};
     const auto flags =
         static_cast<pw_stream_flags>(PW_STREAM_FLAG_AUTOCONNECT | PW_STREAM_FLAG_MAP_BUFFERS);
-    if (pw_stream_connect(capture.stream, PW_DIRECTION_INPUT, node, flags, params, 2) < 0)
+    if (pw_stream_connect(capture.stream, PW_DIRECTION_INPUT, node, flags, params, 1) < 0)
         return;
     impl_->connected = true;
 }
 PortalPipeWireStream::~PortalPipeWireStream() = default;
+std::optional<desktop::PointerPoint> PortalPipeWireStream::cursor_position() const {
+    return impl_->capture.cursor;
+}
 namespace {
 desktop::CaptureOutcome read_stream_frame(Capture &capture, const desktop::CaptureLimits &limits,
                                           const desktop::CancelToken &cancel,
@@ -287,14 +355,16 @@ desktop::CaptureOutcome read_stream_frame(Capture &capture, const desktop::Captu
             // callers require a later source sequence, never this cached frame.
             return {true, false, *capture.latest, {}};
         }
-        (void)::poll(nullptr, 0, 25);
+        (void)::poll(nullptr, 0, not_before_ns ? 1 : 25);
     }
     auto stopped = cancel.cancelled()
                        ? failure("cancelled", "ScreenCast cancelled or deadline reached")
                        : failure("pipewire_unavailable", "ScreenCast stream closed before a frame");
-    stopped.error.message += "; stream_state=" + std::to_string(static_cast<int>(capture.state)) +
-                             "; formatted=" + std::to_string(capture.formatted) +
-                             "; buffer_ready=" + std::to_string(capture.pending != nullptr);
+    stopped.error.message +=
+        "; stream_state=" + std::to_string(static_cast<int>(capture.state)) +
+        "; formatted=" + std::to_string(capture.formatted) +
+        "; buffer_ready=" + std::to_string(capture.pending != nullptr) +
+        "; discarded_pixel_buffers=" + std::to_string(capture.discarded_pixel_buffers);
     return stopped;
 }
 } // namespace

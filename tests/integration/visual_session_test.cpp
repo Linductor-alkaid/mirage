@@ -108,10 +108,10 @@ desktop::ImageFrame make_capture(std::int32_t width, std::int32_t height, std::s
 /// translation under test in scenario B.
 mirador::Frame owned_bgra8_frame(std::int32_t width, std::int32_t height,
                                  const std::string &source_id, std::uint64_t sequence,
-                                 bool left_half_red) {
+                                 bool left_half_red, std::uint8_t intensity = 0x40) {
     const std::size_t stride = static_cast<std::size_t>(width) * 4u;
     auto pixels = std::make_shared<std::vector<std::uint8_t>>(
-        stride * static_cast<std::size_t>(height), std::uint8_t{0x40});
+        stride * static_cast<std::size_t>(height), intensity);
     if (left_half_red) {
         for (std::int32_t y = 0; y < height; ++y) {
             for (std::int32_t x = 0; x < width; ++x) {
@@ -526,6 +526,118 @@ void session_completes_a_full_analysis_with_fusion(kairo::Executor &executor) {
     MIRAGE_CHECK(ocr.calls() == 1);
     MIRAGE_CHECK(detector.calls() == 1);
     host.stop();
+}
+
+void session_screens_optional_background_analysis(kairo::Executor &executor) {
+    FakeOcrBackend ocr = bgra_ocr();
+    FakeDetectorBackend detector = bgra_detector();
+    VisualSessionConfig config;
+    config.ocr_backend = &ocr;
+    config.detector_backend = &detector;
+    VisualSessionHost host(executor, "background-src", config);
+    std::string error;
+    MIRAGE_CHECK(host.start(error));
+    VisualAnalysisRequest request;
+    request.frame = session_frame("background-src", 1);
+    request.run_ocr = request.run_detector = request.fuse = true;
+    request.display_transform = mirador::make_translation(
+        0, 0, mirador::CoordinateSpaceId::kOriented, mirador::CoordinateSpaceId::kDisplay);
+    request.analysis_policy_revision = 1;
+    request.ocr.cache_policy = request.detector.cache_policy = mirador::CachePolicy::kReadOnly;
+    request.admission = mirage::integration::VisualAnalysisAdmission::when_changed;
+    const auto run = [&] {
+        auto future = host.submit(request);
+        VisualAnalysisResult result;
+        MIRAGE_CHECK(settle_within(future, result));
+        return result;
+    };
+    auto first = run();
+    MIRAGE_CHECK(first.outcome.kind == VisualAnalysisOutcome::Kind::kCompleted && first.snapshot);
+    MIRAGE_CHECK(ocr.calls() == 1 && detector.calls() == 1);
+    request.frame.sequence = 2;
+    auto skipped = run();
+    MIRAGE_CHECK(skipped.outcome.kind == VisualAnalysisOutcome::Kind::kSkippedUnchanged);
+    MIRAGE_CHECK(!skipped.snapshot && skipped.text.empty() && skipped.detections.empty());
+    MIRAGE_CHECK(skipped.template_hits.empty() && skipped.geometry_proposals.empty());
+    MIRAGE_CHECK(skipped.cache_stats.result_cache_entries == 0);
+    MIRAGE_CHECK(skipped.cache_stats.background_signature_bytes == 4096);
+    MIRAGE_CHECK(skipped.admission_change && skipped.admission_baseline_sequence == 1);
+    MIRAGE_CHECK(ocr.calls() == 1 && detector.calls() == 1);
+    request.analysis_policy_revision = 0;
+    MIRAGE_CHECK(run().outcome.kind == VisualAnalysisOutcome::Kind::kRejected);
+    request.analysis_policy_revision = 2;
+    MIRAGE_CHECK(run().outcome.kind == VisualAnalysisOutcome::Kind::kCompleted);
+    MIRAGE_CHECK(ocr.calls() == 2 && detector.calls() == 2);
+    request.ocr.cache_policy = mirador::CachePolicy::kRefresh;
+    MIRAGE_CHECK(run().outcome.kind == VisualAnalysisOutcome::Kind::kCompleted);
+    MIRAGE_CHECK(ocr.calls() == 3 && detector.calls() == 3);
+    request.ocr.cache_policy = mirador::CachePolicy::kReadOnly;
+    request.detector.cache_policy = mirador::CachePolicy::kRefresh;
+    MIRAGE_CHECK(run().outcome.kind == VisualAnalysisOutcome::Kind::kCompleted);
+    MIRAGE_CHECK(ocr.calls() == 3 && detector.calls() == 4);
+    request.detector.cache_policy = mirador::CachePolicy::kReadOnly;
+    request.admission = mirage::integration::VisualAnalysisAdmission::always;
+    const auto default_result = run();
+    MIRAGE_CHECK(default_result.snapshot != nullptr); // Default preserves fresh publication.
+    MIRAGE_CHECK(default_result.cache_stats.background_signature_bytes == 0);
+    request.admission = mirage::integration::VisualAnalysisAdmission::when_changed;
+    request.enrollments.push_back({"background-template", {0, 0, 8, 8}});
+    MIRAGE_CHECK(run().outcome.kind == VisualAnalysisOutcome::Kind::kCompleted);
+    request.enrollments.clear();
+    request.render_marks = true;
+    MIRAGE_CHECK(run().outcome.kind == VisualAnalysisOutcome::Kind::kCompleted);
+    request.render_marks = false;
+    request.admission = static_cast<mirage::integration::VisualAnalysisAdmission>(99);
+    MIRAGE_CHECK(run().outcome.kind == VisualAnalysisOutcome::Kind::kRejected);
+    request.admission = mirage::integration::VisualAnalysisAdmission::when_changed;
+    request.analyze_change = false;
+    MIRAGE_CHECK(run().outcome.kind == VisualAnalysisOutcome::Kind::kRejected);
+    request.analyze_change = true;
+    request.external_cancel.request_cancel();
+    MIRAGE_CHECK(run().outcome.kind == VisualAnalysisOutcome::Kind::kCancelled);
+    request.external_cancel = {};
+    MIRAGE_CHECK(run().outcome.kind == VisualAnalysisOutcome::Kind::kCompleted);
+    request.deadline = std::chrono::steady_clock::now() - std::chrono::seconds{1};
+    MIRAGE_CHECK(run().outcome.kind == VisualAnalysisOutcome::Kind::kTimedOut);
+    request.deadline.reset();
+    MIRAGE_CHECK(run().outcome.kind == VisualAnalysisOutcome::Kind::kCompleted);
+    request.frame = owned_bgra8_frame(32, 16, "background-src", 9, true);
+    const auto changed = run();
+    MIRAGE_CHECK(changed.change.classification != mirador::ChangeClassification::kNone);
+    MIRAGE_CHECK(changed.outcome.kind == VisualAnalysisOutcome::Kind::kCompleted);
+    host.stop();
+    MIRAGE_CHECK(run().outcome.kind == VisualAnalysisOutcome::Kind::kRejected);
+
+    // A failed capability must remain retryable even though analyze_change advanced.
+    VisualSessionHost failing(executor, "background-fail-src", {});
+    MIRAGE_CHECK(failing.start(error));
+    request.frame = session_frame("background-fail-src", 1);
+    for (int i = 0; i < 2; ++i) {
+        auto future = failing.submit(request);
+        VisualAnalysisResult failed;
+        MIRAGE_CHECK(settle_within(future, failed));
+        MIRAGE_CHECK(failed.outcome.kind == VisualAnalysisOutcome::Kind::kFailed);
+    }
+    failing.stop();
+
+    VisualSessionHost drift(executor, "background-drift-src", config);
+    MIRAGE_CHECK(drift.start(error));
+    request.run_detector = false;
+    request.ocr.cache_policy = mirador::CachePolicy::kReadOnly;
+    for (int i = 0; i <= 4; ++i) {
+        request.frame = owned_bgra8_frame(32, 16, "background-drift-src", 20 + i, false,
+                                          static_cast<std::uint8_t>(64 + 2 * i));
+        auto future = drift.submit(request);
+        VisualAnalysisResult result;
+        MIRAGE_CHECK(settle_within(future, result));
+        // Adjacent frames differ by only 2; the committed baseline differs by 8.
+        MIRAGE_CHECK(result.outcome.kind == ((i == 0 || i == 4)
+                                                 ? VisualAnalysisOutcome::Kind::kCompleted
+                                                 : VisualAnalysisOutcome::Kind::kSkippedUnchanged));
+        if (i > 0)
+            MIRAGE_CHECK(result.admission_baseline_sequence == 20);
+    }
+    drift.stop();
 }
 
 // ---- F. capability cache hit -------------------------------------------------------
@@ -947,6 +1059,8 @@ int main() {
                      [&] { session_settles_a_queued_analysis_on_stop(executor); });
         run_scenario("session_reports_the_first_frame_as_a_global_change",
                      [&] { session_reports_the_first_frame_as_a_global_change(executor); });
+        run_scenario("session_screens_optional_background_analysis",
+                     [&] { session_screens_optional_background_analysis(executor); });
         executor.shutdown(true);
     }
     return mirage::testing::finish("visual_session_test");

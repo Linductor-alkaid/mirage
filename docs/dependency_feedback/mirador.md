@@ -2,7 +2,7 @@
 
 > 状态：Active
 > 负责人：Mirage维护者；处理方：Mirador上游
-> 更新日期：2026-10-16
+> 更新日期：2026-10-20
 > 工作项：源头为 [M7-06](../plans/m7-visual-tools-and-input.md)；维护性收口见
 > [依赖复用整改计划](../plans/dependency-reuse-remediation.md)（REUSE-16）
 > 总入口：[依赖反馈](ledger.md)；维护规则：[工程规范9.4](../project/project-standards.md)
@@ -24,6 +24,8 @@ M7-06 本轮核对 PP-OCR 公开后端、集成指南与 smoke；复现见下表
 | MIRADOR-20261009-002 | 连通域 min_x/min_y 不随洪泛更新，组件/文本框边界截断 | Resolved（本地） | fb0dc3f；回归用例即复现 | [mirador#35](https://github.com/Linductor-alkaid/mirador/pull/35) 第 2 提交，随 pin ae8cf87 生效 | Mirage 维护者 |
 
 | MIRADOR-20261009-003 | PP-OCR 参考预处理偏离参考部署，真实模型 0/4 | Resolved（本地） | fb0dc3f；四语料公开复现 | [mirador#35](https://github.com/Linductor-alkaid/mirador/pull/35) 第 3 提交，随 pin ae8cf87 生效 | Mirage 维护者 |
+
+| MIRADOR-20261018-001 | PP-OCR rec 逐框串行且无批处理/截断，密集桌面帧无法进入交互预算 | Open | pinned `cb45a102`；生产会话 + 本地基准（见下） | [mirador#41](https://github.com/Linductor-alkaid/mirador/issues/41) 已提报 | Mirage 维护者 |
 
 ## MIRADOR-20261009-001
 
@@ -189,3 +191,114 @@ Provider职责，记录版本/公共API/测试核对、最小复现、影响、�
 PR #37/#39。真实模型同输入对照、默认等价、坐标与故障验证见本次兼容性报告；
 PR 合并仍待评审。无应用侧图像重实现或新增并发设施。延期会继续漏按钮并使
 模型默认输入不匹配；验收要求真实权重、独立输入/推理/坐标和 Mirage mark 链路。
+
+## MIRADOR-20261018-001：PP-OCR rec 逐框串行且无批处理/截断，密集桌面帧无法进入交互预算
+
+状态：Open；负责人 Mirage 维护者，处理方 Mirador 上游；工作项 M8-06 / DEC-107。
+
+公开接口核对：`PpOcrBackend::recognize`
+（`third_party/mirador/integrations/ocr_ppocr/ppocr_backend.cpp:401`）对 det 产出的
+每个候选框串行调用一次 rec，无批处理、无按分数的 top-K 截断、无 deadline 内部分数
+产出（rec 循环仅在框间检查 `is_cancelled`，超时即整体返回 kCancelled 并丢弃已完成
+行）。已排除 API 误用与 Mirage 职责：线程数、det_side、max_boxes 均为调用方选项并
+已按生产设置（det_side=960、max_boxes=512）；DEC-076 的 512 候选是 Mirage 侧策略。
+
+影响与证据：生产会话 `ab2c8dd3…`（2026-10-18 23:08，interactive Portal 路径）中
+`desktop.vision.ocr` 连续 3 次 `native_ocr_expired`（timings：3 次调用恰好
+15,000ms），整轮以"桌面视觉读取失败或被拒绝"失败。本地基准（打包
+PP-OCRv5-mobile，1600×1000 密集合成帧，det 359 框，max_boxes=512）：
+num_threads=1 时 det+rec ≈12.9s（约 35ms/框），det 仅占约 2%；rec 阶段
+num_threads=4 在默认 libgomp 调度下反而劣化 1.6–1.8×（单行 rec 46.6→91–96ms，
+fork/join 开销主导小张量）；512 框最坏情况估算 16–33s，任何线程配置都无法进入
+Mirage 交互路径的 5 秒 OCR 预算（DEC-076 冻结）。同机降频状态，绝对值偏保守，
+对比结论方向不变。
+
+期望最小能力（任一即可显著缓解）：rec 批处理（多行一次前向）、按分数或阅读序的
+top-K rec 截断选项、或 deadline 到达时返回已完成行的部分结果（新增显式状态而非
+kCancelled）。延期影响：文本密集桌面（QQ/浏览器多窗口）的整屏 OCR 持续超时，
+模型被迫退化为纯图像判断或触发 DEC-107 的"分析未完成"反馈路径；ROI 小图观测
+可绕过但增加交互次数。
+
+临时边界：Mirage 侧仅保留 det 四线程加速（`integration/mirador/src/ppocr_pipeline.cpp`，
+rec 维持单线程避免负优化）；不改 pinned 代码、不加并发设施。移除条件：上游提供
+上述任一能力并经 Mirage pin 消费复验。可验收结果：512 框密集帧在 5 秒预算内
+完成 rec 或返回可用的部分文本。
+
+上游回执：2026-10-19 以台账证据提报
+[mirador#41](https://github.com/Linductor-alkaid/mirador/issues/41)
+（PP-OCR: per-line serial rec cannot meet interactive budgets on dense desktop
+frames），含测量表、根因定位、最小能力诉求与验收建议；处理进展随该 issue 跟踪，
+合并前本条维持 Open。
+
+## MIRADOR-20261019-001
+
+连续感知与任务注意策略的公开契约。
+
+状态：Proposed（公开契约诉求，非已确认算法缺陷）；负责人 Mirage 维护者，处理方
+Mirador 上游；工作项 M9-07/13/18，方案见
+[DEC-109](../decisions/DEC-109-continuous-perception-attention-and-pet-coexistence.md)。
+上游已有讨论：[issue #41 补充](https://github.com/Linductor-alkaid/mirador/issues/41#issuecomment-6258623068)
+（2026-10-19 回读，issue Open）；2026-10-20 台账补充已回读为
+[后续评论](https://github.com/Linductor-alkaid/mirador/issues/41#issuecomment-6285521869)，
+不代表上游已承诺 API。
+直接 PP-OCR 性能问题仍归 MIRADOR-20261018-001，两个交付层次独立推进。
+
+核对版本 `cb45a10271c53d3b189bb33eef3f692d94feb562`，公开
+`perception_session.hpp`、`change_detection.hpp`、`fusion.hpp`、`object_tracker.hpp`、
+`ocr_backend.hpp`、PP-OCR opt-in 头及 session/caching card；检查
+`tests/fusion/perception_session_test.cpp`、`session_fuse_test.cpp`、
+`stable_id_tracker_test.cpp` 与 `tests/image/change_detection_test.cpp` 对应契约用例
+（源码核对，未执行依赖测试）。
+
+可复核的边界：已有 ROI OCR/detector、请求参数/模型身份隔离的结果缓存、融合与稳定 ID，
+不缺这些原语；
+`fingerprint_early_exit=false` 也已提供，不能继续称为缺 API。但 `analyze_change`
+相对上次分析输入推进签名，`fuse` 发布快照，现有公开接口未统一定义跳帧下的已确认/
+已发布基线、区域 pending、任务注意配置与选择性事件。当前 OCR 返回
+`Result<vector<TextRegion>>`，不能从空行区分未识别/缓存/预算截断；该部分与 #41
+直接 partial-result 诉求协同。M9 连续场景还需明确以下组合行为，而非拼装调用即
+可假定存在：焦点切换无需新像素即可查询状态，预算先用于相关候选，静音变化仍
+更新内部状态，迟到结果不覆盖新内容。
+
+最小验收复现序列（契约测试待上游/消费实现补齐）：帧 A 同时有目标和背景动画，
+B 仅目标文字改变，C 仅背景改变且 B 的 OCR 尚未完成；合并/跳帧后仍需处理目标
+变化。静音背景再切焦背景，应返回当前覆盖/年龄及未识别状态；不能漏报 B，也
+不能凭旧缓存宣布 C 全部已确认。实现需覆盖策略切换和过期异步结果的版本冲突。
+
+期望最小能力：在现有原语上提供同步、无调度器的连续协调契约，支持宿主传入
+实体/锚定 ROI/文本类别焦点、任务权重和预算，输出来源可追溯的实体增量、识别
+覆盖/新鲜度、已确认与待处理状态、可选择通知及基线 reset。任务重要性独立于
+视觉置信度；外围保留预算与结构变化提示，不自行解释任务意义。具体接口命名由
+上游评审，不预设必须新增某个 class，也不要求 Mirador 持有产品永久语义。
+
+职责排除：屏幕采集、pet 排除/移动、任务规划、模型请求、产品语义绑定、输入权限
+和通知/任务调度属于 Mirage/Mira；不是本反馈要求下沉的能力。延期影响：M9-18
+完整通用连续协调验收暂不能完成；Mirage 仍可先交付共享帧、现有 ROI/cache 消费、
+语义协议和 pet 平台探针，不应在应用复制第二套视觉稳定化/跟踪算法。
+
+临时边界：私有 Adapter 仅消费已有 ROI/cache/change，产品语义保留在 VisualScene；
+未识别区域标 unknown/pending，需完整结果时走受限新识别/图像回退。不修改
+pinned 依赖，不新增线程/队列/调度器。移除条件：上游契约经评审交付、获准升级
+pin 并通过消费侧验收。验收包含上述 A/B/C、微小文字/弹窗、焦点切换、策略过期、
+ID 复用、partial/迟到、资源上限和取消；以实际 backend 调用及漏事件验证收益，
+不能只测返回数据变少。
+
+2026-10-20 补充（沿用本编号，状态仍 Proposed）：维护者明确低资源连续帧采用
+增量视觉状态、事件驱动理解与按需 VLM。通用契约进一步要求跨帧实体/几何关系
+差分携带来源、实例代际、证据时间窗和事件开始/更新/结束；遮挡、未分析、丢失
+不等同确认消失，源重置显式终结旧代事件。现有 fusion/StableIdTracker 与
+ObjectTracker 原语继续复用，不能将已有能力统称为缺失；完整连续关系/事件契约
+仍需上游评审，未在 Mirage 复制算法。建议验收在 A/B/C 序列外补相似对象交换、
+遮挡后重捕获、关系改变、乱序/迟到、源重置及关闭额外 VLM 的状态连续性。
+
+产品事件日志预算/保留与 gap 恢复、任务重要性、VLM 升级去重、ROI/短窗模型请求
+和动作反馈关联属于 Mirage/Mira；不要求 Mirador 持有视频历史或常驻模型。
+研究映射及现有 API 边界见
+[研究记录](../research/2026-10-20-event-driven-incremental-visual-perception.md)，
+工作项 M9-05/07/08/18。仅补充本地诉求和验收方向，未修改 pin 或执行运行验证，
+不代表上游已接受接口承诺；本补充已同日回读上游（见条目头部回执链接）。
+
+同日范围澄清：MiniCPM-o 4.5 只作为视觉 token 压缩和时分复用机制的研究参考。
+Mirador 仍负责通用视觉状态与证据筛选；模型内学习式重采样不下沉为通用视觉库
+的新职责。时间单元的组织、Mira 消费与动作反馈关联在宿主侧冻结，不要求 Mirador
+引入 MiniCPM 模型、权重、运行时或实现模型序列协议。本反馈范围和状态保持不变。

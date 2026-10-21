@@ -45,6 +45,18 @@ desktop::TrayState TrayPresenter::state() {
     desktop::clamp_tray_status(result.status);
     return result;
 }
+void TrayPresenter::push_action(Action action) {
+    // SDK callback only validates and posts. Business handling runs on the
+    // Runtime-owned ActionWorker and its serialized finite Executor task.
+    {
+        std::lock_guard lock(action_mutex_);
+        if (!actions.try_send(std::move(action))) {
+            std::cerr << "mirage-tray: action rejected (queue full or closing)\n";
+            return;
+        }
+    }
+    action_ready_.notify_all();
+}
 void TrayPresenter::run(kairo::StopToken stop) {
     desktop::TrayCarrierContext context;
     context.icon_path = icon_path_;
@@ -53,12 +65,7 @@ void TrayPresenter::run(kairo::StopToken stop) {
         (void)readiness_.advance_to(1);
     };
     context.load_state = [this] { return state(); };
-    // SDK callback only validates and posts. Business handling runs on the
-    // Runtime-owned ActionWorker and its serialized finite Executor task.
-    context.on_action = [this](desktop::TrayAction kind) {
-        if (!actions.try_send({kind, task_id_}))
-            std::cerr << "mirage-tray: action rejected (queue full or closing)\n";
-    };
+    context.on_action = [this](desktop::TrayAction kind) { push_action({kind, task_id_}); };
     const auto report = carrier_->run(context, [&] { return stop.stop_requested(); });
     live_.store(false);
     (void)readiness_.close();

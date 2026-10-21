@@ -154,6 +154,12 @@ struct detail::VisualSessionCore {
     /// The template index shares the session's serial context (plan item
     /// `M3-04`); it dies with the core when the host stops.
     VisualTemplateIndex templates;
+    struct BackgroundBaseline {
+        mirador::ChangeSignature signature;
+        std::uint64_t sequence = 0, policy_revision = 0;
+    };
+    // One 64x64 grayscale signature (4096 bytes), serial worker only.
+    std::optional<BackgroundBaseline> background_baseline;
     bool assets_enrolled = false; // Only touched by this source worker.
 
     std::mutex mutex;
@@ -189,6 +195,9 @@ void execute(detail::VisualSessionCore &core, RequestState &state) {
         return internal.cancelled() || external.cancelled();
     };
 
+    auto baseline = std::move(core.background_baseline);
+    core.background_baseline.reset();
+    std::optional<mirador::ChangeSignature> current_signature;
     VisualAnalysisResult result;
     // Cancellation lands before the first side effect (enrollments mutate
     // session state), never silently swallowed.
@@ -282,6 +291,51 @@ void execute(detail::VisualSessionCore &core, RequestState &state) {
             return;
         }
         result.change = change.take_value();
+    }
+
+    // Compare optional background work to its last completed analysis, rather
+    // than to an adjacent skipped frame (which could hide accumulated drift).
+    if (request.admission == VisualAnalysisAdmission::when_changed) {
+        mirador::ChangeDetectionParams params;
+        params.fingerprint_early_exit = false;
+        auto signature = mirador::make_change_signature(request.frame.image, params);
+        if (!signature) {
+            settle_failed(state, signature.status());
+            return;
+        }
+        current_signature = signature.take_value();
+        if (baseline && baseline->policy_revision == request.analysis_policy_revision) {
+            auto report = mirador::detect_change(baseline->signature, *current_signature, params);
+            if (!report) {
+                settle_failed(state, report.status());
+                return;
+            }
+            result.admission_change = report.take_value();
+            result.admission_baseline_sequence = baseline->sequence;
+        }
+        const bool force_analysis =
+            !request.enrollments.empty() || request.render_marks ||
+            (request.run_ocr && request.ocr.cache_policy == mirador::CachePolicy::kRefresh) ||
+            (request.run_detector &&
+             request.detector.cache_policy == mirador::CachePolicy::kRefresh);
+        if (result.admission_change && !force_analysis &&
+            result.admission_change->classification == mirador::ChangeClassification::kNone) {
+            if (interrupted())
+                return;
+            core.background_baseline = std::move(baseline);
+            result.cache_stats.background_signature_bytes =
+                core.background_baseline->signature.thumbnail.byte_size();
+            result.outcome.kind = VisualAnalysisOutcome::Kind::kSkippedUnchanged;
+            result.outcome.message = "unchanged background screen; no current analysis evidence";
+            result.cache_stats.frame_cache_bytes = core.session.frame_cache().byte_size();
+            result.cache_stats.frame_cache_entries = core.session.frame_cache().entry_count();
+            result.cache_stats.result_cache_bytes = core.session.result_cache().byte_size();
+            result.cache_stats.result_cache_entries = core.session.result_cache().entry_count();
+            result.cache_stats.template_index_bytes = core.templates.byte_size();
+            result.cache_stats.template_index_entries = core.templates.entry_count();
+            settle(state, std::move(result));
+            return;
+        }
     }
 
     // ---- geometric closed-region proposals (geometric facts only)
@@ -568,6 +622,15 @@ void execute(detail::VisualSessionCore &core, RequestState &state) {
     result.cache_stats.template_index_bytes = core.templates.byte_size();
     result.cache_stats.template_index_entries = core.templates.entry_count();
 
+    if (interrupted())
+        return;
+    if (current_signature)
+        core.background_baseline = detail::VisualSessionCore::BackgroundBaseline{
+            std::move(*current_signature), request.frame.sequence,
+            request.analysis_policy_revision};
+    if (core.background_baseline)
+        result.cache_stats.background_signature_bytes =
+            core.background_baseline->signature.thumbnail.byte_size();
     result.outcome.kind = VisualAnalysisOutcome::Kind::kCompleted;
     settle(state, std::move(result));
 }
@@ -739,6 +802,20 @@ std::future<VisualAnalysisResult> VisualSessionHost::submit(VisualAnalysisReques
     // frame in oriented coordinates, which is only the view's own pixel
     // space for the adapter's rotation-k0 capture form.
     const VisualAnalysisRequest &analysis = state->request;
+    if (analysis.admission != VisualAnalysisAdmission::always &&
+        analysis.admission != VisualAnalysisAdmission::when_changed) {
+        settle_rejected(*state, "unknown visual analysis admission policy");
+        return future;
+    }
+    if (analysis.admission == VisualAnalysisAdmission::when_changed && !analysis.analyze_change) {
+        settle_rejected(*state, "background change admission requires change analysis");
+        return future;
+    }
+    if (analysis.admission == VisualAnalysisAdmission::when_changed &&
+        analysis.analysis_policy_revision == 0) {
+        settle_rejected(*state, "background admission requires an explicit policy revision");
+        return future;
+    }
     const bool pixel_space_stages = !analysis.enrollments.empty() || analysis.probe_templates ||
                                     analysis.probe_geometry_templates || analysis.geometry.run ||
                                     analysis.render_marks;

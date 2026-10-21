@@ -1,4 +1,6 @@
+#include <mirage/desktop/input_cadence.hpp>
 #include <mirage/desktop/input_provider.hpp>
+#include <mirage/desktop/input_session.hpp>
 namespace mirage::desktop {
 bool valid_pointer_scope(const PointerActionScope &scope, PointerPoint p,
                          const InputLimits &limits) {
@@ -7,7 +9,7 @@ bool valid_pointer_scope(const PointerActionScope &scope, PointerPoint p,
            g.height > 0 && p.x >= g.x && p.y >= g.y &&
            std::int64_t{p.x} < std::int64_t{g.x} + g.width &&
            std::int64_t{p.y} < std::int64_t{g.y} + g.height && limits.timeout.count() > 0 &&
-           limits.timeout.count() <= 1000;
+           limits.timeout <= input_cadence_policy::action_timeout;
 }
 bool valid_scroll_steps(std::int32_t horizontal, std::int32_t vertical) {
     if (horizontal < -16 || horizontal > 16 || vertical < -16 || vertical > 16)
@@ -55,5 +57,42 @@ InputOutcome InputProvider::click_sequence_at(std::int32_t x, std::int32_t y,
     if (count == 1)
         return click_at(x, y, button, limits, cancel);
     return {false, false, {"unsupported_platform", "complete repeated click is unavailable"}};
+}
+
+InputOutcome InputProvider::approach_target(PointerPoint target, std::int32_t target_width,
+                                            const InputLimits &limits, const CancelToken &cancel) {
+    if (cancel.cancelled())
+        return {false, true, {"cancelled", "pointer approach cancelled"}};
+    if (!timed_pointer_actions_supported())
+        return {false, false, {"unsupported_platform", "automatic pointer travel is unavailable"}};
+    const auto origin = pointer_position(cancel);
+    if (!origin.ok)
+        return {false, origin.cancelled, origin.error};
+    if (limits.timeout.count() <= 0)
+        return {false, false, {"input_timeout", "pointer approach has no remaining time"}};
+    if (origin.position.x == target.x && origin.position.y == target.y)
+        return {true, false, {}, false, true};
+    PointerMotionVariation variation;
+    std::chrono::milliseconds duration;
+    try {
+        variation = make_pointer_motion_variation(target_width);
+        duration =
+            varied_pointer_duration({origin.position.x, origin.position.y}, target, variation);
+    } catch (...) {
+        return {false, false, {"pointer_plan_failed", "could not prepare pointer approach"}};
+    }
+    if (limits.timeout < duration || limits.timeout.count() <= 0)
+        return {false, false, {"input_timeout", "pointer approach exceeds remaining action time"}};
+    return smooth_move_to(target.x, target.y, duration, 0, limits, cancel, variation);
+}
+
+InputOutcome InputProvider::smooth_move_to(std::int32_t, std::int32_t,
+                                           std::chrono::milliseconds duration,
+                                           std::uint32_t path_points, const InputLimits &,
+                                           const CancelToken &,
+                                           std::optional<PointerMotionVariation>) {
+    if (const auto timing = validate_smooth_move_timing(duration, path_points))
+        return {false, false, *timing};
+    return {false, false, {"unsupported_platform", "timed pointer travel is unavailable"}};
 }
 } // namespace mirage::desktop

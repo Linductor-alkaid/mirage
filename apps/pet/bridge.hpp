@@ -21,7 +21,8 @@ class Bridge {
     bool preferences(runtime::persistence::AppPreferences &out);
     void set_bubble_expiry(std::uint64_t remaining_ms);
     ResourceLoader &loader();
-    void set_animating(bool value);
+    void set_animating(bool value,
+                       std::chrono::milliseconds interval = std::chrono::milliseconds{33});
     void set_visible(bool value);
     bool visible() const;
     void shutdown();

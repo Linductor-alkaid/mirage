@@ -103,6 +103,13 @@ class FaultInput final : public d::InputProvider {
         last_click_count = count;
         return click_at(x, y, button, limits, cancel);
     }
+    bool timed_pointer_actions_supported() const override { return true; }
+    d::InputOutcome
+    smooth_move_to(std::int32_t x, std::int32_t y, std::chrono::milliseconds duration,
+                   std::uint32_t points, const d::InputLimits &limits, const d::CancelToken &cancel,
+                   std::optional<d::PointerMotionVariation> variation = std::nullopt) override {
+        return delegate->smooth_move_to(x, y, duration, points, limits, cancel, variation);
+    }
     bool complete_actions_supported() const override { return true; }
     d::InputOutcome click_at(std::int32_t x, std::int32_t y, const d::MouseButton &b,
                              const d::InputLimits &l, const d::CancelToken &c) override {
@@ -389,12 +396,12 @@ void contracts(kairo::Executor &executor) {
             f.fake->failures.capture_error = true;
         if (m == "count") {
             Json latest;
-            for (int n = 0; n < 3; ++n)
+            for (int n = 0; n < 40; ++n)
                 latest = f.capture();
             args = f.args(latest);
         }
         const auto result = f.click(args);
-        if (m == "good" || m == "none" || m == "window" || m == "unrelated") {
+        if (m == "good" || m == "none" || m == "window" || m == "unrelated" || m == "count") {
             check(!result.failed && f.input.calls == 1);
             check(result.result.find("verified")->as_boolean().value_or(false));
             check(f.verifier->settle());
@@ -479,10 +486,11 @@ void contracts(kairo::Executor &executor) {
             ++dispatches;
             return Json{Json::Object{{"status", "dispatched"}, {"input_released", true}}};
         };
-        check(static_cast<bool>(
-            verifier.execute("desktop.vision.click_region", args, f.ctx, handler)));
-        check(verifier.settle() && calls == 2 && dispatches == 1);
+        const auto clicked = verifier.execute("desktop.vision.click_region", args, f.ctx, handler);
+        check(static_cast<bool>(clicked));
+        check(verifier.settle() && calls == 1 && dispatches == 1);
         f.fake->displays.front().geometry.x = 1;
+        check(static_cast<bool>(verifier.recheck(field(clicked.value(), "action_id"), f.ctx)));
         check(!verifier.settle());
     }
 }

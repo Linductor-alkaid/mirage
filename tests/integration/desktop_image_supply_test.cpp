@@ -89,10 +89,14 @@ integration::DesktopToolContext desktop() {
 class NativeEnvironment final : public mirage::desktop::DesktopEnvironment,
                                 public mirage::desktop::ScreenProvider {
   public:
-    int created = 0, captures = 0, closed = 0, inputs = 0;
+    int created = 0, captures = 0, closed = 0, inputs = 0, moves = 0;
+    bool long_press_available = true;
     bool interactive = false, pixels_changed = false, release_failed = false,
          uncertain_input = false;
     bool fail = false, revoke = false, throw_capture = false, repeated_source_after_input = false;
+    // Automatic approach refuses when same-stream cursor metadata is unavailable.
+    bool glide_origin_unknown = false, arrival_changed = false;
+    std::string cursor_fault;
     // M7-16 / DEC-083: `pixels_changed` paints a position-dependent structural
     // pattern (a replaced subject whose frame fingerprint and block diffs both
     // move), while `drift` only shifts brightness uniformly (the subject stays
@@ -177,18 +181,58 @@ class NativeEnvironment final : public mirage::desktop::DesktopEnvironment,
     struct Session final : mirage::desktop::DesktopCaptureSession {
         NativeEnvironment &env;
         bool live = false, input_mode = false;
+        std::uint64_t frame_sequence = 0;
         explicit Session(NativeEnvironment &v, bool input = false) : env(v), input_mode(input) {
             ++env.created;
         }
         bool input_supported() const override { return input_mode && live; }
+        bool timed_press_supported() const override {
+            return env.long_press_available && input_supported();
+        }
+        mirage::desktop::SharedPointerQueryOutcome
+        pointer_position(const mirage::desktop::CancelToken &cancel) override {
+            if (cancel.cancelled())
+                return {false, true, {}, 0, 0, 0, {"cancelled", "fixture"}};
+            if (env.glide_origin_unknown)
+                return {};
+            if (env.cursor_fault == "pointer_query_throws")
+                throw std::runtime_error("cursor query failure");
+            return {true,
+                    false,
+                    {env.cursor_fault == "pointer_out_of_bounds" ? -1 : 0, 0},
+                    env.frame_width + (env.cursor_fault == "pointer_extent_mismatch" ? 1 : 0),
+                    env.frame_height,
+                    frame_sequence - (env.cursor_fault == "pointer_sequence_mismatch" ? 1 : 0),
+                    {}};
+        }
         mirage::desktop::InputOutcome input(const mirage::desktop::SharedInputAction &action,
                                             const mirage::desktop::InputLimits &,
                                             const mirage::desktop::CancelToken &cancel) override {
+            if (action.kind == mirage::desktop::SharedInputAction::Kind::Move) {
+                ++env.moves;
+                if (env.glide_origin_unknown)
+                    return {false,
+                            false,
+                            {"pointer_origin_unknown", "fresh cursor metadata missing"},
+                            false,
+                            true};
+                if (env.arrival_changed)
+                    env.pixels_changed = true;
+                return {true, false, {}, true, true};
+            }
             ++env.inputs;
             env.last_action_x = action.x;
             env.last_action_y = action.y;
             env.last_click_count = action.click_count;
             env.last_input = action;
+            if (env.glide_origin_unknown && action.glide_ms != 0)
+                // Same shape as the Portal backend's refusal: no effect, the
+                // input is released, the session stays usable.
+                return {false,
+                        false,
+                        {"pointer_origin_unknown", "no dispatched pointer position is known yet"},
+                        false,
+                        true};
             if (env.release_failed || env.uncertain_input || cancel.cancelled())
                 return {false,
                         cancel.cancelled(),
@@ -223,13 +267,12 @@ class NativeEnvironment final : public mirage::desktop::DesktopEnvironment,
                     ? env.shared_pixels()
                     : std::vector<std::uint8_t>(std::size_t(width) * std::size_t(height) * 4,
                                                 static_cast<std::uint8_t>(env.captures));
+            frame_sequence = static_cast<std::uint64_t>(
+                env.repeated_source_after_input && env.inputs ? env.captures - 1 : env.captures);
             return {true,
                     false,
                     {mirage::desktop::ImageFormat::Bgra8, width, height, std::size_t(width) * 4,
-                     std::move(pixels),
-                     static_cast<std::uint64_t>(env.repeated_source_after_input && env.inputs
-                                                    ? env.captures - 1
-                                                    : env.captures)},
+                     std::move(pixels), frame_sequence},
                     {}};
         }
     };
@@ -304,10 +347,9 @@ void native_session(const std::string &mode) {
         check(env->closed == 0);
         const auto first_id = *first.value().result.find("artifact_id")->as_string();
         if (mode == "budget") {
-            for (int n = 1; n < 8; ++n)
+            for (int n = 1; n < 80; ++n)
                 check(!invoke(ctx).value().failed);
-            check(rejected(ctx));
-            check(env->captures == 8 && env->created == 1 && permissions == 8);
+            check(env->captures == 80 && env->created == 1 && permissions == 80);
         } else if (mode == "reuse") {
             auto lease = tools.actions->try_begin({});
             check(static_cast<bool>(lease));
@@ -458,6 +500,14 @@ void shared_contracts(const std::string &mode) {
                                 : "shared_frame_observed"}}};
         if (mode == "ocr" || mode == "wrong_ocr" || mode == "ocr_invalid")
             args.set("expected_text", "fixture");
+        if (mode == "execution_only") {
+            auto fields = *args.as_object();
+            fields.erase(
+                std::remove_if(fields.begin(), fields.end(),
+                               [](const auto &entry) { return entry.first == "verify_kind"; }),
+                fields.end());
+            args = JsonValue{std::move(fields)};
+        }
         if (mode != "no_image") {
             mira::AgentLoopSpec spec;
             spec.task_id = ctx.task;
@@ -545,16 +595,36 @@ void shared_contracts(const std::string &mode) {
             args.set("button", "bad");
         if (mode == "button_type")
             args.set("button", 3);
-        if (mode == "wheel")
+        if (mode.starts_with("wheel") && mode != "wheel_budget")
             args.set("horizontal_steps", -16);
         if (mode == "wheel_budget") {
             args.set("horizontal_steps", 16);
             args.set("vertical_steps", 1);
         }
-        auto result = invoke(mode == "unicode"           ? "desktop.session.type_text"
-                             : drag                      ? "desktop.session.drag"
-                             : mode.starts_with("wheel") ? "desktop.session.scroll"
-                                                         : "desktop.session.click",
+        // DEC-110 (M7-26): the glide_ms opt-in of desktop.session.click.
+        if (mode == "glide_low")
+            args.set("glide_ms", 49);
+        if (mode == "glide_high")
+            args.set("glide_ms", 2001);
+        if (mode == "glide_string")
+            args.set("glide_ms", "300");
+        if (mode == "glide_scroll")
+            args.set("glide_ms", 300);
+        // 2026-10-20: the session refuses glide travel before any dispatched
+        // origin exists (the Portal backend's first-glide shape).
+        if (mode == "glide_origin_unknown" || mode == "wheel_origin_unknown" ||
+            mode == "drag_origin_unknown")
+            env->glide_origin_unknown = true;
+        if (mode.ends_with("arrival_changed"))
+            env->arrival_changed = true;
+        if (mode.starts_with("pointer_"))
+            env->cursor_fault = mode;
+        const auto epoch_before_input = tools.actions->epoch();
+        auto result = invoke(mode == "unicode" ? "desktop.session.type_text"
+                             : drag            ? "desktop.session.drag"
+                             : (mode.starts_with("wheel") || mode == "glide_scroll")
+                                 ? "desktop.session.scroll"
+                                 : "desktop.session.click",
                              args, action_ctx);
         if (mode == "unicode") {
             check(result && result.value().failed &&
@@ -566,6 +636,40 @@ void shared_contracts(const std::string &mode) {
             check(result && result.value().failed &&
                   result.value().safe_error_summary.find("input_pre_capture_timeout") !=
                       std::string::npos);
+        if (mode.ends_with("arrival_changed")) {
+            check(result && result.value().failed && env->moves == 1 && env->inputs == 0);
+            check(result.value().safe_error_summary.find("arrival_target_changed") !=
+                  std::string::npos);
+            check(!verification.settle());
+            return;
+        }
+        if (mode == "wheel_origin_unknown" || mode == "drag_origin_unknown") {
+            check(result && result.value().failed && env->moves == 0 && env->inputs == 0);
+            check(tools.actions->epoch() == epoch_before_input);
+            check(result.value().safe_error_summary.find("pointer_origin_unknown") !=
+                  std::string::npos);
+            return;
+        }
+        if (mode == "glide_origin_unknown" || mode.starts_with("pointer_")) {
+            check(result && result.value().failed && env->moves == 0 && env->inputs == 0);
+            check(tools.actions->epoch() == epoch_before_input);
+            check(result.value().safe_error_summary.find(mode == "pointer_query_throws"
+                                                             ? "pointer_query_failed"
+                                                             : "pointer_origin_unknown") !=
+                  std::string::npos);
+            check(result.value().safe_error_summary.find("direct click") == std::string::npos);
+            auto key = args;
+            key.set("key_name", "escape");
+            const auto fallback = invoke("desktop.session.key", key, ctx);
+            check(fallback && !fallback.value().failed && env->inputs == 1);
+            return;
+        }
+        if (mode == "uncertain")
+            // Only pointer_origin_unknown carries the recovery hint; every
+            // other error code's receipt stays hint-free (top level and any
+            // embedded message alike).
+            check(result && result.value().failed &&
+                  result.value().safe_error_summary.find("\"hint\"") == std::string::npos);
         if (mode == "changed_refresh" || mode == "changed_refresh_lease") {
             // M7-19: the structural rejection publishes the guard's fresh
             // frame and its receipt carries the new image_scope, so the model
@@ -587,7 +691,10 @@ void shared_contracts(const std::string &mode) {
             // The model reads refreshed_image_scope from the embedded error
             // JSON inside the canonical receipt's message field.
             std::string refreshed;
-            if (receipt && receipt.value().find("message") &&
+            if (receipt && receipt.value().find("refreshed_image_scope") &&
+                receipt.value().find("refreshed_image_scope")->as_string())
+                refreshed = *receipt.value().find("refreshed_image_scope")->as_string();
+            if (refreshed.empty() && receipt && receipt.value().find("message") &&
                 receipt.value().find("message")->as_string()) {
                 const auto *embedded = receipt.value().find("message")->as_string();
                 if (const auto inner = mira::parse_json(*embedded);
@@ -635,7 +742,7 @@ void shared_contracts(const std::string &mode) {
             check(env->inputs == 1);
             // Only the retry's own guard frame and its postcondition
             // observation ran; no separate recapture call happened.
-            check(env->captures == 4 && env->created == 1);
+            check(env->captures == 5 && env->created == 1);
             check(retry.value().result.find("verified")->as_boolean() == true);
             check(verification.settle());
             return;
@@ -644,12 +751,44 @@ void shared_contracts(const std::string &mode) {
         // — the guard passes it and the input succeeds, so the post-action
         // verification settles with verified=true; only the structural
         // replacement in `changed` still rejects below.
+        if (mode == "execution_only") {
+            check(result && !result.value().failed && env->inputs == 1);
+            check(result.value().result.find("verified")->as_boolean() == false);
+            const auto *proof = result.value().result.find("verification");
+            check(proof && *proof->find("status")->as_string() == "not_requested");
+            check(env->captures == 3 && measured.ocr.calls == 0);
+            check(!verification.settle());
+            auto feedback = invoke(
+                "desktop.screen.capture",
+                JsonValue{JsonValue::Object{{"source", "desktop"}, {"interaction", true}}}, ctx);
+            check(feedback && !feedback.value().failed);
+            verification.note_observation();
+            const auto captures = env->captures;
+            check(verification.settle() && env->captures == captures && measured.ocr.calls == 0);
+            return;
+        }
         const bool success = mode == "normal" || mode == "ocr" || mode == "uniform_drift" ||
                              mode == "double" || mode == "triple" || mode == "repeat" ||
                              mode == "click_limit" || mode == "right" || mode == "middle" ||
-                             mode == "drag" || mode == "wheel";
+                             mode == "drag" || mode == "wheel" || mode == "glide";
         if (mode == "right" || mode == "middle")
             check(env->last_input.value == mode);
+        if (mode == "glide")
+            check(env->moves == 1 && env->last_input.glide_ms == 0 &&
+                  env->last_input.kind == mirage::desktop::SharedInputAction::Kind::Click);
+        if (mode == "normal")
+            check(env->last_input.glide_ms == 0);
+        if (mode == "glide_low" || mode == "glide_high" || mode == "glide_string" ||
+            mode == "glide_scroll") {
+            // Out-of-budget, wrongly-typed or non-click glide arguments refuse
+            // before the fresh guard capture and any session input (the pinned
+            // registry schema gate names glide_ms: minimum/maximum, type and
+            // additionalProperties; the handler's own invalid_argument check
+            // stays as defense in depth beneath it).
+            check(env->captures == 1 && env->inputs == 0);
+            check(result && result.value().failed &&
+                  result.value().safe_error_summary.find("glide_ms") != std::string::npos);
+        }
         if (mode == "drag")
             check(env->last_input.kind == mirage::desktop::SharedInputAction::Kind::Drag &&
                   env->last_input.value == "right" && env->last_input.destination_x == 2 &&
@@ -693,10 +832,10 @@ void shared_contracts(const std::string &mode) {
                   *proof->find("evidence_scope")->as_string() ==
                       (mode == "ocr" ? "text_presence" : "fresh_frame"));
             const auto before = measured.capture.calls;
-            check(before == 3 && measured.ocr.calls == (mode == "ocr" ? 1u : 0u));
+            check(before == 4u && measured.ocr.calls == (mode == "ocr" ? 1u : 0u));
             check(verification.settle());
-            check(measured.capture.calls == before + 1 &&
-                  measured.ocr.calls == (mode == "ocr" ? 2u : 0u));
+            check(measured.capture.calls == before &&
+                  measured.ocr.calls == (mode == "ocr" ? 1u : 0u));
         }
         if (mode == "release")
             check(!tools.actions->input_released() && tools.actions->authority_epoch() == 0);
@@ -704,6 +843,227 @@ void shared_contracts(const std::string &mode) {
             check(!verification.settle());
     }
     check(env->created == env->closed);
+}
+
+// DEC-107: repeated observations stay bounded in storage and do not hide again;
+// action receipts alone drive a task past the former 32-frame ceiling.
+void native_observation_efficiency() {
+    auto env = std::make_shared<NativeEnvironment>();
+    env->interactive = true;
+    env->frame_width = 64;
+    env->frame_height = 32;
+    env->session_pixels = [] { return std::vector<std::uint8_t>(64 * 32 * 4, 7); };
+    auto tools = desktop();
+    tools.environment = env;
+    tools.reuse_recent_observation = true;
+    bool hidden = false, allowed = true, fail_ocr = false;
+    int admitted = 0, restored = 0, ocr_calls = 0;
+    struct Lease final : mirage::desktop::PresentationLease {
+        bool &hidden;
+        int &restored;
+        bool released = false;
+        Lease(bool &value, int &count) : hidden(value), restored(count) { hidden = true; }
+        ~Lease() override { (void)release(); }
+        mirage::desktop::ProviderError verify(const mirage::desktop::CancelToken &cancel) override {
+            check(hidden);
+            return cancel.cancelled() ? mirage::desktop::ProviderError{"cancelled", "fixture"}
+                                      : mirage::desktop::ProviderError{};
+        }
+        mirage::desktop::ProviderError release() override {
+            if (!released) {
+                released = true;
+                hidden = false;
+                ++restored;
+            }
+            return {};
+        }
+    };
+    tools.exclude_pet = [&](const auto &) -> mirage::desktop::PresentationExclusion {
+        ++admitted;
+        return {std::make_unique<Lease>(hidden, restored), {}};
+    };
+    env->during = [&] { check(hidden); };
+    tools.gate = [&](const auto &, const auto &, const auto &cancel) {
+        return allowed && !cancel();
+    };
+    tools.ocr_image = [&](const auto &, const auto &, const auto &) {
+        check(!hidden);
+        ++ocr_calls;
+        integration::ImageOcrOutcome out;
+        out.ok = !fail_ocr;
+        if (fail_ocr)
+            out.error = {"deadline_exceeded", "fixture analysis timeout"};
+        return out;
+    };
+    auto ctx = context();
+    auto source = std::make_shared<detail::DesktopImageSource>();
+    mira::AgentLoopSpec spec;
+    spec.task_id = ctx.task;
+    spec.session_id = ctx.session;
+    spec.task_epoch = ctx.task_epoch;
+    {
+        detail::DesktopImageTurn turn(source, tools, ctx, {});
+        detail::DesktopActionVerification verification(tools, ctx, {});
+        verification.set_shared_observation(
+            [&](const auto &kind, const auto &text, const auto &owner) {
+                return turn.observe_shared(kind, text, owner);
+            });
+        mira::BuiltinToolRegistry registry;
+        turn.register_tool(registry,
+                           [&](const auto &name, auto handler) -> mira::BuiltinToolHandler {
+                               return [&, name, handler](const auto &args, const auto &owner) {
+                                   return detail::DesktopActionVerification::mutation(name)
+                                              ? verification.execute(name, args, owner, handler)
+                                              : handler(args, owner);
+                               };
+                           });
+        const auto invoke = [&](const std::string &name, const JsonValue &args) {
+            const auto exposed = registry.exposed_tools();
+            const auto found = std::find_if(exposed.begin(), exposed.end(), [&](const auto &tool) {
+                return tool.wire_name == name;
+            });
+            check(found != exposed.end());
+            mira::ToolProposal call;
+            call.tool_id = found->tool_id;
+            call.tool_version = found->version;
+            call.wire_name = name;
+            call.has_side_effects = found->has_side_effects;
+            call.operation_id = mira::OperationId::generate();
+            call.provider_call_id.value = "observation-efficiency";
+            call.arguments = args;
+            call.arguments_digest = mira::canonical_json_digest(args);
+            return registry.execute(call, ctx);
+        };
+        const JsonValue capture_args{
+            JsonValue::Object{{"source", "desktop"}, {"interaction", true}}};
+        auto captured = invoke("desktop.screen.capture", capture_args);
+        check(captured && !captured.value().failed && !hidden && admitted == restored);
+        auto metadata = captured.value().result;
+        const auto initial_time = *metadata.find("received_at_ms")->as_integer();
+        for (int i = 0; i < 80; ++i) {
+            auto reused = invoke("desktop.screen.capture", capture_args);
+            check(reused && !reused.value().failed);
+            check(reused.value().result.find("reused_capture")->as_boolean() == true);
+            check(*reused.value().result.find("received_at_ms")->as_integer() == initial_time);
+        }
+        check(env->captures == 1 && admitted == 1 && restored == 1 && !hidden);
+        auto ocr = invoke("desktop.vision.ocr", JsonValue{JsonValue::Object{}});
+        check(ocr && !ocr.value().failed && ocr_calls == 1 && env->captures == 1 && !hidden);
+        // Same exact authorized pixels: successful analysis is not repeated.
+        for (int i = 0; i < 40; ++i) {
+            auto reused = invoke("desktop.vision.ocr", JsonValue{JsonValue::Object{}});
+            check(reused && !reused.value().failed && ocr_calls == 1);
+            check(*reused.value().result.find("received_at_ms")->as_integer() == initial_time);
+        }
+        for (int i = 0; i < 40; ++i) {
+            auto supplied = turn.supply(spec);
+            check(supplied && supplied.value().size() == 1);
+            mira::ModelRequest request;
+            request.task_id = ctx.task;
+            request.task_epoch = ctx.task_epoch;
+            request.input = supplied.value();
+            check(bool(turn.validate_request(request, ctx)));
+            JsonValue args{
+                JsonValue::Object{{"image_scope", *metadata.find("image_scope")},
+                                  {"environment_epoch", *metadata.find("environment_epoch")},
+                                  {"x", 0},
+                                  {"y", 0},
+                                  {"width", 2},
+                                  {"height", 1},
+                                  {"verify_kind", "shared_frame_observed"}}};
+            auto clicked = invoke("desktop.session.click", args);
+            if (!clicked)
+                std::cerr << "efficiency registry error " << i << ": "
+                          << clicked.error().safe_message << '\n';
+            if (clicked && clicked.value().failed)
+                std::cerr << "efficiency round " << i << ": " << clicked.value().safe_error_summary
+                          << '\n';
+            check(clicked && !clicked.value().failed);
+            check(clicked.value().result.find("verified")->as_boolean() == true);
+            const auto *observation = clicked.value().result.find("observation");
+            check(observation && observation->find("image_scope"));
+            check(
+                clicked.value().result.find("verification")->find("captured_at_ms")->as_integer() ==
+                observation->find("received_at_ms")->as_integer());
+            check(*observation->find("image_scope")->as_string() !=
+                  *metadata.find("image_scope")->as_string());
+            check(*observation->find("scene_change")->as_string() == "none");
+            metadata = *observation;
+            if (i == 0) {
+                const auto before_ocr = ocr_calls;
+                auto fresh = invoke("desktop.vision.ocr", JsonValue{JsonValue::Object{}});
+                check(fresh && !fresh.value().failed && ocr_calls == before_ocr + 1);
+                auto reused = invoke("desktop.vision.ocr", JsonValue{JsonValue::Object{}});
+                check(reused && !reused.value().failed && ocr_calls == before_ocr + 1);
+            }
+            check(!hidden && admitted == restored);
+        }
+        check(env->inputs == 40 && env->captures == 121 && env->created == 1);
+        auto roi =
+            invoke("desktop.screen.capture",
+                   JsonValue{JsonValue::Object{
+                       {"source", "roi"}, {"x", 8}, {"y", 8}, {"width", 16}, {"height", 8}}});
+        check(roi && !roi.value().failed && env->captures == 122);
+        const auto before_ocr = ocr_calls;
+        auto regional_ocr = invoke("desktop.vision.ocr", JsonValue{JsonValue::Object{}});
+        check(regional_ocr && !regional_ocr.value().failed && ocr_calls == before_ocr + 1);
+        check(*regional_ocr.value().result.find("source_kind")->as_string() == "roi");
+        check(*regional_ocr.value().result.find("width")->as_integer() == 16 &&
+              *regional_ocr.value().result.find("height")->as_integer() == 8);
+        check(env->captures == 122 && !hidden && admitted == restored);
+        fail_ocr = true;
+        auto new_roi =
+            invoke("desktop.screen.capture",
+                   JsonValue{JsonValue::Object{
+                       {"source", "roi"}, {"x", 8}, {"y", 8}, {"width", 15}, {"height", 8}}});
+        check(new_roi && !new_roi.value().failed);
+        const auto before_failure = ocr_calls;
+        for (int i = 0; i < 3; ++i) {
+            auto failed = invoke("desktop.vision.ocr", JsonValue{JsonValue::Object{}});
+            check(failed && failed.value().failed);
+        }
+        check(ocr_calls == before_failure + 1 && env->captures == 123);
+        fail_ocr = false;
+        // Neither a successful result nor a failed analysis can bypass permission.
+        allowed = false;
+        auto denied = invoke("desktop.screen.capture", capture_args);
+        check(denied && denied.value().failed && env->closed == 1 && !hidden);
+    }
+    check(admitted == restored && env->created == env->closed);
+    allowed = true;
+    env->during = {};
+    {
+        // Expired freshness is distinct from the existing 60s target-intent
+        // window: preserve the preview for reasoning, never label it fresh.
+        detail::DesktopImageTurn turn(source, tools, ctx, {}, true, std::chrono::seconds{5},
+                                      std::chrono::milliseconds{0});
+        mira::BuiltinToolRegistry registry;
+        turn.register_tool(registry, {});
+        const auto exposed = registry.exposed_tools();
+        const auto found = std::find_if(exposed.begin(), exposed.end(), [](const auto &tool) {
+            return tool.wire_name == "desktop.screen.capture";
+        });
+        check(found != exposed.end());
+        mira::ToolProposal call;
+        call.tool_id = found->tool_id;
+        call.tool_version = found->version;
+        call.wire_name = found->wire_name;
+        call.provider_call_id.value = "historical-intent";
+        call.operation_id = mira::OperationId::generate();
+        call.arguments = JsonValue{JsonValue::Object{{"source", "desktop"}, {"interaction", true}}};
+        call.arguments_digest = mira::canonical_json_digest(call.arguments);
+        auto captured = registry.execute(call, ctx);
+        check(captured && !captured.value().failed);
+        auto supplied = turn.supply(spec);
+        check(supplied && supplied.value().size() == 1);
+        bool historical = false, image = false;
+        for (const auto &part : supplied.value().front().content) {
+            if (const auto *text = std::get_if<mira::TextPart>(&part))
+                historical |= text->text.find("Historical desktop image") != std::string::npos;
+            image |= std::holds_alternative<mira::ImagePart>(part);
+        }
+        check(historical && image && !hidden && admitted == restored);
+    }
 }
 
 // M7-17: the compression content matrix. Each case is encoded here — with the
@@ -1072,9 +1432,15 @@ void native_region_sources() {
                                  {"height", 1},
                                  {"verify_kind", "shared_frame_observed"}}});
         check(outside_click && outside_click.value().failed &&
-              outside_click.value().safe_error_summary.find("stale_or_invalid_target") !=
+              outside_click.value().safe_error_summary.find("invalid_target_bounds") !=
                   std::string::npos);
         check(env->inputs == 0);
+        if (outside_click && outside_click.value().failed) {
+            const auto parsed = mira::parse_json(outside_click.value().safe_error_summary);
+            check(parsed && parsed.value().find("field") && parsed.value().find("hint"));
+            check(outside_click.value().safe_error_summary.find("4x2 IMAGE pixels") !=
+                  std::string::npos);
+        }
         // Positive: an in-image target maps into the cropped area and
         // dispatches.
         const auto captures_before_click = env->captures;
@@ -1100,7 +1466,7 @@ void native_region_sources() {
             check(env->last_action_x >= 2.0 && env->last_action_x <= 6.0 &&
                   env->last_action_y >= 1.0 && env->last_action_y <= 3.0);
             // Only the click's own guard frame; no extra recapture.
-            check(env->captures == captures_before_click + 1);
+            check(env->captures == captures_before_click + 2);
         } catch (const std::exception &failure) {
             deferred_failure += std::string("\nM7-18 C5 ROI-supplied session click failed: ") +
                                 failure.what() + " | receipt: " + receipt;
@@ -1376,6 +1742,18 @@ void input_reuse_identity() {
                 digest = identity->content_digest;
             check(identity->content_digest == digest);
         }
+        {
+            auto lease = tools.actions->try_begin({});
+            check(static_cast<bool>(lease));
+        }
+        check(!turn.input_reuse_identity(spec)); // old image cannot authorize new-epoch input
+        const auto recaptured =
+            run_capture(registry, R"({"source":"roi","x":0,"y":0,"width":4,"height":2})");
+        check(recaptured && !recaptured.value().failed);
+        check(turn.supply(spec).has_value());
+        const auto after_input = turn.input_reuse_identity(spec);
+        check(after_input && after_input->content_digest == digest &&
+              after_input->reuse_count == 3);
     }
     {
         // A second dialog turn on the same persistent source continues the
@@ -1395,7 +1773,7 @@ void input_reuse_identity() {
         check(supplied.has_value());
         const auto identity = turn.input_reuse_identity(spec);
         check(identity.has_value());
-        check(identity->reuse_count == 3);
+        check(identity->reuse_count == 4);
         check(identity->content_digest == digest);
         // An off-owner spec is a wiring error answered without an identity.
         mira::AgentLoopSpec foreign;
@@ -1419,6 +1797,66 @@ void input_reuse_identity() {
         check(identity->reuse_count == 0);
         check(identity->content_digest != digest);
     }
+    // Same pixels at a different crop origin, task, session or authority
+    // must not inherit a no-progress diagnosis from another context.
+    env->session_pixels = [&] {
+        return std::vector<std::uint8_t>(
+            std::size_t(env->frame_width) * std::size_t(env->frame_height) * 4, 17);
+    };
+    const auto sample = [&](int origin) {
+        detail::DesktopImageTurn turn(source, tools, ctx, stop);
+        mira::BuiltinToolRegistry registry;
+        turn.register_tool(registry, {}, true);
+        const auto json = "{\"source\":\"roi\",\"x\":" + std::to_string(origin) +
+                          ",\"y\":0,\"width\":4,\"height\":2}";
+        const auto captured = run_capture(registry, json.c_str());
+        check(captured && !captured.value().failed);
+        check(turn.supply(spec).has_value());
+        const auto identity = turn.input_reuse_identity(spec);
+        check(identity.has_value());
+        return identity.value_or(mira::InputReuseMeta{});
+    };
+    const auto uniform_first = sample(0);
+    check(uniform_first.reuse_count == 0);
+    check(sample(0).reuse_count == 1);
+    const auto translated = sample(2);
+    check(translated.content_digest == uniform_first.content_digest && translated.reuse_count == 0);
+    ++ctx.task_epoch;
+    spec.task_epoch = ctx.task_epoch;
+    check(sample(2).reuse_count == 0);
+    ctx.task = mira::TaskId::generate();
+    spec.task_id = ctx.task;
+    check(sample(2).reuse_count == 0);
+    ctx.session = mira::SessionId::generate();
+    spec.session_id = ctx.session;
+    check(sample(2).reuse_count == 0);
+    tools.actions->takeover();
+    check(tools.actions->resume());
+    check(sample(2).reuse_count == 0);
+}
+
+void input_reuse_contention(kairo::Executor &executor) {
+    auto source = std::make_shared<detail::DesktopImageSource>();
+    std::vector<std::future<std::vector<std::uint32_t>>> futures;
+    for (int worker = 0; worker < 4; ++worker)
+        futures.push_back(executor.submit_auto([source] {
+            std::vector<std::uint32_t> counts;
+            for (int n = 0; n < 128; ++n)
+                counts.push_back(
+                    source->record_input_reuse("same-pixels", "same-scope").reuse_count);
+            return counts;
+        }));
+    std::vector<std::uint32_t> all;
+    for (auto &future : futures) {
+        const auto counts = future.get();
+        all.insert(all.end(), counts.begin(), counts.end());
+    }
+    std::sort(all.begin(), all.end());
+    check(all.size() == 512);
+    for (std::size_t n = 0; n < all.size(); ++n)
+        check(all[n] == n);
+    check(source->record_input_reuse("same-pixels", "other-scope").reuse_count == 0);
+    check(source->record_input_reuse("new-pixels", "other-scope").reuse_count == 0);
 }
 
 class Script final : public mira::IModelProvider {
@@ -2169,9 +2607,11 @@ void contracts(kairo::Executor &executor) {
                   static_cast<bool>(source->fetch(
                       std::get<mira::ImagePart>(inputs.value().front().content.back()).source)));
         }
-        auto rejected = capture_once(turn, ctx);
-        check(rejected && rejected.value().failed);
-        check(turn.supply(valid_spec).value().empty());
+        for (int i = 4; i < 40; ++i) {
+            auto continued = capture_once(turn, ctx);
+            check(continued && !continued.value().failed);
+        }
+        check(!turn.supply(valid_spec).value().empty());
     }
     { // Verify ordinary image expiry separately from failed replacement retirement.
         detail::DesktopImageTurn turn(source, tools, ctx, {});
@@ -2649,6 +3089,90 @@ void reuse_annotation_end_to_end(kairo::Executor &executor) {
 }
 } // namespace
 
+void shared_long_press_contract() {
+    const auto invoke = [](mira::BuiltinToolRegistry &registry, const mira::OperationContext &ctx,
+                           const char *name, const JsonValue &args) {
+        const auto exposed = registry.exposed_tools();
+        const auto spec = std::find_if(exposed.begin(), exposed.end(),
+                                       [&](const auto &tool) { return tool.wire_name == name; });
+        check(spec != exposed.end());
+        mira::ToolProposal call;
+        call.tool_id = spec->tool_id;
+        call.tool_version = spec->version;
+        call.wire_name = name;
+        call.has_side_effects = std::string_view{name} != "desktop.screen.capture";
+        call.operation_id = mira::OperationId::generate();
+        call.provider_call_id.value = "long-press";
+        call.arguments = args;
+        call.arguments_digest = mira::canonical_json_digest(args);
+        return registry.execute(call, ctx);
+    };
+    for (const std::string mode : {"click", "key", "multi", "unavailable", "press_type"}) {
+        auto source = std::make_shared<detail::DesktopImageSource>();
+        auto env = std::make_shared<NativeEnvironment>();
+        env->interactive = true;
+        env->long_press_available = mode != "unavailable";
+        mirage::integration::DesktopToolContext tools;
+        tools.environment = env;
+        tools.actions = std::make_shared<mirage::desktop::ActionCoordinator>();
+        tools.gate = [](const auto &, const auto &, const auto &stop) { return !stop(); };
+        auto ctx = mira::make_control_context();
+        ctx.task = mira::TaskId::generate();
+        ctx.session = mira::SessionId::generate();
+        ctx.task_epoch = 1;
+        detail::DesktopImageTurn turn(source, tools, ctx, {});
+        mira::BuiltinToolRegistry registry;
+        turn.register_tool(registry, {}, true);
+        const auto captured =
+            invoke(registry, ctx, "desktop.screen.capture",
+                   mira::parse_json(R"({"source":"desktop","interaction":true})").value());
+        check(captured && !captured.value().failed);
+        if (!captured || captured.value().failed)
+            continue;
+        mira::AgentLoopSpec spec;
+        spec.task_id = ctx.task;
+        spec.session_id = ctx.session;
+        spec.task_epoch = ctx.task_epoch;
+        const auto supplied = turn.supply(spec);
+        check(supplied.has_value());
+        mira::ModelRequest request;
+        request.task_id = ctx.task;
+        request.task_epoch = ctx.task_epoch;
+        request.input = supplied.value();
+        check(turn.validate_request(request, ctx).has_value());
+        const auto &frame = captured.value().result;
+        check(frame.find("image_scope") && frame.find("environment_epoch"));
+        if (!frame.find("image_scope") || !frame.find("environment_epoch"))
+            continue;
+        JsonValue args{JsonValue::Object{{"image_scope", *frame.find("image_scope")},
+                                         {"environment_epoch", *frame.find("environment_epoch")},
+                                         {"x", 0},
+                                         {"y", 0},
+                                         {"width", 1},
+                                         {"height", 1},
+                                         {"press", "long"}}};
+        if (mode == "key")
+            args.set("key_name", "shift");
+        if (mode == "multi")
+            args.set("click_count", 2);
+        if (mode == "press_type")
+            args.set("press", true);
+        const auto result = invoke(
+            registry, ctx, mode == "key" ? "desktop.session.key" : "desktop.session.click", args);
+        const bool success = mode == "click" || mode == "key";
+        if (!result || result.value().failed == success)
+            std::fprintf(stderr, "long press mode=%s error=%s\n", mode.c_str(),
+                         result ? result.value().safe_error_summary.c_str()
+                                : result.error().safe_message.c_str());
+        check(result && result.value().failed != success);
+        check(env->inputs == (success ? 1 : 0));
+        if (success)
+            check(env->last_input.long_press);
+        else
+            check(env->moves == 0);
+    }
+}
+
 int main() {
     try {
         if (const auto *mode = std::getenv("MIRAGE_IMAGE_LIVE");
@@ -2663,12 +3187,28 @@ int main() {
                 for (const auto &mode : {"right",
                                          "middle",
                                          "drag",
+                                         "drag_arrival_changed",
+                                         "drag_origin_unknown",
+                                         "wheel_arrival_changed",
+                                         "wheel_origin_unknown",
                                          "wheel",
                                          "drag_invalid",
                                          "invalid_button",
                                          "button_type",
                                          "wheel_budget",
+                                         "glide",
+                                         "glide_low",
+                                         "glide_high",
+                                         "glide_string",
+                                         "glide_scroll",
+                                         "glide_origin_unknown",
+                                         "pointer_out_of_bounds",
+                                         "pointer_extent_mismatch",
+                                         "pointer_sequence_mismatch",
+                                         "pointer_query_throws",
+                                         "arrival_changed",
                                          "normal",
+                                         "execution_only",
                                          "ocr",
                                          "double",
                                          "triple",
@@ -2712,6 +3252,8 @@ int main() {
               "takeover", "nan", "bounds", "regions", "text_budget", "output_budget",
               "escaped_budget", "candidate_prefix", "invalid_args", "model_throw"})
             native_ocr_loop(executor, mode);
+        input_reuse_contention(executor);
+        shared_long_press_contract();
         shared_loop(executor);
         contracts(executor);
         budget_degradation();
@@ -2755,6 +3297,7 @@ int main() {
         png_content_matrix();
         native_region_sources();
         native_session_poison_discipline();
+        native_observation_efficiency();
         input_reuse_identity();
         capability_receipts();
         // Publish the fixture manifest for the independent Python decoder

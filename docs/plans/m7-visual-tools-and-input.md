@@ -8,7 +8,7 @@
 > 所属计划：[Mirage 实施总计划](mirage-implementation-plan.md)
 > 前置：M2/M3 桌面与视觉适配；M6 当前原生会话/托盘 Runtime owner
 > 建议发布点：桌面工具预览版（名称与 tag 由维护者另定）
-> 更新日期：2026-10-18
+> 更新日期：2026-10-20
 
 ## 目标
 
@@ -27,6 +27,21 @@
 
 ## 设计与决策依据
 
+- [DEC-056](../decisions/DEC-056-post-action-verification.md) 2026-10-20 分层修订已接受：
+  普通键鼠执行完成后可返回，默认不要求逐动作业务证明；动作组、状态依赖及任务边界
+  按需观察。M7-25/26/31 的分层门控 v2 首增量已接入源码；新动作组/自然时序继续推进，
+  M7-32～34 按需提供精确值证据，未完成平台验收仍保留。
+
+- [DEC-111](../decisions/DEC-111-target-text-value-verification.md)（Accepted）冻结
+  目标实际文本读取首选、受控复制可选、局部视觉回退及固定条件恢复边界；
+  [M7-32～34 专项计划](m7-target-text-verification.md)为 Planned，尚未交付实现。
+
+- [DEC-110](../decisions/DEC-110-continuous-input-and-device-compatibility.md)（Proposed）
+  规划连续动作、持键观察、IME 与设备输入兼容性；
+  [M7-25～31 专项计划](m7-continuous-input-and-device-compatibility.md)承载后续契约与验收，
+  2026-10-20 补充所有键鼠动作默认采用本地自动自然时序、无模型时间参数和完整执行
+  后再返回/验证的要求；当前 opt-in 尚未迁移为新默认，已验平台范围保留。
+
 - [DEC-068](../decisions/DEC-068-bundled-vision-and-recoverable-tool-rejection.md) 冻结默认视觉包与可证明无副作用的工具拒绝恢复。
 
 - [能力调研](../research/2026-10-09-visual-tools-and-input-capability-review.md)。
@@ -40,6 +55,26 @@
 - pinned mirador/kairo 集成指南；沿用已交付管线和 Runtime owner。
 
 ## 工作项
+
+- [ ] `M7-32`～`M7-34` **Planned**：目标文本读取／固定值条件、受控复制事务、
+  默认选路及真实平台验收，分别按[专项计划](m7-target-text-verification.md)推进。
+  原 M7-08 Linux X11 局部条件历史验收保持；新增值契约不标记为已实现。
+
+- [ ] `M7-25` **In Progress（冻结稿待评审）**：连续动作/跨观察输入会话的契约层与
+  golden 状态/负向矩阵已交付并通过独立对账测试（见专项计划验证记录）；`M7-26`
+  **In Progress（X11 平滑移动首增量）**：opt-in `smooth_move_to` 与 `glide_ms`
+  点击旅行已交付并取得真实 Xvfb 轨迹证据；`M7-27`～`M7-31` **Proposed**：持键会话、
+  IME、虚拟设备与外接 HID 兼容性，以及实际模型/平台验收；稳定编号、前置、
+  冻结点和退出条件见
+  [专项计划](m7-continuous-input-and-device-compatibility.md)。设备兼容性与动作能力
+  并行评估，各平台未验证项保持开放。
+  2026-10-20：M7-25 冻结稿需补默认自动时序、完整动作完成边界与兼容迁移；M7-26
+  需迁移全部适用键鼠入口，M7-31 追加无时间参数、返回/后置验证顺序的真实事件验收。
+  同日已接受 DEC-056 分层策略，追加默认无业务条件、动作组/条件依赖和终态证据复用
+  的回执及恢复验收；原执行/释放 uncertain 围栏保留。
+
+- [ ] `M7-24` **In Progress**：DEC-108，同轮次、授权/epoch/精确 PNG 身份一致时复用
+  成功 OCR；保留权限、取消、新帧和坐标边界。见[性能维护计划](maintenance-performance-20261019.md)。
 
 M7-01/03 本轮按 DEC-054 闭合 Linux X11 的契约和完整输入，M7-02 随之补齐
 click/key 的结构化 fixture。后续 M7-04/05 已闭合 Linux PNG 与合成图片在线识图。
@@ -1136,3 +1171,25 @@ AUMID 与用户开始菜单 Mirage.lnk 就位。实机发现 makensis（32 位�
 2026-10-16 / M7-23：YOLO 与 Mirador 修复的产品接入和本机验收完成，见
 [接入验收](../compatibility/yolo-mirage-integration-20261016.md)。PR/CI 收尾，
 保持 M7 与本工作项 In Progress；无原生 Wayland/混合 DPI/Windows 点击通过声明。
+
+
+### 2026-10-18：M7-10 / M7-14 / M7-19：最新重试观察节奏修复
+
+按维护者反馈实施。删除累计 4/8/32 帧额度；动作验证帧返回下一步 scope，近期图像可复用，历史规划意图与新鲜证明分开。OCR 支持复用 ROI，失败提示不诱导重截，同像素分析失败不重复调用。
+依据为[DEC-107](../decisions/DEC-107-capture-cadence-and-presentation.md) 和[修复证据](../compatibility/observation-efficiency-20261018.md)。新增长任务与缓存/恢复回归；Native 全量 102/102、最后时间戳增量定向 11/11，
+ASAN/UBSAN/TSAN 专项各 7/7，私有原生产品 + PP-OCR 66/66，详见证据记录。
+真实 GNOME 单帧观感、在线任务和其他平台未验，由 Mirage 维护者重启新版并按记录补跑；
+相关工作项及里程碑仍为 In Progress。
+
+
+### 2026-10-19：M7-24 性能增量
+
+同轮精确 PNG/epoch/authority 一致时复用成功 OCR，41 次请求仅一次分析；新 epoch、ROI、失败与撤权回归通过。
+详见[性能记录](../benchmarks/native-runtime-pet-20261019.md)和
+[维护计划](maintenance-performance-20261019.md)。
+
+### 2026-10-19：M7-25～31 连续输入与设备兼容性提案
+
+维护者要求构造决策。新增 DEC-110 与专项计划，覆盖自然时序、持键取图/决策、
+输入法状态和过滤软件注入场景的设备输入路线；仅完成文档核对，未实施、未安装
+驱动/硬件、未执行真实输入验收。工作项为 Proposed，负责人和补跑条件见专项计划。

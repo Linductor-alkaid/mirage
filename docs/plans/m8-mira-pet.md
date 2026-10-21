@@ -5,7 +5,7 @@
 > 所属计划：[Mirage 实施总计划](mirage-implementation-plan.md)
 > 前置：M1 Runtime/IPC、M6 的 DEC-045 owner 拓扑、M7 桌面工具与动作执行缝；不要求关闭这些里程碑的全部开放门禁
 > 建议发布点：Linux X11 v5 九态桌宠预览版（标签未定；启动/退出使用 v5 已确认动作）；最终动作与其他平台分别验收
-> 更新日期：2026-10-18
+> 更新日期：2026-10-19
 
 ## 目标
 
@@ -74,6 +74,10 @@ v5 替换了 enter/exit；其余七态主文件与 v3 摘要一致。
 `apps/pet/assets/`（含 provenance.json 来源记录），不再依赖用户下载目录。
 
 ## 工作项
+
+- [ ] `M8-13` **In Progress**：DEC-108，无损压紧逐帧存储，源帧时长驱动 Executor
+  唤醒，使用公开 GPU 图像导入呈现以停止重复帧持续绘制；像素、加载、隐藏恢复、
+  关闭、CPU/RSS 与 sanitizer 验证见[性能维护计划](maintenance-performance-20261019.md)。
 
 工作项在验收门禁全部满足后才勾选，局部代码落地保持 In Progress。
 
@@ -837,3 +841,19 @@ pet_exclusion_test（83）、pet_observation_test（75，含未排除负向断�
 ASAN/UBSAN/TSAN 抽查通过；非 X11 独立编译检查 8/8（含水位 456→0）。
 真实 compositor 门禁继续开放，M8-06 保持 In Progress，证据见
 [Wayland 增量证据](../compatibility/wayland-pet-exclusion-20261018.md)。
+
+
+### 2026-10-18：M8-06：取帧呈现边界与即时恢复
+
+按维护者反馈实施。排除从整工具缩到实际采集/输入派发，Portal 授权和协商阶段保持可见；pet 保留唯一一份有界解码动画，恢复不再清空后重新加载。窗口/语义只读操作不撤下桌宠。
+依据为[DEC-107](../decisions/DEC-107-capture-cadence-and-presentation.md) 和[修复证据](../compatibility/observation-efficiency-20261018.md)。新增长任务与缓存/恢复回归；Native 全量 102/102、最后时间戳增量定向 11/11，
+ASAN/UBSAN/TSAN 专项各 7/7，私有原生产品 + PP-OCR 66/66，详见证据记录。
+真实 GNOME 单帧观感、在线任务和其他平台未验，由 Mirage 维护者重启新版并按记录补跑；
+相关工作项及里程碑仍为 In Progress。
+
+
+### 2026-10-19：M8-13 性能增量
+
+无损压紧缓存、按源时长调度与公开 GPU 图像呈现，本地像素、生命周期、CPU/RSS 及 sanitizer 子门禁通过；平台门禁仍开放。
+详见[性能记录](../benchmarks/native-runtime-pet-20261019.md)和
+[维护计划](maintenance-performance-20261019.md)。

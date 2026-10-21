@@ -2856,9 +2856,10 @@ void render_process(eui::Ui &ui, const std::string &key, const LocalMessage &mes
                                    : evidence->scope == "focus_identity"   ? "焦点已核验"
                                    : evidence->shared_desktop              ? "文本已核验"
                                                                            : "已核验")
-                            : evidence->status == "uncertain" ? "不确定"
-                            : evidence->status == "rejected"  ? "已拒绝"
-                                                              : "未验证")
+                            : evidence->status == "uncertain"     ? "不确定"
+                            : evidence->status == "rejected"      ? "已拒绝"
+                            : evidence->status == "not_requested" ? "已执行"
+                                                                  : "未验证")
                 : (part.name == "desktop.window.activate" ||
                    part.name.starts_with("desktop.input.")) &&
                         part.status == "complete"
@@ -3053,13 +3054,17 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
                 if (chat.current().id == session_id) {
                     chat.current().scroll_offset = offset;
                     const bool follow = offset >= chat.current().scroll_extent - 1;
-                    if (follow != chat.current().follow_output)
-                        app::requestUpdate();
+                    // Rows outside the retained viewport have no children.
+                    // Recompose as scrolling reveals a new portion of history.
+                    app::requestUpdate();
                     chat.current().follow_output = follow;
                     state().selection.clear();
                 }
             })
-            .content([&](eui::Ui &list, float width, float) {
+            .content([&](eui::Ui &list, float width, float height) {
+                const auto *viewport = list.find("thread." + std::to_string(session_id));
+                const float viewport_offset = viewport ? viewport->scrollOffset : 0.0f;
+                float row_y = 0;
                 for (const auto &message : session.messages) {
                     const std::string key = "message." + std::to_string(message.id);
                     const bool user = message.role == "你";
@@ -3118,6 +3123,20 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
                         failure.empty() ? 0.0f : text_height(failure, body_width, 12, 20) + 8;
                     const float row_height =
                         body_height + body_y + failure_height + (user ? 8 : 0) + (pending ? 4 : 28);
+                    // Measurement UIs need only explicit row bounds. In the real
+                    // tree retain one viewport of overscan in both directions.
+                    // Keep an active selection/focus alive until its interaction ends.
+                    const bool retain =
+                        viewport &&
+                        ((row_y + row_height >= viewport_offset - height &&
+                          row_y <= viewport_offset + 2 * height) ||
+                         s.selection.message == message.id || list.isFocused(key + ".copy.bg") ||
+                         list.isFocused(key + ".edit.bg"));
+                    row_y += row_height + 14;
+                    if (!retain) {
+                        list.stack(key).size(width, row_height).build();
+                        continue;
+                    }
                     list.stack(key)
                         .size(width, row_height)
                         .content([&] {

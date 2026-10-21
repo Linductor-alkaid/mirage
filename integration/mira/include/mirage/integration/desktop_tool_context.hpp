@@ -102,6 +102,9 @@ struct BasicAgentToolsOptions {
 struct DesktopToolContext {
     std::shared_ptr<mirage::desktop::DesktopEnvironment> environment;
     AtomPermissionGate gate;
+    /// DEC-107: product observation cache; original age and epoch remain binding.
+    /// Embeddings may request an actual acquisition for every explicit capture.
+    bool reuse_recent_observation = false;
     // DEC-103: serialized product owner admits a scoped surface exclusion.
     // Null means this embedding has no pet; a configured carrier must refuse
     // failures explicitly. The finite tool task retains and releases the lease.

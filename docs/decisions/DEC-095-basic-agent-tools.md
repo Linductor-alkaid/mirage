@@ -116,3 +116,16 @@ basic_agent_toolset_test（210 checks）在 debug/asan/ubsan/tsan 四 preset 下
 [DEC-020](DEC-020-permission-async-confirmation.md)、
 [DEC-024](DEC-024-desktop-atom-toolset.md)、
 [DEC-053](DEC-053-conversation-desktop-tool-registration.md)。
+
+
+## 2026-10-19：exec 预览编码修正（M10-07/08）
+
+ProcessProvider 返回有界原始字节，不能假设截断后的 stdout/stderr 是 UTF-8。integration
+在构造模型 JSON 前验证预览：字节预算截断的尾部最多回退三个字节，保留完整 UTF-8
+字符；仍无效则返回 `[non-UTF-8 output omitted]`（受原预览字节预算限制），并置
+`output_truncated=true`。stdout/stderr 独立处理，exit_code/terminated 不变。
+原始留存、引用、字节计数和 read 的非文本拒绝纪律不变。不引入新编码器，使用既有
+Desktop UTF-8 校验及 Mira JSON 公开 API。
+
+过程记录仍遵循 DEC-049。修复与证据见
+[任务事件退出维护记录](../plans/maintenance-ui-exit-20261019.md)。

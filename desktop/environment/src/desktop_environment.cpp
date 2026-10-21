@@ -38,6 +38,8 @@ bool is_named_key(std::string_view name) {
 
 } // namespace
 
+bool is_base_key_symbol(std::string_view name) { return !name.empty() && is_named_key(name); }
+
 bool is_valid_key_name(const std::string &name) { return parse_key_chord(name).has_value(); }
 
 std::optional<KeyChord> parse_key_chord(const std::string &name) {
@@ -45,6 +47,11 @@ std::optional<KeyChord> parse_key_chord(const std::string &name) {
     // anything after stripping them must be a plain key.
     std::string_view rest = name;
     KeyChord chord;
+    // A standalone logical modifier is a complete tap, never a held lease.
+    if (name == "ctrl" || name == "alt" || name == "shift" || name == "meta") {
+        chord.base = name;
+        return chord;
+    }
     const std::array<std::pair<std::string_view, bool *>, 4> modifiers = {
         {{kModifierPrefixes[0], &chord.ctrl},
          {kModifierPrefixes[1], &chord.alt},

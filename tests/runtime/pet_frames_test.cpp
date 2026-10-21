@@ -1,9 +1,11 @@
 #include "../support/test.hpp"
 #include <frames.hpp>
 #include <fstream>
+#include <iostream>
 #include <kairo/comm.hpp>
 #include <kairo/executor.hpp>
 #include <loader.hpp>
+#include <webp/demux.h>
 
 namespace pet = mirage::runtime::pet;
 
@@ -14,9 +16,32 @@ int main() {
         MIRAGE_CHECK(mirage::pet_ui::decode_clip(MIRAGE_PET_TEST_ASSETS, clip, frames, diagnostic));
         MIRAGE_CHECK(diagnostic.empty() && frames.clip == &clip &&
                      frames.rgba_frames.size() == clip.frame_count);
+        // Independent full-canvas decoder is the lossless oracle for every
+        // pixel, including RGB under transparent alpha and all animation frames.
+        std::ifstream input(std::filesystem::path(MIRAGE_PET_TEST_ASSETS) / clip.file,
+                            std::ios::binary);
+        const std::vector<std::uint8_t> bytes{std::istreambuf_iterator<char>(input), {}};
+        const WebPData data{bytes.data(), bytes.size()};
+        auto *oracle = WebPAnimDecoderNew(&data, nullptr);
+        MIRAGE_CHECK(oracle);
+        std::size_t packed_bytes = 0;
+        for (std::size_t index = 0; oracle && index < frames.rgba_frames.size(); ++index) {
+            std::uint8_t *expected = nullptr;
+            int timestamp = 0;
+            MIRAGE_CHECK(WebPAnimDecoderGetNext(oracle, &expected, &timestamp));
+            const auto restored = frames.pixels(index);
+            MIRAGE_CHECK(restored && restored->size() == 512u * 512u * 4u);
+            MIRAGE_CHECK(std::equal(restored->begin(), restored->end(), expected));
+            packed_bytes += frames.rgba_frames[index]->size();
+        }
+        WebPAnimDecoderDelete(oracle);
+        MIRAGE_CHECK(packed_bytes < std::size_t(clip.frame_count) * 512u * 512u * 4u);
+        std::cout << "{\"clip\":\"" << clip.state << "\",\"packed_bytes\":" << packed_bytes
+                  << ",\"full_bytes\":" << std::size_t(clip.frame_count) * 512u * 512u * 4u
+                  << "}\n";
         if (!frames.rgba_frames.empty()) {
-            MIRAGE_CHECK(frames.rgba_frames.front()->size() == 512u * 512u * 4u);
-            const auto &last = *frames.rgba_frames.back();
+            const auto last_pixels = frames.pixels(frames.rgba_frames.size() - 1);
+            const auto &last = *last_pixels;
             MIRAGE_CHECK(last[3] == 0); // transparent canvas corner is preserved
             bool visible_pixel = false;
             for (std::size_t pixel = 3; pixel < last.size(); pixel += 4)
@@ -132,7 +157,7 @@ int main() {
     std::size_t bytes = 0;
     for (const auto &frame : update.decoded.rgba_frames)
         bytes += frame->size();
-    MIRAGE_CHECK(bytes == 96u * 1024u * 1024u);
+    MIRAGE_CHECK(bytes < 96u * 1024u * 1024u);
     loader.stop();
     executor.shutdown(true);
     return mirage::testing::finish("pet_frames_test");

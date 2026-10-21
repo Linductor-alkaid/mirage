@@ -1,3 +1,4 @@
+#include "desktop_action_verification.hpp"
 #include "desktop_image_supply.hpp"
 #include "desktop_stability_guard.hpp"
 #include "tool_click.hpp"
@@ -5,6 +6,8 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <mirage/desktop/input_cadence.hpp>
+#include <mirage/desktop/input_session.hpp>
 #include <stdexcept>
 #include <string_view>
 
@@ -16,7 +19,8 @@ std::string field(const Json &v, const char *key) {
     return p && p->as_string() ? *p->as_string() : "";
 }
 mira::Error rejected(std::string code, bool effects = false, bool released = true,
-                     const std::string &refreshed_scope = {}) {
+                     const std::string &refreshed_scope = {}, const std::string &invalid_field = {},
+                     const std::string &hint = {}, const std::string &message = {}) {
     mira::Error e;
     e.code = code == "cancelled"           ? mira::ErrorCode::Cancelled
              : code == "permission_denied" ? mira::ErrorCode::PermissionDenied
@@ -28,6 +32,12 @@ mira::Error rejected(std::string code, bool effects = false, bool released = tru
                         {"verified", false}};
     if (!refreshed_scope.empty())
         fields.emplace_back("refreshed_image_scope", refreshed_scope);
+    if (!invalid_field.empty())
+        fields.emplace_back("field", invalid_field);
+    if (!hint.empty())
+        fields.emplace_back("hint", hint);
+    if (!message.empty())
+        fields.emplace_back("message", message);
     e.safe_message = mira::to_json_string(Json{std::move(fields)});
     return e;
 }
@@ -37,46 +47,72 @@ void DesktopImageTurn::register_shared_input(mira::BuiltinToolRegistry &registry
     for (const auto *operation : {"click", "key", "type_text", "scroll", "drag"}) {
         mira::BuiltinToolSpec spec;
         spec.wire_name = std::string("desktop.session.") + operation;
+        spec.version = {4, 0, 0};
+        if (std::string_view(operation) == "click" || std::string_view(operation) == "key")
+            spec.version = {4, 1, 0};
         spec.has_side_effects = true;
         const std::string use =
             std::string_view(operation) == "click"
                 ? "Click a visible control, or a clearly non-interactive area "
                   "of the intended window to focus it; no window API is needed. "
                   "click_count sets consecutive clicks in one action (default 1); "
-                  "use 2 for double-click, 3 for triple-click. "
+                  "use 2 to OPEN an item that a single click only selects, 3 for triple-click. "
+                  "Do not approximate a double-click with separate tool calls. "
+                  "Automatically approaches the target "
+                  "along a locally timed minimum-jerk path, then checks fresh target pixels before "
+                  "pressing. No model timing parameter. Requires a fresh same-stream cursor "
+                  "origin; "
+                  "pointer_origin_unknown refuses without clicking. "
             : std::string_view(operation) == "key"
                 ? "Send one key chord to the focused UI, such as ctrl+l or enter. "
             : std::string_view(operation) == "type_text"
                 ? "Type text into the focused field after confirming focus. "
             : std::string_view(operation) == "drag"
-                ? "Complete button-selected linear drag between source rectangle center and "
+                ? "Complete locally paced curved drag between source rectangle center and "
                   "destination_x/y/width/height rectangle center in the same shared image. "
-                  "16 segments, max 2048 desktop pixels, max one second. "
+                  "Max 2048 desktop pixels; automatically approach and revalidate before pressing. "
                 : "Scroll a visible UI region to reveal more content. ";
         spec.description =
             use +
             "Wayland complete input on a system-authorized interactive shared monitor. "
             "Requires latest supplied image_scope and environment_epoch; x/y/width/height identify "
             "the target rectangle in IMAGE pixels, revalidated from fresh stream pixels before "
-            "input. Every capture or OCR refresh replaces the previous image_scope; use the "
+            "input. Rectangle must fit the supplied image: x+width<=image width, "
+            "y+height<=image height; source dimensions are not action-image bounds. "
+            "Every capture or OCR refresh replaces the previous image_scope; use the "
             "latest actionable image, including for key and type_text. "
-            "click/scroll use rectangle center. key uses key_name (e.g. ctrl+l, enter); type_text "
+            "click/scroll use rectangle center. key uses canonical lowercase key_name (e.g. "
+            "ctrl+l, enter, shift; bare ctrl/alt/shift/meta tap and release; meta+ for "
+            "Super chords); type_text "
             "uses text (printable ASCII, <=4096 bytes, no controls; arbitrary UTF-8 returns "
             "text_transport_unavailable before dispatch on this legacy Portal transport); scroll "
             "uses "
             "vertical_steps/horizontal_steps "
             "(default 0; positive right/down, negative left/up; total absolute steps 1..16). "
-            "click/drag use button=left/middle/right (default left). No held keys. "
+            "click/drag use button=left/middle/right (default left). Scroll and drag approach "
+            "and revalidate the target first. Wheel steps, drag motion and key transitions "
+            "use local natural timing; text is typed character by character. No timing arguments "
+            "or held keys. Click/key accept press=long for one locally timed 1080..1240 ms "
+            "complete press (click_count must be 1); default normal is unchanged. No duration "
+            "parameter or cross-call hold; release completes before the result/verification. "
+            "Text has a 15 second budget; split longer text. "
             "verify_kind=shared_frame_observed proves released input and "
             "fresh frame only, or shared_text_exists with expected_text checks same-stream OCR. "
-            "Neither proves the full task nor focus identity; inspect the new image before "
-            "continuing. "
+            "verify_kind is optional. Without it, no post-action frame or OCR is captured; "
+            "the receipt reports execution only. Capture at the next state dependency or "
+            "task boundary to obtain a fresh actionable image_scope. Requested evidence "
+            "does not prove the full task or focus identity. "
             "A target_pixels_changed rejection already supplies the fresh frame with a new "
             "image_scope in its receipt: retry against that scope without recapturing. "
             "Do not retry uncertain effects.";
         Json::Object props;
-        if (std::string_view(operation) == "click")
+        if (std::string_view(operation) == "click" || std::string_view(operation) == "key")
+            props.emplace_back(
+                "press",
+                Json{Json::Object{{"type", "string"}, {"enum", Json::Array{"normal", "long"}}}});
+        if (std::string_view(operation) == "click") {
             props.emplace_back("click_count", click_count_schema());
+        }
         if (std::string_view(operation) == "key")
             props.emplace_back("key_name",
                                Json{Json::Object{{"type", "string"}, {"maxLength", 4096}}});
@@ -104,8 +140,7 @@ void DesktopImageTurn::register_shared_input(mira::BuiltinToolRegistry &registry
                         {"type", "integer"}, {"minimum", -16}, {"maximum", 16}, {"default", 0}}});
         for (const auto *key : {"environment_epoch", "x", "y", "width", "height"})
             props.emplace_back(key, Json{Json::Object{{"type", "integer"}}});
-        Json::Array required{"image_scope", "environment_epoch", "x", "y", "width",
-                             "height",      "verify_kind"};
+        Json::Array required{"image_scope", "environment_epoch", "x", "y", "width", "height"};
         if (std::string_view(operation) == "drag")
             for (const auto *key :
                  {"destination_x", "destination_y", "destination_width", "destination_height"})
@@ -119,8 +154,10 @@ void DesktopImageTurn::register_shared_input(mira::BuiltinToolRegistry &registry
         mira::BuiltinToolHandler handler = [this, name](const auto &args, const auto &ctx) {
             return shared_input(name, args, ctx);
         };
-        if (decorate)
+        if (decorate) {
+            DesktopActionVerification::configure_policy(spec);
             handler = decorate(spec.wire_name, std::move(handler));
+        }
         if (!registry.register_tool(std::move(spec), std::move(handler)))
             throw std::runtime_error("shared input tool registration failed");
     }
@@ -144,14 +181,29 @@ mira::Result<Json> DesktopImageTurn::shared_input(const std::string &operation, 
     };
     const auto epoch = integer("environment_epoch"), x = integer("x"), y = integer("y"),
                w = integer("width"), h = integer("height");
-    if (!epoch || *epoch <= 0 || static_cast<std::uint64_t>(*epoch) != epoch_ ||
-        epoch_ != desktop_.actions->epoch() || !x || !y || !w || !h || *x < 0 || *y < 0 ||
-        *w <= 0 || *h <= 0 || *x > 16384 || *y > 16384 || *w > 16384 || *h > 16384 ||
-        !native_frame_ || *x + *w > native_frame_->width || *y + *h > native_frame_->height ||
+    if (!epoch || *epoch <= 0)
+        return rejected("invalid_argument", false, true, {}, "environment_epoch");
+    if (static_cast<std::uint64_t>(*epoch) != epoch_ || epoch_ != desktop_.actions->epoch() ||
         std::chrono::steady_clock::now() - captured_ >= std::chrono::seconds(60))
-        return rejected("stale_or_invalid_target");
+        return rejected("stale_observation", false, true, {}, "environment_epoch",
+                        "Use the latest supplied image scope and epoch; refresh only if expired.");
+    if (!native_frame_)
+        return rejected("interactive_image_required");
+    if (!x || !y || !w || !h || *x < 0 || *y < 0 || *w <= 0 || *h <= 0 || *x > 16384 ||
+        *y > 16384 || *w > 16384 || *h > 16384)
+        return rejected("invalid_argument", false, true, {}, "target",
+                        "Use nonnegative x/y and positive width/height in current IMAGE pixels.");
+    const auto invalid_bounds = [&](const char *field_name) {
+        return rejected("invalid_target_bounds", false, true, {}, field_name,
+                        "Fit rectangle in current " + std::to_string(native_frame_->width) + "x" +
+                            std::to_string(native_frame_->height) +
+                            " IMAGE pixels. Correct coordinates; recapture alone will not help.",
+                        "Target rectangle exceeds supplied image.");
+    };
+    if (*x + *w > native_frame_->width || *y + *h > native_frame_->height)
+        return invalid_bounds("target");
     const auto kind = field(args, "verify_kind");
-    if ((kind != "shared_frame_observed" && kind != "shared_text_exists") ||
+    if ((!kind.empty() && kind != "shared_frame_observed" && kind != "shared_text_exists") ||
         (kind == "shared_text_exists" &&
          (!desktop_.ocr_image || field(args, "expected_text").empty())))
         return rejected("postcondition_unavailable");
@@ -161,11 +213,22 @@ mira::Result<Json> DesktopImageTurn::shared_input(const std::string &operation, 
     const auto button = pointer_button(args);
     if (!clicks || !button || (operation != "key" && args.find("key_name")) ||
         (operation != "type_text" && args.find("text")) ||
-        (operation != "click" && args.find("click_count")) ||
+        (operation != "click" && args.find("click_count")) || args.find("glide_ms") ||
         (operation != "click" && !drag && args.find("button")) ||
         (operation != "scroll" && (args.find("horizontal_steps") || args.find("vertical_steps"))))
         return rejected("invalid_argument");
+    const auto press = field(args, "press");
+    if ((args.find("press") && (operation != "click" && operation != "key")) ||
+        (args.find("press") && !args.find("press")->as_string()) ||
+        (!press.empty() && press != "normal" && press != "long") ||
+        (press == "long" && operation == "click" && *clicks != 1))
+        return rejected("invalid_argument");
     desktop::SharedInputAction action;
+    action.long_press = press == "long";
+    if (action.long_press && !native_session_->timed_press_supported())
+        return rejected(
+            "timed_press_unavailable", false, true, {}, "press",
+            "This shared backend cannot long press; use normal input or another supported route.");
     action.click_count = *clicks;
     using Kind = desktop::SharedInputAction::Kind;
     action.kind = operation == "click"       ? Kind::Click
@@ -207,20 +270,23 @@ mira::Result<Json> DesktopImageTurn::shared_input(const std::string &operation, 
         dw = integer("destination_width");
         dh = integer("destination_height");
         if (!dx || !dy || !dw || !dh || *dx < 0 || *dy < 0 || *dw <= 0 || *dh <= 0 || *dx > 16384 ||
-            *dy > 16384 || *dw > 16384 || *dh > 16384 || *dx + *dw > native_frame_->width ||
-            *dy + *dh > native_frame_->height)
-            return rejected("invalid_argument");
+            *dy > 16384 || *dw > 16384 || *dh > 16384)
+            return rejected("invalid_argument", false, true, {}, "destination");
+        if (*dx + *dw > native_frame_->width || *dy + *dh > native_frame_->height)
+            return invalid_bounds("destination");
     }
     for (const auto *key :
          {"destination_x", "destination_y", "destination_width", "destination_height"})
         if (!drag && args.find(key))
             return rejected("invalid_argument");
     const auto authority = native_authority_;
-    const auto deadline =
-        std::min(ctx.deadline.value_or(std::chrono::steady_clock::now() + std::chrono::seconds(5)),
-                 std::chrono::steady_clock::now() + std::chrono::seconds(5));
-    const desktop::CancelToken bounded([this, authority, deadline] {
+    const auto cap = operation == "type_text" ? desktop::input_cadence_policy::text_timeout
+                                              : std::chrono::milliseconds{5000};
+    const auto deadline = std::min(ctx.deadline.value_or(std::chrono::steady_clock::now() + cap),
+                                   std::chrono::steady_clock::now() + cap);
+    const desktop::CancelToken bounded([this, ctx, authority, deadline] {
         return cancel_.cancelled() || desktop_.actions->authority_epoch() != authority ||
+               ctx.cancelled_or_expired(mira::Timestamp::now()) ||
                std::chrono::steady_clock::now() >= deadline;
     });
     const auto allowed = [&](const char *capability) {
@@ -234,13 +300,11 @@ mira::Result<Json> DesktopImageTurn::shared_input(const std::string &operation, 
         return rejected("permission_denied");
     if (bounded.cancelled())
         return rejected("cancelled");
-    if (captures_ >= 31)
-        return rejected("shared_frame_budget_exhausted"); // reserve postcondition frame
-    ++captures_;
     desktop::CaptureOutcome fresh;
     try {
         fresh = measure_phase(timings_ ? &timings_->capture : nullptr, [&] {
-            return native_session_->capture({desktop_capture_bytes}, bounded);
+            return native_session_->capture_presented({desktop_capture_bytes}, bounded,
+                                                      desktop_.exclude_pet);
         });
     } catch (...) {
         native_session_.reset();
@@ -313,6 +377,16 @@ mira::Result<Json> DesktopImageTurn::shared_input(const std::string &operation, 
                     fresh.frame, fresh.frame,
                     desktop::WindowGeometry{0, 0, fresh.frame.width, fresh.frame.height}, "desktop",
                     "", fresh.frame.source_sequence, epoch_)) {
+                native_capture_args_ =
+                    Json{Json::Object{{"source", "desktop"}, {"interaction", true}}};
+                native_capture_key_ =
+                    mira::canonical_json_digest(Json{Json::Object{{"source", "desktop"}}})
+                        .to_string();
+                if (fresh.presentation_excluded == false)
+                    metadata_.set("pet_presentation",
+                                  Json{Json::Object{{"excluded", false},
+                                                    {"reason", "unsupported_compositor"},
+                                                    {"pixels_may_include_pet", true}}});
                 const auto *scope = metadata_.find("image_scope");
                 if (scope && scope->as_string())
                     refreshed = *scope->as_string();
@@ -331,14 +405,75 @@ mira::Result<Json> DesktopImageTurn::shared_input(const std::string &operation, 
         return rejected("invalid_argument");
     action.image_width = old.width;
     action.image_height = old.height;
+    const bool pointer_action = operation == "click" || operation == "scroll" || drag;
+    if (pointer_action) {
+        // Availability is a read-only preflight. Do not retire the current
+        // image/epoch merely because the stream lacks cursor metadata.
+        try {
+            const auto origin = native_session_->pointer_position(bounded);
+            if (!origin.ok)
+                return rejected(origin.cancelled ? "cancelled" : "pointer_origin_unknown");
+            if (origin.image_width != fresh.frame.width ||
+                origin.image_height != fresh.frame.height ||
+                origin.source_sequence != fresh.frame.source_sequence || origin.position.x < 0 ||
+                origin.position.y < 0 || origin.position.x >= origin.image_width ||
+                origin.position.y >= origin.image_height)
+                return rejected("pointer_origin_unknown");
+        } catch (...) {
+            return rejected("pointer_query_failed");
+        }
+    }
     auto lease = desktop_.actions->try_begin(bounded, epoch_);
     if (!lease)
         return rejected(lease.error().code);
     desktop::InputLimits limits;
     limits.max_text_bytes = 4096;
+    const auto action_cap = operation == "type_text"
+                                ? desktop::input_cadence_policy::text_timeout
+                                : desktop::input_cadence_policy::action_timeout;
+    const auto execution_end = std::min(deadline, std::chrono::steady_clock::now() + action_cap);
+    limits.timeout = std::min(action_cap, std::chrono::duration_cast<std::chrono::milliseconds>(
+                                              execution_end - std::chrono::steady_clock::now()));
     desktop::InputOutcome out;
     try {
+        bool moved = false;
+        if (pointer_action) {
+            auto approach = action;
+            approach.kind = Kind::Move;
+            approach.long_press = false;
+            approach.click_count = 1;
+            approach.target_width =
+                static_cast<std::int32_t>(std::min(to_monitor_x(*x + *w) - to_monitor_x(*x),
+                                                   to_monitor_y(*y + *h) - to_monitor_y(*y)));
+            const auto travel = native_session_->input(approach, limits, bounded);
+            if (!travel.input_released)
+                lease.release_failed();
+            if (!travel.ok)
+                return rejected(travel.error.code, travel.side_effect_may_have_occurred,
+                                travel.input_released);
+            moved = travel.side_effect_may_have_occurred;
+            if (moved) {
+                const auto arrived = measure_phase(timings_ ? &timings_->capture : nullptr, [&] {
+                    return native_session_->capture_presented(
+                        {desktop_capture_bytes, fresh.frame.source_sequence}, bounded,
+                        desktop_.exclude_pet);
+                });
+                if (!arrived.ok || !valid_image_frame(arrived.frame, desktop_capture_bytes) ||
+                    arrived.frame.width != old.width || arrived.frame.height != old.height ||
+                    arrived.frame.source_sequence <= fresh.frame.source_sequence ||
+                    bounded.cancelled() ||
+                    assess_target_stability(old, arrived.frame, {left, top, right, bottom}) ==
+                        TargetStability::kChanged)
+                    return rejected(bounded.cancelled() ? "cancelled" : "arrival_target_changed",
+                                    moved);
+                fresh = arrived;
+            }
+        }
+        limits.timeout =
+            std::min(action_cap, std::chrono::duration_cast<std::chrono::milliseconds>(
+                                     execution_end - std::chrono::steady_clock::now()));
         out = native_session_->input(action, limits, bounded);
+        out.side_effect_may_have_occurred |= moved;
     } catch (...) {
         out = {false, false, {"provider_exception", "Input failed"}, true, false};
     }
@@ -349,7 +484,9 @@ mira::Result<Json> DesktopImageTurn::shared_input(const std::string &operation, 
             native_session_.reset();
             native_failed_ = true;
         }
-        return rejected(out.error.code, out.side_effect_may_have_occurred, out.input_released);
+        auto failure =
+            rejected(out.error.code, out.side_effect_may_have_occurred, out.input_released);
+        return failure;
     }
     // DEC-081: only a later source frame can verify this dispatched action.
     native_newer_than_sequence_ = fresh.frame.source_sequence;
@@ -396,6 +533,7 @@ mira::Result<Json> DesktopImageTurn::observe_shared(const std::string &kind,
             return region.text == expected && region.confidence >= 0.8;
         });
     }
-    return Json{Json::Object{{"matched", matched}, {"digest", image_->digest.to_string()}}};
+    return Json{Json::Object{
+        {"matched", matched}, {"digest", image_->digest.to_string()}, {"observation", metadata_}}};
 }
 } // namespace mirage::integration::detail

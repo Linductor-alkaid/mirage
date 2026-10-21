@@ -215,22 +215,12 @@ std::optional<WORD> base_key_vk(const std::string &base) {
         std::string_view name;
         WORD vk;
     };
-    static constexpr std::array<NamedKey, 15> kNamedKeys{{
-        {"enter", VK_RETURN},
-        {"tab", VK_TAB},
-        {"escape", VK_ESCAPE},
-        {"backspace", VK_BACK},
-        {"delete", VK_DELETE},
-        {"insert", VK_INSERT},
-        {"home", VK_HOME},
-        {"end", VK_END},
-        {"pageup", VK_PRIOR},
-        {"pagedown", VK_NEXT},
-        {"left", VK_LEFT},
-        {"right", VK_RIGHT},
-        {"up", VK_UP},
-        {"down", VK_DOWN},
-        {"space", VK_SPACE},
+    static constexpr std::array<NamedKey, 19> kNamedKeys{{
+        {"ctrl", VK_LCONTROL}, {"alt", VK_LMENU},     {"shift", VK_LSHIFT},  {"meta", VK_LWIN},
+        {"enter", VK_RETURN},  {"tab", VK_TAB},       {"escape", VK_ESCAPE}, {"backspace", VK_BACK},
+        {"delete", VK_DELETE}, {"insert", VK_INSERT}, {"home", VK_HOME},     {"end", VK_END},
+        {"pageup", VK_PRIOR},  {"pagedown", VK_NEXT}, {"left", VK_LEFT},     {"right", VK_RIGHT},
+        {"up", VK_UP},         {"down", VK_DOWN},     {"space", VK_SPACE},
     }};
     for (const auto &[name, vk] : kNamedKeys) {
         if (base == name) {

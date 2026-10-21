@@ -8,6 +8,7 @@
 // (workspace cwd, output facts, timeout) through the pinned registry
 // dispatch path.
 
+#include "../../integration/mira/src/conversation_capture.hpp"
 #include "../support/test.hpp"
 
 #include <mirage/integration/basic_agent_toolset.hpp>
@@ -15,6 +16,8 @@
 #include <mirage/integration/desktop_tool_context.hpp>
 
 #include <mirage/runtime/basic_output_store.hpp>
+#include <mirage/runtime/ipc/protocol.hpp>
+#include <mirage/runtime/persistence/session_state.hpp>
 
 #include <mirage/platform/linux/linux_desktop_environment.hpp>
 
@@ -720,6 +723,75 @@ void scenario_exec_tool_facts(const std::filesystem::path &root) {
     MIRAGE_CHECK(!truncated.failed);
     MIRAGE_CHECK(bool_member(truncated.result, "output_truncated"));
     MIRAGE_CHECK(string_member(truncated.result, "stdout") == "ABCD");
+
+    // A process byte cap can split a UTF-8 codepoint before the adapter sees it.
+    // Both model tool results and subsequent UI/pet events must remain valid JSON.
+    const auto unicode =
+        run_tool(tight_registry, "exec", arguments({{"command", JsonValue{"printf '中文测试'"}}}),
+                 "exec split UTF-8 preview");
+    MIRAGE_CHECK(!unicode.failed);
+    MIRAGE_CHECK(bool_member(unicode.result, "output_truncated"));
+    MIRAGE_CHECK(string_member(unicode.result, "stdout") == "中");
+    MIRAGE_CHECK(mira::parse_json(mira::to_json_string(unicode.result)).has_value());
+
+    const auto binary =
+        run_tool(registry, "exec",
+                 arguments({{"command", JsonValue{"printf '\\377\\376bad'; printf '\\377' >&2"}}}),
+                 "exec non-UTF-8 streams");
+    MIRAGE_CHECK(!binary.failed);
+    MIRAGE_CHECK(bool_member(binary.result, "output_truncated"));
+    MIRAGE_CHECK(mira::parse_json(mira::to_json_string(binary.result)).has_value());
+
+    for (const auto *result : {&unicode.result, &binary.result}) {
+        integration::detail::ConversationCapture capture({});
+        mirage::conversation::Part part;
+        part.id = "exec-output";
+        part.kind = "tool";
+        part.name = "exec";
+        part.status = "pending";
+        capture.add(part);
+        capture.finish_tool(&capture.parts.back(), *result);
+        MIRAGE_CHECK(mirage::conversation::valid_parts(capture.parts));
+
+        namespace ipc = mirage::runtime::ipc;
+        ipc::ChatTurnUpdatedEvent update;
+        update.session_id = std::string(32, 'a');
+        update.turn_id = std::string(32, 'b');
+        update.status = "failed";
+        update.user_text = "输出编码回归";
+        update.error = "fixture failure after exec";
+        update.has_error = true;
+        update.sequence = 1;
+        update.parts = capture.parts;
+        update.process_sequence = 2;
+        ipc::Event event;
+        event.seq = 1;
+        event.payload = update;
+        const auto decoded = ipc::decode_event(ipc::encode_event(event));
+        MIRAGE_CHECK(decoded.ok);
+        if (decoded.ok)
+            MIRAGE_CHECK(std::get<ipc::ChatTurnUpdatedEvent>(decoded.event.payload).parts ==
+                         capture.parts);
+
+        namespace persistence = mirage::runtime::persistence;
+        persistence::PersistedChatTurn turn;
+        turn.turn_id = update.turn_id;
+        turn.status = update.status;
+        turn.user_text = update.user_text;
+        turn.error = update.error;
+        turn.sequence = 1;
+        turn.parts = capture.parts;
+        persistence::PersistedSession saved;
+        saved.id = update.session_id;
+        saved.chat_turns.push_back(turn);
+        persistence::SessionState state;
+        state.sessions.push_back(saved);
+        const auto restored =
+            persistence::decode_session_state(persistence::encode_session_state(state));
+        MIRAGE_CHECK(restored.ok);
+        if (restored.ok)
+            MIRAGE_CHECK(restored.state.sessions.front().chat_turns.front().parts == capture.parts);
+    }
 }
 
 // --- M10-08: turn cancellation threading -----------------------------------------
@@ -1058,6 +1130,27 @@ void scenario_exec_retention_and_output_ref_read(const std::filesystem::path &ro
                     "read output_ref cross-session", mira::SessionId::generate());
     MIRAGE_CHECK(stranger.failed);
     MIRAGE_CHECK(stranger.safe_error_summary.find("output_expired") != std::string::npos);
+
+    context.basic_tools.exec_preview_bytes = 4;
+    mira::BuiltinToolRegistry small_preview;
+    integration::register_basic_agent_tools(small_preview, context, session, context.basic_tools,
+                                            mirage::desktop::CancelToken{}, identity_decorator(),
+                                            /*full_access=*/true);
+    const auto unicode =
+        run_tool_as(small_preview, "exec", arguments({{"command", JsonValue{"printf '中文测试'"}}}),
+                    "exec UTF-8 retained after preview cut", session_id);
+    MIRAGE_CHECK(!unicode.failed);
+    MIRAGE_CHECK(string_member(unicode.result, "stdout") == "中");
+    MIRAGE_CHECK(int_member(unicode.result, "retained_stdout_bytes") == 12);
+    const auto full = run_tool_as(
+        small_preview, "read",
+        arguments({{"output_ref", JsonValue{string_member(unicode.result, "stdout_ref")}}}),
+        "read full UTF-8 after preview cut", session_id);
+    MIRAGE_CHECK(!full.failed);
+    const auto *full_lines = full.result.find("lines");
+    MIRAGE_CHECK(full_lines && full_lines->as_array() && full_lines->as_array()->size() == 1);
+    if (full_lines && full_lines->as_array() && !full_lines->as_array()->empty())
+        MIRAGE_CHECK(string_member(full_lines->as_array()->front(), "text") == "中文测试");
 }
 
 void scenario_exec_retention_refusal_spawns_nothing(const std::filesystem::path &root) {

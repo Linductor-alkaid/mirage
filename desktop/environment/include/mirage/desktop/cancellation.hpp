@@ -24,6 +24,8 @@ class CancelToken {
     CancelToken() = default;
     /// A bounded caller-owned stop/deadline probe; no worker or timer. Copies
     /// remain valid only while the synchronous provider operation is active.
+    /// When shared with another managed context (controlled input), the probe
+    /// must be thread-safe and its captured owners must outlive worker join.
     explicit CancelToken(std::function<bool()> probe) : probe_(std::move(probe)) {}
 
     void request_cancel() noexcept { state->cancelled.store(true, std::memory_order_release); }
