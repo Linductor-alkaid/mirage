@@ -325,6 +325,9 @@ EnvironmentVisualRefresh VisualObservationPipeline::refresh_impl(
         return refresh;
     }
     switch (result.outcome.kind) {
+    case VisualAnalysisOutcome::Kind::kSkippedUnchanged:
+        refresh.analysis_error = {"analysis_skipped", result.outcome.message};
+        break;
     case VisualAnalysisOutcome::Kind::kCompleted:
         if (result.snapshot == nullptr) {
             refresh.analysis_error = {"io_error",

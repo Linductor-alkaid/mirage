@@ -1607,3 +1607,14 @@ Mira公开请求输入估算，不改变ModelResponse.usage。结算时优先供
 缺失时以估算回填；`estimated` 来源标记随事件、历史与逐会话快照保存。原生界面明确
 标注估算，未知窗口仍不显示百分比。该路径不新增Executor任务或共享状态所有者，
 失败/取消与迟到事件语义沿DEC-036。详情见[DEC-102](../decisions/DEC-102-estimated-context-usage.md)。
+
+
+2026-10-20 DEC-109 / M9-07 首个增量：VisualSessionHost 增加显式后台
+`when_changed` 准入，只有相对最后完整分析基线无变化才跳过昂贵阶段。
+结果为独立 skipped 终态，不发布空快照或当前动作证据；默认、Refresh、登记与
+marks 请求继续执行。固定 64×64 灰度签名额外 4096 字节/源，比较使用 Mirador
+公开 API，跳过不推进基线，异常/取消/超时清除基线。可信调用方必须提供非零
+analysis_policy_revision，参数、目标位置或授权变化时推进版本，跨版本不跳过。
+现有生产观察/动作核验不启用近似后台筛选；真实持续生产、消费者退避和全产品
+资源门禁继续开放。实现边界与证据见
+[DEC-109～111 推进记录](../compatibility/dec109-111-input-progress-20261020.md)。

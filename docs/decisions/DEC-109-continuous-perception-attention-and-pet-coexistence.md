@@ -357,3 +357,28 @@ fusion、StableIdTracker/ObjectTracker 可复用；`fingerprint_early_exit=false
 [Portal ScreenCast](https://flatpak.github.io/xdg-desktop-portal/docs/doc-org.freedesktop.portal.ScreenCast.html)、
 [X Composite 协议](https://xorg.freedesktop.org/archive/current/doc/compositeproto/compositeproto.txt)
 （2026-10-19 回读；平台支持仍以 Mirage 目标环境验收为准）。
+
+
+## M9-07 首个实施边界（2026-10-20）
+
+VisualSessionHost 增加调用方显式选择的后台变化门控。只有非关键后台巡检可以选择
+`when_changed`；相对最后成功完整分析基线的 `kNone` 时，整次昂贵分析不执行
+并返回独立 skipped 终态，
+不发布空快照、不把旧快照改成当前证据。默认仍每次执行；动作守卫、核验与模型
+观察沿默认路径，OCR/检测 Refresh、模板登记和 marks 请求强制执行。
+门控要求启用 change analysis，首帧/局部/全局变化均执行；取消、期限、拒绝和
+shutdown 沿同一 Executor 生命周期。此近似后台筛选不是像素精确一致性判据，
+不供当前动作引用或目标值核验。该增量不创建常驻 producer，不启用尚未交付的
+持续前台采集或 pet 共存承诺，M9-07 保持 In Progress。
+
+门控通过 Mirador 公开签名/差分 API 比较，不自研识别算法。每源额外保留一个
+64×64 灰度签名（4096 字节），本次比较另有一个等大临时签名；不持有整屏副本。
+固定关闭 dHash 提前退出，沿默认 block 阈值比较；这是近似筛选，颜色/小文字
+不能由灰度巡检证明未变。跳过不推进完成基线，防止连续微小变化被邻帧比较吞掉；
+失败/取消/超时/非后台执行清除该基线。当前帧的相邻变化报告与后台 admission
+报告及其基线 sequence 分开保留，不伪造 Mirador 已提交快照的变化来源。
+
+后台请求还必须声明非零 analysis_policy_revision；可信宿主在阶段参数、目标位置
+或授权改变时推进版本。跨版本强制完整执行，避免旧配置的无变化结论抑制新需求。
+真实后台消费者、静态退避与端到端节省仍需后续接线和验收，不能据此声称当前
+生产 OCR/检测调用已经下降。

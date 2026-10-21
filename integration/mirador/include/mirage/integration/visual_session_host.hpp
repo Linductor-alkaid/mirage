@@ -97,6 +97,8 @@ struct VisualGeometryStage {
 /// identities are stamped onto the fused template regions). The pixel-space
 /// stages (enrollment, probes, geometry) require the adapter's rotation-k0
 /// capture form; violations reject the request at admission.
+enum class VisualAnalysisAdmission { always, when_changed };
+
 struct VisualAnalysisRequest {
     /// Capture to analyze (from `to_mirador_frame`); `source_id` must equal
     /// the host's.
@@ -142,6 +144,13 @@ struct VisualAnalysisRequest {
     /// M7-07: render on this worker after fusion. ROI in oriented pixels.
     bool render_marks = false;
     std::optional<mirador::RectI> mark_roi;
+    /// Opt-in approximate background screening only. A skipped request produces
+    /// no current evidence or snapshot. Never use for action/verification reads.
+    /// Refresh, enrollment and marks override screening. Requires analyze_change.
+    VisualAnalysisAdmission admission = VisualAnalysisAdmission::always;
+    /// Required nonzero for background admission. The trusted caller advances
+    /// this when stage parameters, target/placement or authority change.
+    std::uint64_t analysis_policy_revision = 0;
 };
 
 /// Terminal state of one analysis request. Every admitted request settles
@@ -149,11 +158,12 @@ struct VisualAnalysisRequest {
 /// explicitly instead of being dropped (RULE-10).
 struct VisualAnalysisOutcome {
     enum class Kind {
-        kCompleted, ///< requested capabilities ran; results are meaningful
-        kFailed,    ///< a mirador call failed; `code`/`message` say why
-        kCancelled, ///< superseded, externally cancelled or host stopped
-        kTimedOut,  ///< the request deadline expired
-        kRejected,  ///< admission refused; the session never saw the request
+        kCompleted,        ///< requested capabilities ran; results are meaningful
+        kFailed,           ///< a mirador call failed; `code`/`message` say why
+        kCancelled,        ///< superseded, externally cancelled or host stopped
+        kTimedOut,         ///< the request deadline expired
+        kRejected,         ///< admission refused; the session never saw the request
+        kSkippedUnchanged, ///< background screening skipped all expensive stages; no evidence
     };
     Kind kind = Kind::kRejected;
     /// mirador error code for kFailed (diagnostic); kOk otherwise.
@@ -168,6 +178,10 @@ struct VisualAnalysisResult {
     /// Change decision of this frame (when `analyze_change` ran); the first
     /// submission of a session reports kGlobal / kFirstFrame.
     mirador::ChangeReport change;
+    /// Background admission compares against the last fully analyzed background
+    /// frame, never a skipped frame. Approximate, not current action evidence.
+    std::optional<mirador::ChangeReport> admission_change;
+    std::uint64_t admission_baseline_sequence = 0;
     std::vector<mirador::TextRegion> text;
     std::vector<mirador::DetectionRegion> detections;
     /// Accepted template probes in detection then geometry order; raw hits
@@ -190,6 +204,8 @@ struct VisualAnalysisResult {
         std::size_t result_cache_entries = 0;
         std::int64_t template_index_bytes = 0;
         std::size_t template_index_entries = 0;
+        /// Additional background baseline, outside the session cache budgets; <=4096.
+        std::int64_t background_signature_bytes = 0;
     };
     CacheStats cache_stats;
     desktop::ImageFrame marked_frame;

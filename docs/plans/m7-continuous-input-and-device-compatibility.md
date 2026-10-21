@@ -362,3 +362,19 @@ native-release 完整 product 更新，最终 Portal 回归 5/5（含 2 夹具�
 通过，完整 product 更新，固定种子属性矩阵 79108 检查通过；没有发送真实桌面输入。
 M7-25/26/31 仍开放；独立修饰键、组合交叠、跨观察持键、IME、Windows 与真实模型
 平台/手感验收未以本次夹具测试替代。
+
+
+### 2026-10-20：独立修饰键完整 tap
+
+按维护者追问扩展 key 4.0.0 的完整动作词表：裸 ctrl/alt/shift/meta 映射逻辑左侧
+键，自然停留后在同次调用中释放；is_base_key_symbol 与受控会话键词表不变，
+ctrl+shift 等修饰键结尾组合继续拒绝。X11/Portal 使用已有所有权/清理路径，
+Win32 同步键映射但本轮未在 Windows 编译或运行；不宣称已支持 Windows 完整
+动作或自然时序。Shift 被用户按住时 X11 拒绝接管；运行中取消仍释放并保留
+cancelled 回执。跨工具持续按住、左右侧会话执行与 IME 继续开放。详见
+[本轮证据](../compatibility/dec109-111-input-progress-20261020.md)。
+
+本轮最终 Debug 103/103；native-release、ASan、UBSan 定向各 10/10（含夹具）
+通过，完整 native-release product 更新，未启动产品或发送真实桌面输入。
+新增 Portal Shift 取消用例先发现沿用文本预算的夹具错误，修正后保留了无副作用
+预算拒绝与真实按下后取消/释放两项断言；产品预算和取消逻辑未因此放宽。
