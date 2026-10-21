@@ -3,6 +3,28 @@
 本文件按工程规范第 10.5 节维护，按发布点记录功能、修复、兼容性影响和依赖变化。
 发布点与里程碑计划的"建议发布点"一一对应（见 `docs/plans/`）。
 
+## Unreleased
+
+### 依赖
+
+- pinned `mirador` `cb45a102` → `5565436`（上游 M8-01…06，PR #43/#44/#46/#47）：
+  消费预算 OCR 契约（上游 DEC-025，opt-in `BudgetedOcrBackend` SPI +
+  `ocr_batch.hpp`）；旧 `OcrBackend`/`run_ocr` 签名与全有或全无语义零变化，
+  includes 纯增量，嵌套 googletest 与 ncnn pin 不变。
+
+### 功能
+
+- DEC-076 交互图片 OCR 路径切换到预算执行（上游 M8-07 消费，见
+  [兼容性报告](docs/compatibility/mirador-budgeted-ocr-20261021.md)）：
+  `PpOcrPipeline` 并列装载 `PpOcrBudgetedBackend`（缺失即创建失败，不静默
+  降级），`read_image_ocr` 以冻结参考配置（K=64、finalize_reserve 500 ms、
+  `rec_unit_upper_bound` 100 ms）在 5 秒 deadline 内返回可消费报告——临近
+  预算返回 partial（逐行完成态、停止原因、det 触顶与 deferred 几何诊断，
+  `ImageOcrOutcome::diagnostics`），超时/取消仍显式失败；partial 仅是事实，
+  不发布 actionable 视觉引用。新增受控验收工具
+  `tests/manual/ppocr_budget_acceptance.{cpp,py}`（默认构建不参与 CTest、
+  不依赖权重）。
+
 ## release-beta（2026-09-20）
 
 首个打点发布。对应里程碑 [M1](docs/plans/m1-mira-host.md)、[M1.5](docs/plans/m1.5-ui-parallel-track.md)

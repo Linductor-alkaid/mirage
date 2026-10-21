@@ -383,14 +383,70 @@ void execute(detail::VisualSessionCore &core, RequestState &state) {
 
     // ---- OCR
     if (request.run_ocr) {
-        mirador::Result<std::vector<mirador::TextRegion>> regions =
-            core.session.run_ocr(request.frame, core.config.ocr_backend, request.ocr, context);
-        if (!regions.ok()) {
-            result.outcome = map_status(regions.status());
-            settle(state, std::move(result));
-            return;
+        if (request.ocr_budget) {
+            // M8-07 (upstream DEC-025): budgeted execution with per-line
+            // completion states. No configured backend fails the request
+            // explicitly — a silent legacy fallback would promise the
+            // all-or-nothing semantics the caller explicitly opted out of.
+            if (!core.config.budgeted_ocr_backend) {
+                fail_result(result, mirador::ErrorCode::kBackendUnavailable,
+                            "budgeted OCR requested without a configured budgeted backend");
+                settle(state, std::move(result));
+                return;
+            }
+            mirador::BudgetedOcrRequest budgeted;
+            budgeted.roi = request.ocr.roi;
+            budgeted.roi_space = request.ocr.roi_space;
+            budgeted.max_side = request.ocr.max_side;
+            budgeted.output_space = request.ocr.output_space;
+            budgeted.language_hint = request.ocr.language_hint;
+            budgeted.min_confidence = request.ocr.min_confidence;
+            budgeted.backend_params = request.ocr.backend_params;
+            budgeted.max_rec_lines = request.ocr_budget->max_rec_lines;
+            budgeted.selection = request.ocr_budget->selection;
+            budgeted.soft_budget = request.ocr_budget->soft_budget;
+            budgeted.finalize_reserve = request.ocr_budget->finalize_reserve;
+            budgeted.priorities = request.ocr_budget->priorities;
+            budgeted.priority_space = request.ocr_budget->priority_space;
+            mirador::Result<mirador::BudgetedOcrReport> report = core.session.run_ocr_budgeted(
+                request.frame, core.config.budgeted_ocr_backend, budgeted, context);
+            if (!report.ok()) {
+                result.outcome = map_status(report.status());
+                settle(state, std::move(result));
+                return;
+            }
+            mirador::BudgetedOcrReport value = report.take_value();
+            VisualAnalysisResult::OcrBatchDiagnostics diagnostics;
+            diagnostics.completion = value.batch.completion;
+            diagnostics.stop_reason = value.batch.stop_reason;
+            diagnostics.detected = value.batch.detected_count;
+            diagnostics.recognized = value.batch.recognized_count;
+            diagnostics.deferred = value.batch.deferred_count;
+            diagnostics.det_limit = value.batch.det_limit;
+            diagnostics.det_limit_hit = value.batch.det_limit_hit;
+            diagnostics.geometry_space = value.geometry_space;
+            for (const mirador::OcrLineRecord &line : value.batch.lines) {
+                if (line.state == mirador::OcrCompletionState::kRecognized) {
+                    mirador::TextRegion region;
+                    region.bounds = line.bounds;
+                    region.utf8_text = line.utf8_text;
+                    region.confidence = line.rec_confidence.value_or(0.0F);
+                    result.text.push_back(std::move(region));
+                } else if (line.state == mirador::OcrCompletionState::kDeferred) {
+                    diagnostics.deferred_bounds.push_back(line.bounds);
+                }
+            }
+            result.ocr_batch = std::move(diagnostics);
+        } else {
+            mirador::Result<std::vector<mirador::TextRegion>> regions =
+                core.session.run_ocr(request.frame, core.config.ocr_backend, request.ocr, context);
+            if (!regions.ok()) {
+                result.outcome = map_status(regions.status());
+                settle(state, std::move(result));
+                return;
+            }
+            result.text = regions.take_value();
         }
-        result.text = regions.take_value();
     }
 
     // ---- detection: the caller's single request, or one request per

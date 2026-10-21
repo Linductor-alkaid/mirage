@@ -1,7 +1,7 @@
 {
   "schema_version": 3,
   "project": "mirage",
-  "updated": "2026-10-17",
+  "updated": "2026-10-21",
   "notes": "Schema v3 (DEC-037): native EUI frontend replaces retired npm/CEF. All dependency gitlinks and nested pins remain mandatory. artifacts is empty; no Chromium binary is acquired or packaged. M7-23 optional ncnn runtime is audited under pinned Mirador. No model weights enter Git; verified PP-OCR and explicitly selected offline YOLO bundles may accompany product packages.",
   "dependencies": [
     {
@@ -54,10 +54,10 @@
       "source": "https://github.com/Linductor-alkaid/mirador.git",
       "path": "third_party/mirador",
       "version": "v0.3.0-desktop-yolo",
-      "commit": "cb45a10271c53d3b189bb33eef3f692d94feb562",
+      "commit": "5565436c3770b53c2230e7b7083ca48e028368b4",
       "license": "MIT",
       "license_file": "third_party/mirador/LICENSE",
-      "notes": "fb0dc3f..ae8cf87（41 commits，v0.3.0-121，无新 tag）：上游 M7-10~M7-14（PR #30-#34：tracker backend SPI 冻结、NanoTrack ncnn 参考后端、D+ 基准列与 go/no-go 判定）+ PR #35 三项 OCR 链路修复（MIRADOR-20261009-001/002/003：resize_area 放大共享源像素权重按目标索引缓存、连通域 min_x/min_y 随洪泛更新、PP-OCR 参考预处理对齐 ppocrv5.cpp——det 限长缩放 + /32 画布 pad 114 + 阈值 0.3/0.6 + BGR，rec 保纵横比动态行宽）。include/ 增量（+569/-6）：新头 tracker_backend.hpp（Experimental tracker SPI）、object_tracker.hpp 池原语扩展；公开 image 行为修复：resize_area 放大逐位正确、db 后处理框边界完整。integrations/ocr_ppocr opt-in 头语义变更：det_side 为长边上限（不再放大）、rec_width 为行宽上限、det 后处理默认 0.3/0.6。嵌套 googletest（063de7e）与 integrations ncnn pin 不变; M7-23 / DEC-097: maintainer-authorized branch pin includes PR#37 desktop perception fixes/performance, PR#39 real-model evaluation and DEC-024 explicit YOLO bilinear/padding profile (issue#38). Upstream PR#40 merged after all 14 CI checks succeeded; the pinned merge has the identical tree to tested head 932d425. Audit: docs/supply-chain/yolo-vision-20261016.md. Combined upstream PR#40: https://github.com/Linductor-alkaid/mirador/pull/40 (merged master cb45a10).",
+      "notes": "M8-07 pin upgrade (2026-10-21): cb45a102..5565436 (mirador master, PRs #43/#44/#46/#47). Consumes the budgeted OCR contract (upstream DEC-025, mirador M8-01..06): opt-in BudgetedOcrBackend SPI + ocr_batch.hpp, PerceptionSession::run_ocr_budgeted, PpOcrBudgetedBackend (integrations, MIRADOR_BUILD_INTEGRATIONS unchanged default-off), rec optimization no-go evidence, and the M8-06 real-model benchmark freezing the reference config K=64 / finalize_reserve=500ms / rec_unit_upper_bound=100ms / num_threads=1 and the det probe domain maximum (65535 + backend self-truncation). Old OcrBackend/run_ocr signatures and semantics unchanged; includes/ additive (+ocr_batch.hpp); nested googletest and ncnn pin unchanged. Mirador ledger MIRADOR-20261018-001 consumption re-verification tracked for this upgrade. fb0dc3f..ae8cf87（41 commits，v0.3.0-121，无新 tag）：上游 M7-10~M7-14（PR #30-#34：tracker backend SPI 冻结、NanoTrack ncnn 参考后端、D+ 基准列与 go/no-go 判定）+ PR #35 三项 OCR 链路修复（MIRADOR-20261009-001/002/003：resize_area 放大共享源像素权重按目标索引缓存、连通域 min_x/min_y 随洪泛更新、PP-OCR 参考预处理对齐 ppocrv5.cpp——det 限长缩放 + /32 画布 pad 114 + 阈值 0.3/0.6 + BGR，rec 保纵横比动态行宽）。include/ 增量（+569/-6）：新头 tracker_backend.hpp（Experimental tracker SPI）、object_tracker.hpp 池原语扩展；公开 image 行为修复：resize_area 放大逐位正确、db 后处理框边界完整。integrations/ocr_ppocr opt-in 头语义变更：det_side 为长边上限（不再放大）、rec_width 为行宽上限、det 后处理默认 0.3/0.6。嵌套 googletest（063de7e）与 integrations ncnn pin 不变; M7-23 / DEC-097: maintainer-authorized branch pin includes PR#37 desktop perception fixes/performance, PR#39 real-model evaluation and DEC-024 explicit YOLO bilinear/padding profile (issue#38). Upstream PR#40 merged after all 14 CI checks succeeded; the pinned merge has the identical tree to tested head 932d425. Audit: docs/supply-chain/yolo-vision-20261016.md. Combined upstream PR#40: https://github.com/Linductor-alkaid/mirador/pull/40 (merged master cb45a10).",
       "consumption": "add_subdirectory；视觉后端契约经由别名 mirador::core 链接",
       "nested_pins": [
         {

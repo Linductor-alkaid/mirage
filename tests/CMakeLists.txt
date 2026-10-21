@@ -1055,6 +1055,31 @@ set_tests_properties(visual_session_test PROPERTIES
     TIMEOUT 120
 )
 
+# M8-07 (upstream DEC-025) host-layer budgeted OCR path: the VisualSessionHost
+# branch that routes `run_ocr` requests carrying `ocr_budget` through the
+# configured `budgeted_ocr_backend`. Pins the request field mapping observed at
+# the backend SPI boundary, the kRecognized/kDeferred line split between
+# result.text and ocr_batch diagnostics, the three stop reasons, the fail-closed
+# kBackendUnavailable without a budgeted backend, the untouched legacy path and
+# the never-cached budgeted entry, against a scripted BudgetedOcrBackend on a
+# real Executor blocking worker (same shape as visual_session_test).
+add_executable(visual_session_budgeted_test integration/visual_session_budgeted_test.cpp)
+target_compile_features(visual_session_budgeted_test PUBLIC cxx_std_20)
+mirage_enable_warnings(visual_session_budgeted_test)
+target_link_libraries(visual_session_budgeted_test
+    PRIVATE
+        Mirage::integration_mirador
+        mirador::fusion
+)
+target_link_libraries(visual_session_budgeted_test PRIVATE
+    Mirage::kairo_consumer
+)
+add_test(NAME visual_session_budgeted_test COMMAND visual_session_budgeted_test)
+set_tests_properties(visual_session_budgeted_test PROPERTIES
+    LABELS "unit"
+    TIMEOUT 120
+)
+
 # M3-03 ElementTargetExecutor (DEC-005 resolution order, DEC-016 decision 6):
 # ring-by-ring target resolution with traceable degraded fall-through, the
 # pointer click sequence under cooperative cancellation, and fail-closed
@@ -1700,6 +1725,16 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND MIRAGE_WITH_PPOCR)
         mirador::fusion mirador::geometry mirador::render mirador_ocr_ppocr
         $<TARGET_FILE:kairo::kairo>)
     mirage_enable_warnings(mirador_capability_review)
+    # M8-07 (upstream DEC-025): budgeted image-OCR acceptance over the real
+    # weight bundle; driver renders the dense scene and judges the gates.
+    add_executable(ppocr_budget_acceptance EXCLUDE_FROM_ALL
+        manual/ppocr_budget_acceptance.cpp)
+    target_include_directories(ppocr_budget_acceptance SYSTEM PRIVATE
+        "${CMAKE_SOURCE_DIR}/third_party/mira/third_party/kairo/include"
+        "${CMAKE_SOURCE_DIR}/tests")
+    target_link_libraries(ppocr_budget_acceptance PRIVATE Mirage::platform
+        Mirage::integration_mirador $<TARGET_FILE:kairo::kairo>)
+    mirage_enable_warnings(ppocr_budget_acceptance)
     # MIRADOR-20261016-001 evidence: no-model repro of the thin outline recall.
     add_executable(mirador_outline_repro EXCLUDE_FROM_ALL
         ../docs/dependency_feedback/repro/mirador-outlined-rectangle.cpp)
