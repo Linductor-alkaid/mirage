@@ -167,3 +167,10 @@ M7-04/05 图片链路、三方言 fixture 与 MiniMax 在线两例已通过，�
 Mirage 侧临时边界为 det 四线程、rec 单线程；上游能力交付前，密集整屏 OCR 依赖
 DEC-107 的"分析未完成"反馈与 ROI 小图绕行。2026-10-19 已提报上游
 [mirador#41](https://github.com/Linductor-alkaid/mirador/issues/41)，进展随 issue 跟踪。
+
+2026-10-21 转为 **Resolved**：上游 M8-01…06 交付预算 OCR（rec batching 为
+有证据的 no-go，top-K/partial 契约落地）；pin 升级至 `5565436` 并消费复验，
+69 框密集场景在 5 秒预算内稳定返回可消费 partial（AC8-10 两轮受控验收，
+跨进程 digest 逐位一致），移除条件满足，见
+[M8-07 兼容性报告](../compatibility/mirador-budgeted-ocr-20261021.md)。
+连续感知/关系事件后续诉求仍归 MIRADOR-20261019-001（M9），独立推进。

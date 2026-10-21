@@ -25,7 +25,7 @@ M7-06 本轮核对 PP-OCR 公开后端、集成指南与 smoke；复现见下表
 
 | MIRADOR-20261009-003 | PP-OCR 参考预处理偏离参考部署，真实模型 0/4 | Resolved（本地） | fb0dc3f；四语料公开复现 | [mirador#35](https://github.com/Linductor-alkaid/mirador/pull/35) 第 3 提交，随 pin ae8cf87 生效 | Mirage 维护者 |
 
-| MIRADOR-20261018-001 | PP-OCR rec 逐框串行且无批处理/截断，密集桌面帧无法进入交互预算 | Open | pinned `cb45a102`；生产会话 + 本地基准（见下） | [mirador#41](https://github.com/Linductor-alkaid/mirador/issues/41) 已提报 | Mirage 维护者 |
+| MIRADOR-20261018-001 | PP-OCR rec 逐框串行且无批处理/截断，密集桌面帧无法进入交互预算 | Resolved | 上游 M8-01…06 交付（`5565436`）；pin 消费复验见 [M8-07 兼容性报告](../compatibility/mirador-budgeted-ocr-20261021.md) | [mirador#41](https://github.com/Linductor-alkaid/mirador/issues/41) 已提报 | Mirage 维护者 |
 
 ## MIRADOR-20261009-001
 
@@ -194,7 +194,8 @@ PR 合并仍待评审。无应用侧图像重实现或新增并发设施。延�
 
 ## MIRADOR-20261018-001：PP-OCR rec 逐框串行且无批处理/截断，密集桌面帧无法进入交互预算
 
-状态：Open；负责人 Mirage 维护者，处理方 Mirador 上游；工作项 M8-06 / DEC-107。
+状态：Resolved（2026-10-21）；负责人 Mirage 维护者，处理方 Mirador 上游；工作项
+M8-06 / DEC-107（上游 M8-01…07）。
 
 公开接口核对：`PpOcrBackend::recognize`
 （`third_party/mirador/integrations/ocr_ppocr/ppocr_backend.cpp:401`）对 det 产出的
@@ -229,6 +230,17 @@ rec 维持单线程避免负优化）；不改 pinned 代码、不加并发设�
 （PP-OCR: per-line serial rec cannot meet interactive budgets on dense desktop
 frames），含测量表、根因定位、最小能力诉求与验收建议；处理进展随该 issue 跟踪，
 合并前本条维持 Open。
+
+上游交付与消费复验（2026-10-21）：上游以 DEC-025 交付预算 OCR（M8-01…06：
+top-K/调用方优先级、软预算 + 硬 deadline 三分、显式 partial 与停止原因、
+逐框完成态；rec batching 经 M8-05 实验收口为有证据的能力性 no-go，以
+no-go 证据响应）；pin `cb45a102..5565436` 消费后，`read_image_ocr` 在
+DEC-076 五秒预算内对 69 框密集场景稳定返回可消费的 partial 报告
+（recognized=64/deferred=5/`rec_line_limit`，1.7–3.2 s，跨进程 digest 逐位
+一致），可验收结果（"5 秒预算内完成 rec 或返回可用的部分文本"）满足，
+临时边界（依赖 det 线程调优绕行）被预算路径取代——线程数保留为调用方
+调优项而非预算前提。完整证据与边界见
+[M8-07 兼容性报告](../compatibility/mirador-budgeted-ocr-20261021.md)。
 
 ## MIRADOR-20261019-001
 

@@ -33,9 +33,10 @@ kRecognized/kDeferred 完成态、停止原因、det 触顶诊断），取代旧
 可执行引用（DEC-075），验收以 registry scope 不变断言固化。观察/融合路径
 （`refresh`）维持旧全量语义与既有预算，不在本次范围。
 
-**台账归属**：MIRADOR-20261018-001 的登记条目随 `feat/desktop-input-policy`
-分支提交（其上游回执与移除条件记录在该条目内），本分支只承载 pin 升级、消费
-接线与验收证据；该分支合入 master 时由条目跟随更新状态与本次报告回链。
+**台账归属**：MIRADOR-20261018-001 随本分支更新为 Resolved（上游交付 +
+pin 消费复验，移除条件满足）；台账索引与 dated 记录见
+[dependency_feedback](../dependency_feedback/mirador.md)，连续感知/关系事件
+后续诉求仍归 MIRADOR-20261019-001（M9），独立推进。
 
 ## 受控验收（AC8-10）
 
