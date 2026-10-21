@@ -540,8 +540,8 @@ void layer_scenario(const std::string &scenario) {
     const bool rejected_then_answered = scenario == "denied" || scenario == "focus_changed" ||
                                         scenario == "stale_scope" || scenario == "stale_epoch" ||
                                         scenario == "epoch_during_gate";
-    const bool success = scenario == "normal" || read_only || scenario == "backend_scope" ||
-                         rejected_then_answered;
+    const bool success =
+        scenario == "normal" || read_only || scenario == "backend_scope" || rejected_then_answered;
     MIRAGE_CHECK(result.ok == success);
     // A stale backend reference rejects the click before dispatch. The later
     // fresh observation permits the separately verified keyboard action.

@@ -181,13 +181,12 @@ void scenario(kairo::Executor &executor, const std::string &mode) {
         // evidence — the turn settles instead of failing on the trailing
         // rejection (the maintainer-reported false failure).
         if (mode == "rejected_then_answer")
-            script->steps = {
-                {"desktop.window.list", Json{Json::Object{}}},
-                {"desktop.window.activate",
-                 Json::Object{{"window_id", "w2"},
-                              {"verify_kind", "window_focused"},
-                              {"expected_title", "private-invalid-title"}}},
-                {"desktop.window.list", Json{Json::Object{}}}};
+            script->steps = {{"desktop.window.list", Json{Json::Object{}}},
+                             {"desktop.window.activate",
+                              Json::Object{{"window_id", "w2"},
+                                           {"verify_kind", "window_focused"},
+                                           {"expected_title", "private-invalid-title"}}},
+                             {"desktop.window.list", Json{Json::Object{}}}};
         if (mode == "good" || mode == "delayed" || mode == "visual_good" || mode == "foreign")
             script->steps.emplace_back("desktop.action.verify", Json{Json::Object{}});
         if (mode == "foreign")
@@ -226,8 +225,8 @@ void scenario(kairo::Executor &executor, const std::string &mode) {
                             })
                             .get();
     const bool passed = mode == "good" || mode == "delayed" || mode == "visual_good" ||
-                        mode == "rejected_then_corrected" || mode == "rejected_then_answer" || mode == "foreign" ||
-                        mode == "execution_only_observed";
+                        mode == "rejected_then_corrected" || mode == "rejected_then_answer" ||
+                        mode == "foreign" || mode == "execution_only_observed";
     if (result.ok != passed) {
         std::cerr << mode << ": " << result.error << '\n';
         for (const auto &part : result.parts)
@@ -251,7 +250,8 @@ void scenario(kairo::Executor &executor, const std::string &mode) {
     check(env->input_log.size() ==
           (mode == "denied" || mode == "rejected_then_corrected" || mode == "rejected_then_answer"
                ? 0u
-               : mode == "retry" ? 2u : 1u));
+           : mode == "retry" ? 2u
+                             : 1u));
     if (mode == "rejected_then_answer") {
         // The refused activation never dispatched, and the fresh observation
         // after it lets the trailing clean rejection settle the turn.
@@ -263,11 +263,10 @@ void scenario(kairo::Executor &executor, const std::string &mode) {
         check(refused != result.parts.end());
         const auto evidence = mirage::conversation::desktop_evidence(*refused);
         check(evidence && evidence->status == "rejected");
-        const auto listed = std::find_if(result.parts.begin(), result.parts.end(),
-                                         [](const auto &p) {
-                                             return p.name == "desktop.window.list" &&
-                                                    p.status == "complete";
-                                         });
+        const auto listed =
+            std::find_if(result.parts.begin(), result.parts.end(), [](const auto &p) {
+                return p.name == "desktop.window.list" && p.status == "complete";
+            });
         check(listed != result.parts.end());
     }
     if (mode == "rejected_then_corrected") {
@@ -827,16 +826,15 @@ void observation_settlement() {
     const auto ctx = context();
     const Json click_args{
         Json::Object{{"window_id", "w1"}, {"verify_kind", "shared_frame_observed"}}};
-    const auto shared_proof =
-        [](const std::string &, const std::string &,
-           const mira::OperationContext &) -> mira::Result<Json> {
+    const auto shared_proof = [](const std::string &, const std::string &,
+                                 const mira::OperationContext &) -> mira::Result<Json> {
         return Json{Json::Object{{"matched", true}, {"digest", "fixture-digest"}}};
     };
     // The provider-side shape of the reported defect: the shared click is
     // refused cleanly (no dispatch, no uncertainty), like the
     // target_pixels_changed guard rejection.
-    const mira::BuiltinToolHandler clean_rejection =
-        [](const auto &, const auto &) -> mira::Result<Json> {
+    const mira::BuiltinToolHandler clean_rejection = [](const auto &,
+                                                        const auto &) -> mira::Result<Json> {
         mira::Error e;
         e.code = mira::ErrorCode::PlatformError;
         e.safe_message = R"({"error_code":"target_pixels_changed",)"
@@ -863,8 +861,8 @@ void observation_settlement() {
     // rejection class and follows the same settlement rule.
     i::detail::DesktopActionVerification refused(tools, ctx, {});
     refused.set_shared_observation(shared_proof);
-    const mira::BuiltinToolHandler handler_refusal =
-        [](const auto &, const auto &) -> mira::Result<Json> {
+    const mira::BuiltinToolHandler handler_refusal = [](const auto &,
+                                                        const auto &) -> mira::Result<Json> {
         return Json{Json::Object{{"status", "refused"},
                                  {"verified", false},
                                  {"side_effect_may_have_occurred", false},
@@ -880,8 +878,8 @@ void observation_settlement() {
     // many observations follow.
     i::detail::DesktopActionVerification uncertain(tools, ctx, {});
     uncertain.set_shared_observation(shared_proof);
-    const mira::BuiltinToolHandler dispatched_failure =
-        [](const auto &, const auto &) -> mira::Result<Json> {
+    const mira::BuiltinToolHandler dispatched_failure = [](const auto &,
+                                                           const auto &) -> mira::Result<Json> {
         mira::Error e;
         e.code = mira::ErrorCode::PlatformError;
         e.safe_message = R"({"error_code":"fixture",)"
@@ -988,11 +986,9 @@ void ocr_turn_scenario(kairo::Executor &executor, const std::string &mode) {
         // still fails on the vision evidence.
         check(result.error.find("桌面视觉读取失败") != std::string::npos);
     }
-    const auto ocr_part = std::find_if(result.parts.begin(), result.parts.end(),
-                                       [](const auto &p) {
-                                           return p.name == "desktop.vision.ocr" &&
-                                                  p.status == "failed";
-                                       });
+    const auto ocr_part = std::find_if(result.parts.begin(), result.parts.end(), [](const auto &p) {
+        return p.name == "desktop.vision.ocr" && p.status == "failed";
+    });
     check(ocr_part != result.parts.end());
     check(ocr_calls == fail_at);
     if (mode == "ocr_fail_then_list") {
@@ -1005,11 +1001,10 @@ void ocr_turn_scenario(kairo::Executor &executor, const std::string &mode) {
         // trailing successful observation after it settles the turn.
         check(env->input_log.empty());
         check(!env->windows[1].focused);
-        const auto refused = std::find_if(result.parts.begin(), result.parts.end(),
-                                          [](const auto &p) {
-                                              return p.name == "desktop.window.activate" &&
-                                                     p.status == "failed";
-                                          });
+        const auto refused =
+            std::find_if(result.parts.begin(), result.parts.end(), [](const auto &p) {
+                return p.name == "desktop.window.activate" && p.status == "failed";
+            });
         check(refused != result.parts.end());
         const auto evidence = mirage::conversation::desktop_evidence(*refused);
         check(evidence && evidence->status == "rejected");
@@ -1057,9 +1052,9 @@ void ocr_ordered_rules() {
             if (step.failed)
                 result.safe_error_summary = step.receipt;
             else
-                result.result =
-                    Json{Json::Object{{"observation_scope", "ordered-scope-" + std::to_string(index)},
-                                      {"environment_epoch", Json{std::int64_t{3}}}}};
+                result.result = Json{
+                    Json::Object{{"observation_scope", "ordered-scope-" + std::to_string(index)},
+                                 {"environment_epoch", Json{std::int64_t{3}}}}};
             item.content.emplace_back(result);
             request.input.push_back(item);
             ++index;
@@ -1103,9 +1098,9 @@ void ocr_ordered_rules() {
     }
     // Any successful read-only desktop.* evidence clears: another vision
     // pass, a capture, a front query, a semantic snapshot.
-    for (const auto *grounding : {"desktop.vision.ocr", "desktop.vision.mark",
-                                  "desktop.screen.capture", "desktop.window.front",
-                                  "desktop.accessibility.semantic_snapshot"}) {
+    for (const auto *grounding :
+         {"desktop.vision.ocr", "desktop.vision.mark", "desktop.screen.capture",
+          "desktop.window.front", "desktop.accessibility.semantic_snapshot"}) {
         i::detail::DesktopActionVerification fresh(tools, ctx, {});
         const auto request = scanned(ocr_fail({{grounding, false, ""}}));
         check(static_cast<bool>(fresh.validate_request(request, ctx)));
@@ -1123,16 +1118,16 @@ void ocr_ordered_rules() {
     }
     {
         i::detail::DesktopActionVerification last_passes(tools, ctx, {});
-        const auto request = scanned({{"desktop.vision.mark", true, "mark failed"},
-                                      {"desktop.vision.ocr", false, ""}});
+        const auto request = scanned(
+            {{"desktop.vision.mark", true, "mark failed"}, {"desktop.vision.ocr", false, ""}});
         check(static_cast<bool>(last_passes.validate_request(request, ctx)));
         check(!last_passes.ocr_failed() && last_passes.settle());
     }
     {
         // A mutation in between neither clears nor re-fails the vision
         // question; only the later successful observation does.
-        const mira::BuiltinToolHandler clean_rejection =
-            [](const auto &, const auto &) -> mira::Result<Json> {
+        const mira::BuiltinToolHandler clean_rejection = [](const auto &,
+                                                            const auto &) -> mira::Result<Json> {
             mira::Error e;
             e.code = mira::ErrorCode::PlatformError;
             e.safe_message = R"({"error_code":"target_pixels_changed",)"
@@ -1162,8 +1157,7 @@ void ocr_ordered_rules() {
         // the vision recovery, and it never clears the vision question.
         i::detail::DesktopActionVerification unknown_mutation(tools, ctx, {});
         const auto request =
-            scanned(ocr_fail({{"desktop.window.activate",
-                               true,
+            scanned(ocr_fail({{"desktop.window.activate", true,
                                R"({"schema":2,"status":"uncertain","verified":false,)"
                                R"("dispatched":true,"side_effect_may_have_occurred":true,)"
                                R"("input_released":true,"action_id":"unknown-id",)"
@@ -1179,8 +1173,7 @@ void ocr_ordered_rules() {
         i::detail::DesktopActionVerification verify_failure(tools, ctx, {});
         const auto request =
             scanned({{"desktop.vision.ocr", true, "OCR capture or analysis failed"},
-                     {"desktop.action.verify",
-                      true,
+                     {"desktop.action.verify", true,
                       R"({"schema":2,"status":"unverified","verified":false,)"
                       R"("dispatched":true,"side_effect_may_have_occurred":false,)"
                       R"("input_released":true,"action_id":"ghost-id",)"
@@ -1393,9 +1386,10 @@ int main() {
         options.min_threads = options.max_threads = 3;
         check(static_cast<bool>(executor.initialize(options)));
         for (const auto &mode :
-             {"good", "delayed", "missing", "execution_only_observed", "false_success", "focus", "epoch", "cancel", "denied",
-              "foreign", "retry", "visual_good", "visual_wrong", "visual_duplicate",
-              "visual_denied", "rejected_then_corrected", "rejected_then_answer"})
+             {"good", "delayed", "missing", "execution_only_observed", "false_success", "focus",
+              "epoch", "cancel", "denied", "foreign", "retry", "visual_good", "visual_wrong",
+              "visual_duplicate", "visual_denied", "rejected_then_corrected",
+              "rejected_then_answer"})
             scenario(executor, mode);
         for (const auto &mode : {"good",
                                  "running",
@@ -1424,9 +1418,8 @@ int main() {
         contracts(executor);
         evidence_contracts();
         observation_settlement();
-        for (const auto &mode : {"ocr_fail_then_list", "ocr_fail_answer",
-                                 "ocr_rejection_then_list", "list_then_ocr_fail",
-                                 "ocr_ok_then_fail"})
+        for (const auto &mode : {"ocr_fail_then_list", "ocr_fail_answer", "ocr_rejection_then_list",
+                                 "list_then_ocr_fail", "ocr_ok_then_fail"})
             ocr_turn_scenario(executor, mode);
         ocr_ordered_rules();
         rejection_hint_downgrade();

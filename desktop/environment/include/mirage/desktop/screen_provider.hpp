@@ -164,7 +164,12 @@ class DesktopCaptureSession {
     virtual ~DesktopCaptureSession() = default;
     /// Read already-acquired stream metadata; no authorization UI or input.
     virtual SharedPointerQueryOutcome pointer_position(const CancelToken &) {
-        return {false, false, {}, 0, 0, 0,
+        return {false,
+                false,
+                {},
+                0,
+                0,
+                0,
                 {"pointer_origin_unknown", "Shared cursor metadata is unavailable"}};
     }
     virtual CaptureOutcome capture(const CaptureLimits &, const CancelToken &) = 0;

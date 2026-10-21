@@ -3,8 +3,8 @@
 #include "../../platform/linux/src/portal_authorization.hpp"
 #include "../../platform/linux/src/portal_screen_backend.hpp"
 #include "../support/test.hpp"
-#include <chrono>
 #include <array>
+#include <chrono>
 #include <cstring>
 #include <poll.h>
 #ifdef MIRAGE_TEST_PIPEWIRE
@@ -55,7 +55,8 @@ int main(int argc, char **argv) {
         MIRAGE_CHECK(!decode_portal_cursor(metadata().first(20), 320, 200));
         cursor[0] = 0;
         MIRAGE_CHECK(!decode_portal_cursor(metadata(), 320, 200));
-        cursor[0] = 1; cursor[2] = 320;
+        cursor[0] = 1;
+        cursor[2] = 320;
         MIRAGE_CHECK(!decode_portal_cursor(metadata(), 320, 200));
         cursor[2] = UINT32_MAX;
         MIRAGE_CHECK(!decode_portal_cursor(metadata(), 320, 200));

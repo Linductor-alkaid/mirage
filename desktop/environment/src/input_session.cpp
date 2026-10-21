@@ -3,8 +3,8 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
-#include <random>
 #include <numbers>
+#include <random>
 #include <utility>
 
 namespace mirage::desktop {
@@ -60,8 +60,7 @@ constexpr std::array<StateTransition, 12> kTransitions = {{
      InputSessionState::awaiting_feedback},
     {InputSessionState::awaiting_feedback, InputSessionEvent::observe_repeat,
      InputSessionState::awaiting_feedback},
-    {InputSessionState::ready, InputSessionEvent::release_requested,
-     InputSessionState::releasing},
+    {InputSessionState::ready, InputSessionEvent::release_requested, InputSessionState::releasing},
     {InputSessionState::executing, InputSessionEvent::release_requested,
      InputSessionState::releasing},
     {InputSessionState::awaiting_feedback, InputSessionEvent::release_requested,
@@ -72,8 +71,7 @@ constexpr std::array<StateTransition, 12> kTransitions = {{
      InputSessionState::releasing},
     {InputSessionState::releasing, InputSessionEvent::release_confirmed,
      InputSessionState::released},
-    {InputSessionState::releasing, InputSessionEvent::release_failed,
-     InputSessionState::fenced},
+    {InputSessionState::releasing, InputSessionEvent::release_failed, InputSessionState::fenced},
 }};
 
 bool has_injection_source(const InputSessionCommandContext &context) {
@@ -82,7 +80,9 @@ bool has_injection_source(const InputSessionCommandContext &context) {
            context.capabilities.has(InputCapability::external_hid);
 }
 
-bool is_modifier(const SessionKeyName &key) { return key.modifier != SessionKeyName::Modifier::none; }
+bool is_modifier(const SessionKeyName &key) {
+    return key.modifier != SessionKeyName::Modifier::none;
+}
 
 } // namespace
 
@@ -123,8 +123,8 @@ std::optional<SessionKeyName> parse_session_key_name(std::string_view name) {
         for (const auto &[suffix, side] :
              {std::pair<std::string_view, SessionKeyName::Side>{kLeft, SessionKeyName::Side::left},
               {kRight, SessionKeyName::Side::right}}) {
-            if (name.size() == bare.size() + suffix.size() &&
-                name.starts_with(bare) && name.ends_with(suffix)) {
+            if (name.size() == bare.size() + suffix.size() && name.starts_with(bare) &&
+                name.ends_with(suffix)) {
                 key.modifier = modifier;
                 key.side = side;
                 return key;
@@ -163,12 +163,18 @@ std::string session_key_name_text(const SessionKeyName &key) {
 
 const char *input_session_state_name(InputSessionState state) {
     switch (state) {
-    case InputSessionState::ready: return "ready";
-    case InputSessionState::executing: return "executing";
-    case InputSessionState::awaiting_feedback: return "awaiting_feedback";
-    case InputSessionState::releasing: return "releasing";
-    case InputSessionState::released: return "released";
-    case InputSessionState::fenced: return "fenced";
+    case InputSessionState::ready:
+        return "ready";
+    case InputSessionState::executing:
+        return "executing";
+    case InputSessionState::awaiting_feedback:
+        return "awaiting_feedback";
+    case InputSessionState::releasing:
+        return "releasing";
+    case InputSessionState::released:
+        return "released";
+    case InputSessionState::fenced:
+        return "fenced";
     }
     return "";
 }
@@ -186,14 +192,22 @@ std::optional<InputSessionState> parse_input_session_state(std::string_view name
 
 const char *input_session_event_name(InputSessionEvent event) {
     switch (event) {
-    case InputSessionEvent::admit: return "admit";
-    case InputSessionEvent::command_admitted: return "command_admitted";
-    case InputSessionEvent::command_settled: return "command_settled";
-    case InputSessionEvent::observe: return "observe";
-    case InputSessionEvent::observe_repeat: return "observe_repeat";
-    case InputSessionEvent::release_requested: return "release_requested";
-    case InputSessionEvent::release_confirmed: return "release_confirmed";
-    case InputSessionEvent::release_failed: return "release_failed";
+    case InputSessionEvent::admit:
+        return "admit";
+    case InputSessionEvent::command_admitted:
+        return "command_admitted";
+    case InputSessionEvent::command_settled:
+        return "command_settled";
+    case InputSessionEvent::observe:
+        return "observe";
+    case InputSessionEvent::observe_repeat:
+        return "observe_repeat";
+    case InputSessionEvent::release_requested:
+        return "release_requested";
+    case InputSessionEvent::release_confirmed:
+        return "release_confirmed";
+    case InputSessionEvent::release_failed:
+        return "release_failed";
     }
     return "";
 }
@@ -210,35 +224,46 @@ std::optional<InputSessionState> advance_input_session(InputSessionState state,
 
 const char *input_session_outcome_name(InputSessionOutcome outcome) {
     switch (outcome) {
-    case InputSessionOutcome::admitted: return "admitted";
-    case InputSessionOutcome::delivered: return "delivered";
-    case InputSessionOutcome::holding: return "holding";
-    case InputSessionOutcome::released: return "released";
-    case InputSessionOutcome::uncertain: return "uncertain";
+    case InputSessionOutcome::admitted:
+        return "admitted";
+    case InputSessionOutcome::delivered:
+        return "delivered";
+    case InputSessionOutcome::holding:
+        return "holding";
+    case InputSessionOutcome::released:
+        return "released";
+    case InputSessionOutcome::uncertain:
+        return "uncertain";
     }
     return "";
 }
 
 const char *input_command_kind_name(InputSessionCommand::Kind kind) {
     switch (kind) {
-    case InputSessionCommand::Kind::key_down: return "key_down";
-    case InputSessionCommand::Kind::key_up: return "key_up";
-    case InputSessionCommand::Kind::key_tap: return "key_tap";
-    case InputSessionCommand::Kind::button_down: return "button_down";
-    case InputSessionCommand::Kind::button_up: return "button_up";
-    case InputSessionCommand::Kind::button_tap: return "button_tap";
-    case InputSessionCommand::Kind::smooth_move: return "smooth_move";
+    case InputSessionCommand::Kind::key_down:
+        return "key_down";
+    case InputSessionCommand::Kind::key_up:
+        return "key_up";
+    case InputSessionCommand::Kind::key_tap:
+        return "key_tap";
+    case InputSessionCommand::Kind::button_down:
+        return "button_down";
+    case InputSessionCommand::Kind::button_up:
+        return "button_up";
+    case InputSessionCommand::Kind::button_tap:
+        return "button_tap";
+    case InputSessionCommand::Kind::smooth_move:
+        return "smooth_move";
     }
     return "";
 }
 
 std::optional<InputSessionCommand::Kind> parse_input_command_kind(std::string_view name) {
-    for (const auto kind : {InputSessionCommand::Kind::key_down, InputSessionCommand::Kind::key_up,
-                            InputSessionCommand::Kind::key_tap,
-                            InputSessionCommand::Kind::button_down,
-                            InputSessionCommand::Kind::button_up,
-                            InputSessionCommand::Kind::button_tap,
-                            InputSessionCommand::Kind::smooth_move}) {
+    for (const auto kind :
+         {InputSessionCommand::Kind::key_down, InputSessionCommand::Kind::key_up,
+          InputSessionCommand::Kind::key_tap, InputSessionCommand::Kind::button_down,
+          InputSessionCommand::Kind::button_up, InputSessionCommand::Kind::button_tap,
+          InputSessionCommand::Kind::smooth_move}) {
         if (name == input_command_kind_name(kind)) {
             return kind;
         }
@@ -246,8 +271,9 @@ std::optional<InputSessionCommand::Kind> parse_input_command_kind(std::string_vi
     return std::nullopt;
 }
 
-std::optional<ProviderError> validate_input_session_command(
-    const InputSessionCommand &command, const InputSessionCommandContext &context) {
+std::optional<ProviderError>
+validate_input_session_command(const InputSessionCommand &command,
+                               const InputSessionCommandContext &context) {
     if (!has_injection_source(context)) {
         return ProviderError{"unsupported_platform", "no input source capability is declared"};
     }
@@ -265,8 +291,7 @@ std::optional<ProviderError> validate_input_session_command(
     if (command.dwell.count() < 0 || command.duration.count() < 0) {
         return ProviderError{"invalid_argument", "negative timing is not a session command"};
     }
-    if (is_down &&
-        context.held_inputs >= input_session_budget::max_held_inputs) {
+    if (is_down && context.held_inputs >= input_session_budget::max_held_inputs) {
         return ProviderError{"result_too_large", "held input budget is exhausted"};
     }
     if (needs_key) {
@@ -293,8 +318,7 @@ std::optional<ProviderError> validate_input_session_command(
         }
         if (command.kind != InputSessionCommand::Kind::button_tap &&
             !context.capabilities.has(InputCapability::cross_observation_hold)) {
-            return ProviderError{"unsupported_platform",
-                                 "cross-observation hold is not declared"};
+            return ProviderError{"unsupported_platform", "cross-observation hold is not declared"};
         }
     }
     if (command.kind == InputSessionCommand::Kind::key_tap ||
@@ -311,7 +335,8 @@ std::optional<ProviderError> validate_input_session_command(
         if (!context.capabilities.has(InputCapability::smooth_move)) {
             return ProviderError{"unsupported_platform", "smooth move is not declared"};
         }
-        if (const auto timing = validate_smooth_move_timing(command.duration, command.path_points)) {
+        if (const auto timing =
+                validate_smooth_move_timing(command.duration, command.path_points)) {
             return timing;
         }
     }
@@ -402,7 +427,8 @@ build_smooth_move_schedule(PointerPoint from, PointerPoint to, std::chrono::mill
             std::max(1, variation->target_width > 0 ? variation->target_width
                                                     : pointer_motion_policy::default_target_width);
         const double sign = unit_random(random) < 0.5 ? -1 : 1;
-        bend = sign * (0.35 + 0.65 * unit_random(random)) * std::min({24.0, 0.08 * distance, 0.75 * width});
+        bend = sign * (0.35 + 0.65 * unit_random(random)) *
+               std::min({24.0, 0.08 * distance, 0.75 * width});
         correction =
             (2 * unit_random(random) - 1) * std::min({3.0, 0.10 * width, 0.015 * distance});
         if (unit_random(random) < 0.35 && variation->allow_overshoot)

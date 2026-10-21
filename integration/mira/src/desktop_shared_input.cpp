@@ -413,7 +413,8 @@ mira::Result<Json> DesktopImageTurn::shared_input(const std::string &operation, 
             const auto origin = native_session_->pointer_position(bounded);
             if (!origin.ok)
                 return rejected(origin.cancelled ? "cancelled" : "pointer_origin_unknown");
-            if (origin.image_width != fresh.frame.width || origin.image_height != fresh.frame.height ||
+            if (origin.image_width != fresh.frame.width ||
+                origin.image_height != fresh.frame.height ||
                 origin.source_sequence != fresh.frame.source_sequence || origin.position.x < 0 ||
                 origin.position.y < 0 || origin.position.x >= origin.image_width ||
                 origin.position.y >= origin.image_height)

@@ -53,12 +53,13 @@ mira::OperationContext owner() {
     return ctx;
 }
 mira::ToolExecutionRecord invoke(mira::BuiltinToolRegistry &registry, const std::string &name,
-                                 const Json &args, const mira::OperationContext &ctx, bool legacy_version = false) {
+                                 const Json &args, const mira::OperationContext &ctx,
+                                 bool legacy_version = false) {
     for (const auto &spec : registry.exposed_tools())
         if (spec.wire_name == name) {
             mira::ToolProposal proposal;
             proposal.tool_id = spec.tool_id;
-            proposal.tool_version = legacy_version ? mira::SemanticVersion{3,0,0} : spec.version;
+            proposal.tool_version = legacy_version ? mira::SemanticVersion{3, 0, 0} : spec.version;
             proposal.wire_name = name;
             proposal.has_side_effects = spec.has_side_effects;
             proposal.operation_id = mira::OperationId::generate();

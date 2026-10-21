@@ -100,9 +100,10 @@ class FaultInput final : public d::InputProvider {
         return click_at(x, y, button, limits, cancel);
     }
     bool timed_pointer_actions_supported() const override { return true; }
-    d::InputOutcome smooth_move_to(std::int32_t x, std::int32_t y,
-                                   std::chrono::milliseconds duration, std::uint32_t points,
-                                   const d::InputLimits &limits, const d::CancelToken &cancel, std::optional<d::PointerMotionVariation> variation = std::nullopt) override {
+    d::InputOutcome
+    smooth_move_to(std::int32_t x, std::int32_t y, std::chrono::milliseconds duration,
+                   std::uint32_t points, const d::InputLimits &limits, const d::CancelToken &cancel,
+                   std::optional<d::PointerMotionVariation> variation = std::nullopt) override {
         return delegate->smooth_move_to(x, y, duration, points, limits, cancel, variation);
     }
     bool complete_actions_supported() const override { return mode != 4; }
@@ -326,8 +327,8 @@ void contracts(kairo::Executor &executor) {
         auto clicked = f.click(f.target(marked.result));
         check(!clicked.failed && !*clicked.result.find("verified")->as_boolean());
         check(f.env->fake.pointer.x == -160 && f.env->fake.pointer.y == -10);
-        check(f.env->fake.input_log ==
-              std::vector<std::string>{"move -160,-10", "move -160,-10", "press left", "release left"});
+        check(f.env->fake.input_log == std::vector<std::string>{"move -160,-10", "move -160,-10",
+                                                                "press left", "release left"});
         check(f.click(f.target(marked.result)).failed && f.env->injector.calls == 1);
         auto retired = f.turn->supply(spec);
         check(retired && !f.source->fetch(image.source));

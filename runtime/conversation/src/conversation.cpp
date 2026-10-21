@@ -31,12 +31,12 @@ std::optional<DesktopEvidence> desktop_evidence(const Part &part) {
                                 policy->as_integer() == 2 && condition.empty() &&
                                 field("execution_status", 32) == "completed" && released &&
                                 released->as_boolean().value_or(false);
-    const bool shared =
-        (action == "desktop.session.click" || action == "desktop.session.key" ||
-         action == "desktop.session.type_text" || action == "desktop.session.scroll" ||
-         action == "desktop.session.drag") &&
-        part.name == action &&
-        (condition == "shared_frame_observed" || condition == "shared_text_exists" || execution_only);
+    const bool shared = (action == "desktop.session.click" || action == "desktop.session.key" ||
+                         action == "desktop.session.type_text" ||
+                         action == "desktop.session.scroll" || action == "desktop.session.drag") &&
+                        part.name == action &&
+                        (condition == "shared_frame_observed" ||
+                         condition == "shared_text_exists" || execution_only);
     const auto *verified = v->find("verified");
     if ((view.status != "verified" && view.status != "unverified" && view.status != "uncertain" &&
          view.status != "rejected" && !execution_only) ||
@@ -48,8 +48,8 @@ std::optional<DesktopEvidence> desktop_evidence(const Part &part) {
         (view.status == "verified" &&
          (part.status != "complete" || !verified || !verified->as_boolean().value_or(false) ||
           view.evidence_id.empty())) ||
-        (execution_only && (part.status != "complete" || !verified ||
-                            verified->as_boolean().value_or(true))))
+        (execution_only &&
+         (part.status != "complete" || !verified || verified->as_boolean().value_or(true))))
         return std::nullopt;
     view.shared_desktop = shared;
     view.scope = field("evidence_scope", 64);

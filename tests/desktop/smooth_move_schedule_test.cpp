@@ -170,8 +170,8 @@ void natural_motion_properties() {
             bends_right |= p.y > 103;
             has_overshoot |= p.x > 500;
         }
-        const auto narrow = d::build_smooth_move_schedule(
-            {0, 0}, {400, 0}, duration, 0, d::PointerMotionVariation{seed, 1});
+        const auto narrow = d::build_smooth_move_schedule({0, 0}, {400, 0}, duration, 0,
+                                                          d::PointerMotionVariation{seed, 1});
         for (const auto &p : narrow)
             MIRAGE_CHECK(p.x >= 0 && p.x <= 400 && std::abs(p.y) <= 1);
         for (const auto &[from, to] :
@@ -208,8 +208,8 @@ int main() {
                  d::pointer_motion_policy::max_duration);
     MIRAGE_CHECK(d::automatic_pointer_duration({0, 0}, {1, 0}, INT32_MAX) >=
                  d::pointer_motion_policy::min_duration);
-    const auto negative_tie = d::build_smooth_move_schedule({-1, -1}, {0, 0},
-                                                           std::chrono::milliseconds{600}, 2);
+    const auto negative_tie =
+        d::build_smooth_move_schedule({-1, -1}, {0, 0}, std::chrono::milliseconds{600}, 2);
     MIRAGE_CHECK(negative_tie.front().x == 0 && negative_tie.front().y == 0);
     zero_distance_is_empty();
     segment_budget();

@@ -189,18 +189,21 @@ class NativeEnvironment final : public mirage::desktop::DesktopEnvironment,
         bool timed_press_supported() const override {
             return env.long_press_available && input_supported();
         }
-        mirage::desktop::SharedPointerQueryOutcome pointer_position(
-            const mirage::desktop::CancelToken &cancel) override {
+        mirage::desktop::SharedPointerQueryOutcome
+        pointer_position(const mirage::desktop::CancelToken &cancel) override {
             if (cancel.cancelled())
                 return {false, true, {}, 0, 0, 0, {"cancelled", "fixture"}};
             if (env.glide_origin_unknown)
                 return {};
             if (env.cursor_fault == "pointer_query_throws")
                 throw std::runtime_error("cursor query failure");
-            return {true, false, {env.cursor_fault == "pointer_out_of_bounds" ? -1 : 0, 0},
+            return {true,
+                    false,
+                    {env.cursor_fault == "pointer_out_of_bounds" ? -1 : 0, 0},
                     env.frame_width + (env.cursor_fault == "pointer_extent_mismatch" ? 1 : 0),
                     env.frame_height,
-                    frame_sequence - (env.cursor_fault == "pointer_sequence_mismatch" ? 1 : 0), {}};
+                    frame_sequence - (env.cursor_fault == "pointer_sequence_mismatch" ? 1 : 0),
+                    {}};
         }
         mirage::desktop::InputOutcome input(const mirage::desktop::SharedInputAction &action,
                                             const mirage::desktop::InputLimits &,
@@ -208,7 +211,11 @@ class NativeEnvironment final : public mirage::desktop::DesktopEnvironment,
             if (action.kind == mirage::desktop::SharedInputAction::Kind::Move) {
                 ++env.moves;
                 if (env.glide_origin_unknown)
-                    return {false, false, {"pointer_origin_unknown", "fresh cursor metadata missing"}, false, true};
+                    return {false,
+                            false,
+                            {"pointer_origin_unknown", "fresh cursor metadata missing"},
+                            false,
+                            true};
                 if (env.arrival_changed)
                     env.pixels_changed = true;
                 return {true, false, {}, true, true};
@@ -223,8 +230,7 @@ class NativeEnvironment final : public mirage::desktop::DesktopEnvironment,
                 // input is released, the session stays usable.
                 return {false,
                         false,
-                        {"pointer_origin_unknown",
-                         "no dispatched pointer position is known yet"},
+                        {"pointer_origin_unknown", "no dispatched pointer position is known yet"},
                         false,
                         true};
             if (env.release_failed || env.uncertain_input || cancel.cancelled())
@@ -261,13 +267,12 @@ class NativeEnvironment final : public mirage::desktop::DesktopEnvironment,
                     ? env.shared_pixels()
                     : std::vector<std::uint8_t>(std::size_t(width) * std::size_t(height) * 4,
                                                 static_cast<std::uint8_t>(env.captures));
-            frame_sequence = static_cast<std::uint64_t>(env.repeated_source_after_input && env.inputs
-                                                    ? env.captures - 1 : env.captures);
+            frame_sequence = static_cast<std::uint64_t>(
+                env.repeated_source_after_input && env.inputs ? env.captures - 1 : env.captures);
             return {true,
                     false,
                     {mirage::desktop::ImageFormat::Bgra8, width, height, std::size_t(width) * 4,
-                     std::move(pixels),
-                     frame_sequence},
+                     std::move(pixels), frame_sequence},
                     {}};
         }
     };
@@ -497,9 +502,10 @@ void shared_contracts(const std::string &mode) {
             args.set("expected_text", "fixture");
         if (mode == "execution_only") {
             auto fields = *args.as_object();
-            fields.erase(std::remove_if(fields.begin(), fields.end(),
-                                       [](const auto &entry) { return entry.first == "verify_kind"; }),
-                         fields.end());
+            fields.erase(
+                std::remove_if(fields.begin(), fields.end(),
+                               [](const auto &entry) { return entry.first == "verify_kind"; }),
+                fields.end());
             args = JsonValue{std::move(fields)};
         }
         if (mode != "no_image") {
@@ -614,8 +620,8 @@ void shared_contracts(const std::string &mode) {
         if (mode.starts_with("pointer_"))
             env->cursor_fault = mode;
         const auto epoch_before_input = tools.actions->epoch();
-        auto result = invoke(mode == "unicode"           ? "desktop.session.type_text"
-                             : drag                      ? "desktop.session.drag"
+        auto result = invoke(mode == "unicode" ? "desktop.session.type_text"
+                             : drag            ? "desktop.session.drag"
                              : (mode.starts_with("wheel") || mode == "glide_scroll")
                                  ? "desktop.session.scroll"
                                  : "desktop.session.click",
@@ -632,7 +638,8 @@ void shared_contracts(const std::string &mode) {
                       std::string::npos);
         if (mode.ends_with("arrival_changed")) {
             check(result && result.value().failed && env->moves == 1 && env->inputs == 0);
-            check(result.value().safe_error_summary.find("arrival_target_changed") != std::string::npos);
+            check(result.value().safe_error_summary.find("arrival_target_changed") !=
+                  std::string::npos);
             check(!verification.settle());
             return;
         }
@@ -646,7 +653,10 @@ void shared_contracts(const std::string &mode) {
         if (mode == "glide_origin_unknown" || mode.starts_with("pointer_")) {
             check(result && result.value().failed && env->moves == 0 && env->inputs == 0);
             check(tools.actions->epoch() == epoch_before_input);
-            check(result.value().safe_error_summary.find(mode == "pointer_query_throws" ? "pointer_query_failed" : "pointer_origin_unknown") != std::string::npos);
+            check(result.value().safe_error_summary.find(mode == "pointer_query_throws"
+                                                             ? "pointer_query_failed"
+                                                             : "pointer_origin_unknown") !=
+                  std::string::npos);
             check(result.value().safe_error_summary.find("direct click") == std::string::npos);
             auto key = args;
             key.set("key_name", "escape");
@@ -748,8 +758,9 @@ void shared_contracts(const std::string &mode) {
             check(proof && *proof->find("status")->as_string() == "not_requested");
             check(env->captures == 3 && measured.ocr.calls == 0);
             check(!verification.settle());
-            auto feedback = invoke("desktop.screen.capture", JsonValue{JsonValue::Object{
-                {"source", "desktop"}, {"interaction", true}}}, ctx);
+            auto feedback = invoke(
+                "desktop.screen.capture",
+                JsonValue{JsonValue::Object{{"source", "desktop"}, {"interaction", true}}}, ctx);
             check(feedback && !feedback.value().failed);
             verification.note_observation();
             const auto captures = env->captures;

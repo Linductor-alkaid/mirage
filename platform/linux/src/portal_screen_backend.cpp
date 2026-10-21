@@ -415,8 +415,10 @@ screencast(Connection connection, const char *sender, const std::string &identit
     g_variant_builder_add(&options, "{sv}", "types", g_variant_new_uint32(1));
     g_variant_builder_add(&options, "{sv}", "multiple", g_variant_new_boolean(FALSE));
     if (interaction) {
-        const auto modes = call(state->connection.get(), root, "org.freedesktop.DBus.Properties", "Get",
-            g_variant_new("(ss)", screencast_interface, "AvailableCursorModes"), G_VARIANT_TYPE("(v)"));
+        const auto modes =
+            call(state->connection.get(), root, "org.freedesktop.DBus.Properties", "Get",
+                 g_variant_new("(ss)", screencast_interface, "AvailableCursorModes"),
+                 G_VARIANT_TYPE("(v)"));
         GVariant *boxed = nullptr;
         if (modes)
             g_variant_get(modes.get(), "(v)", &boxed);
@@ -502,8 +504,10 @@ desktop::InputOutcome shared_input(CastSession &s, const desktop::SharedInputAct
         // Automatic approach uses only the current authorized stream's cursor.
         input.has_pointer_origin = s.observed_pointer.has_value();
         if (s.observed_pointer) {
-            input.pointer_origin_x = double(s.observed_pointer->x) * s.logical_width / s.frame_width;
-            input.pointer_origin_y = double(s.observed_pointer->y) * s.logical_height / s.frame_height;
+            input.pointer_origin_x =
+                double(s.observed_pointer->x) * s.logical_width / s.frame_width;
+            input.pointer_origin_y =
+                double(s.observed_pointer->y) * s.logical_height / s.frame_height;
         }
     }
     input.stopped = [&] {
@@ -762,18 +766,28 @@ class PortalObservation final : public desktop::DesktopCaptureSession {
         return false;
 #endif
     }
-    desktop::SharedPointerQueryOutcome pointer_position(const desktop::CancelToken &cancel) override {
+    desktop::SharedPointerQueryOutcome
+    pointer_position(const desktop::CancelToken &cancel) override {
 #ifdef MIRAGE_LINUX_PIPEWIRE
         if (cancel.cancelled() || revoked())
-            return {false, true, {}, 0, 0, 0, {"cancelled", "Shared cursor query cancelled"}};
+            return {false, true, {}, 0, 0, 0, { "cancelled", "Shared cursor query cancelled" }};
         if (state_.cast && !state_.cast->closed && state_.cast->observed_pointer)
-            return {true, false, *state_.cast->observed_pointer,
-                    state_.cast->frame_width, state_.cast->frame_height,
-                    state_.cast->observed_pointer_sequence, {}};
+            return {true,
+                    false,
+                    *state_.cast->observed_pointer,
+                    state_.cast->frame_width,
+                    state_.cast->frame_height,
+                    state_.cast->observed_pointer_sequence,
+                    {}};
 #else
         (void)cancel;
 #endif
-        return {false, false, {}, 0, 0, 0,
+        return {false,
+                false,
+                {},
+                0,
+                0,
+                0,
                 {"pointer_origin_unknown", "No cursor metadata in the current authorized stream"}};
     }
     desktop::InputOutcome input(const desktop::SharedInputAction &action,

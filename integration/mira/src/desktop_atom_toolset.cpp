@@ -818,7 +818,8 @@ AtomRegistration scoped_mutation(const std::string &name, const DesktopToolConte
         "semantic_node_exists (expected_role/expected_name), or visual_text_exists (expected_text; "
         "fresh OCR, one exact text inside the focused window, confidence >= 0.8). Without a "
         "condition, input returns execution facts without a business gate. Observe at state "
-        "dependencies and before claiming task completion. Never retry uncertain side effects automatically.";
+        "dependencies and before claiming task completion. Never retry uncertain side effects "
+        "automatically.";
     registration.spec.has_side_effects = true;
     JsonValue::Object properties{
         {"window_id", string_schema("Observed target window")},

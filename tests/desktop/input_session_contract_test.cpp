@@ -44,20 +44,26 @@ constexpr std::array<d::InputSessionEvent, 8> kEvents = {
 };
 
 constexpr std::array<d::InputSessionOutcome, 5> kOutcomes = {
-    d::InputSessionOutcome::admitted, d::InputSessionOutcome::delivered,
-    d::InputSessionOutcome::holding,  d::InputSessionOutcome::released,
+    d::InputSessionOutcome::admitted,  d::InputSessionOutcome::delivered,
+    d::InputSessionOutcome::holding,   d::InputSessionOutcome::released,
     d::InputSessionOutcome::uncertain,
 };
 
 // Documentary reconciliation of the frozen InputSessionReceipt field set
 // (input_session.hpp), in declaration order.
 constexpr std::array<std::string_view, 13> kReceiptFields = {
-    "state",                       "outcome",
-    "state_version",               "command_sequence",
-    "budget_version",              "commands_remaining",
-    "idle_budget_ms_remaining",    "held_keys",
-    "held_buttons",                "side_effect_may_have_occurred",
-    "release_confirmed",           "cancelled",
+    "state",
+    "outcome",
+    "state_version",
+    "command_sequence",
+    "budget_version",
+    "commands_remaining",
+    "idle_budget_ms_remaining",
+    "held_keys",
+    "held_buttons",
+    "side_effect_may_have_occurred",
+    "release_confirmed",
+    "cancelled",
     "error",
 };
 
@@ -69,9 +75,7 @@ const JsonValue *object_field(const JsonValue &value, const char *key) {
 
 /// Optional-object lookup: absent keys are legitimate for matrix rows that
 /// do not use a field, so absence is reported to the caller, not flagged.
-const JsonValue *find_field(const JsonValue &value, const char *key) {
-    return value.find(key);
-}
+const JsonValue *find_field(const JsonValue &value, const char *key) { return value.find(key); }
 
 std::optional<std::int64_t> integer_field(const JsonValue &value, const char *key) {
     const auto *field = object_field(value, key);
@@ -255,8 +259,7 @@ int main() {
     // rows, in the golden (states outer, events inner) order.
     // -------------------------------------------------------------------
     const auto *transitions = array_field(root, "transitions");
-    MIRAGE_CHECK(transitions != nullptr &&
-                 transitions->size() == kStates.size() * kEvents.size());
+    MIRAGE_CHECK(transitions != nullptr && transitions->size() == kStates.size() * kEvents.size());
     if (transitions != nullptr) {
         std::size_t index = 0;
         for (const auto &state : kStates) {
@@ -266,16 +269,14 @@ int main() {
                 }
                 const auto &row = (*transitions)[index];
                 const auto next = d::advance_input_session(state, event);
-                const std::string actual =
-                    next ? d::input_session_state_name(*next) : "rejected";
+                const std::string actual = next ? d::input_session_state_name(*next) : "rejected";
                 const auto *from_name = string_field(row, "from");
                 const auto *event_name = string_field(row, "event");
                 const auto *to_name = string_field(row, "to");
-                const bool row_ok = from_name != nullptr && event_name != nullptr &&
-                                    to_name != nullptr &&
-                                    *from_name == d::input_session_state_name(state) &&
-                                    *event_name == d::input_session_event_name(event) &&
-                                    *to_name == actual;
+                const bool row_ok =
+                    from_name != nullptr && event_name != nullptr && to_name != nullptr &&
+                    *from_name == d::input_session_state_name(state) &&
+                    *event_name == d::input_session_event_name(event) && *to_name == actual;
                 if (!row_ok) {
                     std::fprintf(stderr,
                                  "transition %zu mismatch: from='%s' event='%s' golden to='%s' "
@@ -423,8 +424,8 @@ int main() {
             const auto *expect_name = string_field(row, "expect");
             MIRAGE_CHECK(case_name != nullptr && kind_name != nullptr &&
                          case_capabilities != nullptr && expect_name != nullptr);
-            if (case_name == nullptr || kind_name == nullptr ||
-                case_capabilities == nullptr || expect_name == nullptr) {
+            if (case_name == nullptr || kind_name == nullptr || case_capabilities == nullptr ||
+                expect_name == nullptr) {
                 continue;
             }
             const auto kind = d::parse_input_command_kind(*kind_name);
@@ -476,8 +477,7 @@ int main() {
             if (*expect_name == "ok") {
                 if (error.has_value()) {
                     std::fprintf(stderr, "command case '%s': expected ok, got '%s' (%s)\n",
-                                 case_name->c_str(), error->code.c_str(),
-                                 error->message.c_str());
+                                 case_name->c_str(), error->code.c_str(), error->message.c_str());
                 }
                 MIRAGE_CHECK(!error.has_value());
             } else {

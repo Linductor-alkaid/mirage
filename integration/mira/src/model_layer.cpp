@@ -974,63 +974,63 @@ DialogCompletion ModelLayer::complete_harness_turn(
         return completion;
     };
     auto registry = std::make_shared<mira::BuiltinToolRegistry>();
-    const DesktopAtomToolset::Decorator decorate =
-        [&capture, &verification, &controlled_input, &tracker = impl_->failure_tracker, session_key,
-         screen_capability, &tools_attempted, &desktop_context = turn_desktop,
-         cancel](const std::string &name, mira::BuiltinToolHandler handler) {
-            return [name, handler = std::move(handler), &capture, &verification, &controlled_input,
-                    &tracker, session_key, screen_capability, &tools_attempted, &desktop_context,
-                    cancel](const auto &arguments,
-                            const auto &ctx) -> mira::Result<mira::JsonValue> {
-                tools_attempted = true;
-                bool refused = false;
-                auto *part = capture.start_tool(name);
-                auto result = [&]() -> mira::Result<mira::JsonValue> {
-                    if (auto blocked = (name == "desktop.input_session.release" ||
-                                        name == "desktop.input_session.observe")
-                                           ? std::optional<std::string>{}
-                                           : tracker.blocked_message(session_key, name)) {
-                        refused = true;
-                        mira::Error blocked_error;
-                        blocked_error.code = mira::ErrorCode::UnsupportedCapability;
-                        blocked_error.domain = "mirage.tool";
-                        blocked_error.safe_message = std::move(*blocked);
-                        return blocked_error;
-                    }
-                    try {
-                        // The dispatch lease ends before postcondition capture/OCR.
-                        auto dispatch = detail::exclude_pet_during(
-                            name, handler, desktop_context.exclude_pet, cancel);
-                        return detail::DesktopActionVerification::mutation(name)
-                                   ? verification.execute(name, arguments, ctx, dispatch)
-                                   : dispatch(arguments, ctx);
-                    } catch (...) {
-                        mira::Error error;
-                        error.code = mira::ErrorCode::PlatformError;
-                        error.safe_message = "tool handler failed";
-                        return error;
-                    }
-                }();
-                if (!result && !refused)
-                    tracker.record(session_key,
-                                   desktop_context.actions ? desktop_context.actions->epoch() : 0,
-                                   name, classify_tool_failure(result.error(), screen_capability),
-                                   result.error());
-                // DEC-056 settlement evidence: a successful desktop
-                // observation after the trailing action record lets a clean
-                // no-effect rejection settle instead of failing the turn.
-                if (result && !refused && detail::DesktopActionVerification::observation(name)) {
-                    verification.note_observation();
-                    const auto *epoch = result.value().find("environment_epoch");
-                    const auto observed_epoch = epoch ? epoch->as_integer().value_or(0) : 0;
-                    controlled_input.note_observation(
-                        observed_epoch > 0 ? static_cast<std::uint64_t>(observed_epoch) : 0);
+    const DesktopAtomToolset::Decorator decorate = [&capture, &verification, &controlled_input,
+                                                    &tracker = impl_->failure_tracker, session_key,
+                                                    screen_capability, &tools_attempted,
+                                                    &desktop_context = turn_desktop,
+                                                    cancel](const std::string &name,
+                                                            mira::BuiltinToolHandler handler) {
+        return [name, handler = std::move(handler), &capture, &verification, &controlled_input,
+                &tracker, session_key, screen_capability, &tools_attempted, &desktop_context,
+                cancel](const auto &arguments, const auto &ctx) -> mira::Result<mira::JsonValue> {
+            tools_attempted = true;
+            bool refused = false;
+            auto *part = capture.start_tool(name);
+            auto result = [&]() -> mira::Result<mira::JsonValue> {
+                if (auto blocked = (name == "desktop.input_session.release" ||
+                                    name == "desktop.input_session.observe")
+                                       ? std::optional<std::string>{}
+                                       : tracker.blocked_message(session_key, name)) {
+                    refused = true;
+                    mira::Error blocked_error;
+                    blocked_error.code = mira::ErrorCode::UnsupportedCapability;
+                    blocked_error.domain = "mirage.tool";
+                    blocked_error.safe_message = std::move(*blocked);
+                    return blocked_error;
                 }
-                capture.finish_tool(part, result,
-                                    [&verification](auto &parts) { verification.project(parts); });
-                return result;
-            };
+                try {
+                    // The dispatch lease ends before postcondition capture/OCR.
+                    auto dispatch = detail::exclude_pet_during(name, handler,
+                                                               desktop_context.exclude_pet, cancel);
+                    return detail::DesktopActionVerification::mutation(name)
+                               ? verification.execute(name, arguments, ctx, dispatch)
+                               : dispatch(arguments, ctx);
+                } catch (...) {
+                    mira::Error error;
+                    error.code = mira::ErrorCode::PlatformError;
+                    error.safe_message = "tool handler failed";
+                    return error;
+                }
+            }();
+            if (!result && !refused)
+                tracker.record(
+                    session_key, desktop_context.actions ? desktop_context.actions->epoch() : 0,
+                    name, classify_tool_failure(result.error(), screen_capability), result.error());
+            // DEC-056 settlement evidence: a successful desktop
+            // observation after the trailing action record lets a clean
+            // no-effect rejection settle instead of failing the turn.
+            if (result && !refused && detail::DesktopActionVerification::observation(name)) {
+                verification.note_observation();
+                const auto *epoch = result.value().find("environment_epoch");
+                const auto observed_epoch = epoch ? epoch->as_integer().value_or(0) : 0;
+                controlled_input.note_observation(
+                    observed_epoch > 0 ? static_cast<std::uint64_t>(observed_epoch) : 0);
+            }
+            capture.finish_tool(part, result,
+                                [&verification](auto &parts) { verification.project(parts); });
+            return result;
         };
+    };
     DesktopAtomToolset::register_harness_tools(*registry, turn_desktop, tools_allowed, cancel,
                                                decorate);
     detail::register_ocr_tool(*registry, turn_desktop, cancel, decorate);
@@ -1545,11 +1545,11 @@ DialogCompletion ModelLayer::complete_harness_turn(
             completion.failed = true;
             completion.error = "model reply exceeds display budget or is empty";
         } else {
-            completion.reply_text =
-                verification.empty()
-                    ? value.answer
-                    : "输入执行与结果观察已记录；任务结论依据下述反馈，执行完成不等于业务验证成功。\n\n" +
-                          value.answer;
+            completion.reply_text = verification.empty()
+                                        ? value.answer
+                                        : "输入执行与结果观察已记录；任务结论依据下述反馈，执行完成"
+                                          "不等于业务验证成功。\n\n" +
+                                              value.answer;
             mira::ModelResponse response;
             response.usage = value.last_usage;
             capture_context_usage(completion, response, impl_->config, capture.last_input_estimate);

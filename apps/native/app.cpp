@@ -2856,10 +2856,10 @@ void render_process(eui::Ui &ui, const std::string &key, const LocalMessage &mes
                                    : evidence->scope == "focus_identity"   ? "焦点已核验"
                                    : evidence->shared_desktop              ? "文本已核验"
                                                                            : "已核验")
-                            : evidence->status == "uncertain" ? "不确定"
-                            : evidence->status == "rejected"  ? "已拒绝"
+                            : evidence->status == "uncertain"     ? "不确定"
+                            : evidence->status == "rejected"      ? "已拒绝"
                             : evidence->status == "not_requested" ? "已执行"
-                                                              : "未验证")
+                                                                  : "未验证")
                 : (part.name == "desktop.window.activate" ||
                    part.name.starts_with("desktop.input.")) &&
                         part.status == "complete"

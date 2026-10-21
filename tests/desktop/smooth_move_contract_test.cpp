@@ -44,8 +44,7 @@ void default_provider_contract() {
     MIRAGE_CHECK(!provider.timed_pointer_actions_supported());
 
     // Below the frozen minimum: invalid_argument before any platform claim.
-    const auto too_fast =
-        provider.smooth_move_to(10, 10, std::chrono::milliseconds{49}, 0, {}, {});
+    const auto too_fast = provider.smooth_move_to(10, 10, std::chrono::milliseconds{49}, 0, {}, {});
     MIRAGE_CHECK(!too_fast.ok);
     MIRAGE_CHECK(!too_fast.cancelled);
     MIRAGE_CHECK(!too_fast.side_effect_may_have_occurred);
@@ -110,8 +109,7 @@ void timing_validator_boundaries() {
     const auto long_duration = d::validate_smooth_move_timing(std::chrono::milliseconds{2001}, 0);
     MIRAGE_CHECK(long_duration.has_value());
     MIRAGE_CHECK(long_duration->code == "result_too_large");
-    const auto too_many_points =
-        d::validate_smooth_move_timing(std::chrono::milliseconds{600}, 65);
+    const auto too_many_points = d::validate_smooth_move_timing(std::chrono::milliseconds{600}, 65);
     MIRAGE_CHECK(too_many_points.has_value());
     MIRAGE_CHECK(too_many_points->code == "result_too_large");
 }
