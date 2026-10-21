@@ -220,7 +220,10 @@ void registration(const Json &golden) {
     for (const auto &spec : registry.exposed_tools()) {
         if (Verification::mutation(spec.wire_name)) {
             MIRAGE_CHECK(std::int64_t{spec.version.major} ==
-                         *golden.find("mutation_tool_major")->as_integer());
+                         ((spec.wire_name == "desktop.input.key" ||
+                           spec.wire_name == "desktop.input.type_text")
+                              ? *golden.find("natural_input_tool_major")->as_integer()
+                              : *golden.find("mutation_tool_major")->as_integer()));
             const auto *dependencies =
                 spec.parameters_schema.root.find("properties")->find("depends_on");
             MIRAGE_CHECK(dependencies);

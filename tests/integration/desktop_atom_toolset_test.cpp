@@ -100,14 +100,15 @@ void scenario_catalog_reports_what_the_environment_delivers() {
     MIRAGE_CHECK(atoms.size() == 13);
 
     // Deterministic (wire-name sorted) order, matching the registry's
-    // exposed view; every atom carries a serializable schema and "1.0.0".
+    // exposed view; every atom carries a serializable schema and its version.
     bool sorted = true;
     for (std::size_t index = 1; index < atoms.size(); ++index) {
         sorted = sorted && atoms[index - 1].wire_name < atoms[index].wire_name;
     }
     MIRAGE_CHECK(sorted);
     for (const auto &atom : atoms) {
-        MIRAGE_CHECK(atom.version == "1.0.0");
+        MIRAGE_CHECK(atom.version ==
+                     (atom.wire_name == "desktop.input.type_text" ? "4.0.0" : "1.0.0"));
         MIRAGE_CHECK(!atom.description.empty());
         const auto schema = mira::parse_json(atom.parameters_schema_json);
         MIRAGE_CHECK(schema.has_value());

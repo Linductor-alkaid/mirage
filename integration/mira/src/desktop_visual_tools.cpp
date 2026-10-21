@@ -4,6 +4,7 @@
 #include "tool_click.hpp"
 #include "tool_geometry.hpp"
 #include <algorithm>
+#include <mirage/desktop/input_cadence.hpp>
 #include <mirage/desktop/input_session.hpp>
 #include <stdexcept>
 
@@ -143,18 +144,21 @@ void DesktopImageTurn::register_mark_tools(mira::BuiltinToolRegistry &registry,
             continue;
         mira::BuiltinToolSpec spec;
         spec.wire_name = std::string{"desktop.vision."} + operation;
-        spec.version = {1, 0, 0};
+        spec.version = {4, 0, 0};
         spec.has_side_effects = true;
         spec.description =
-            drag
-                ? "Complete button-selected drag (button=left/middle/right, default left) between "
-                  "mark and destination_mark in the same fresh "
-                  "visual_scope and focused window. Max 2048 pixels, 16 linear segments, 1 second. "
-                  "No held-button continuation. A fixed postcondition is optional."
-                : "Discrete wheel steps at a fresh mark in the focused window. Positive "
-                  "horizontal_steps/vertical_steps means right/down, negative left/up. Total "
-                  "absolute steps 1..16, max 1 second. No pixel-distance guarantee. A fixed "
-                  "postcondition is optional.";
+            drag ? "Complete button-selected drag (button=left/middle/right, default left) between "
+                   "mark and destination_mark in the same fresh "
+                   "visual_scope and focused window. Max 2048 pixels, locally paced curve, 3 "
+                   "seconds "
+                   "including automatic approach and arrival revalidation. No model timing. "
+                   "No held-button continuation. A fixed postcondition is optional."
+                 : "Discrete wheel steps at a fresh mark in the focused window. Positive "
+                   "horizontal_steps/vertical_steps means right/down, negative left/up. Total "
+                   "absolute steps 1..16, paced per step after automatic approach/revalidation, "
+                   "max 3 "
+                   "seconds. No model timing or pixel-distance guarantee. A fixed "
+                   "postcondition is optional.";
         Json::Object props{{"visual_scope", string_schema()},
                            {"window_id", string_schema()},
                            {"mark", integer_schema(1, 128)},
@@ -350,7 +354,7 @@ mira::Result<Json> DesktopImageTurn::pointer_mark(const Json &args,
         args.find("glide_ms"))
         return action_error({"invalid_argument", "invalid click_count or non-click operation"});
     const auto cap = operation == "click" ? desktop::pointer_motion_policy::action_timeout
-                                          : std::chrono::milliseconds{1000};
+                                          : desktop::input_cadence_policy::action_timeout;
     const auto end = std::min(ctx.deadline.value_or(std::chrono::steady_clock::now() + cap),
                               std::chrono::steady_clock::now() + cap);
     const desktop::CancelToken bounded([this, ctx, end] {
@@ -485,15 +489,7 @@ mira::Result<Json> DesktopImageTurn::pointer_mark(const Json &args,
             auto *input = desktop_.environment->input();
             const desktop::PointerActionScope pointer_scope{id, mark_window_->geometry};
             const desktop::PointerPoint from{mark.anchor.x, mark.anchor.y};
-            if (drag)
-                outcome = input->drag_with_button(pointer_scope, from,
-                                                  {to_mark.anchor.x, to_mark.anchor.y}, *button,
-                                                  limits, bounded);
-            else if (scroll)
-                outcome =
-                    input->scroll_at(pointer_scope, from, static_cast<std::int32_t>(horizontal),
-                                     static_cast<std::int32_t>(vertical), limits, bounded);
-            else {
+            {
                 outcome = input->approach_target(
                     from, std::min(region.bounds.width, region.bounds.height), limits, bounded);
                 if (!outcome.ok)
@@ -513,11 +509,20 @@ mira::Result<Json> DesktopImageTurn::pointer_mark(const Json &args,
                                      "visual target changed during approach"};
                     return;
                 }
-                limits.timeout = std::min(std::chrono::milliseconds{1000},
+                limits.timeout = std::min(desktop::input_cadence_policy::action_timeout,
                                           std::chrono::duration_cast<std::chrono::milliseconds>(
                                               end - std::chrono::steady_clock::now()));
-                outcome =
-                    input->click_sequence_at(from.x, from.y, *button, *clicks, limits, bounded);
+                if (drag)
+                    outcome = input->drag_with_button(pointer_scope, from,
+                                                      {to_mark.anchor.x, to_mark.anchor.y}, *button,
+                                                      limits, bounded);
+                else if (scroll)
+                    outcome =
+                        input->scroll_at(pointer_scope, from, static_cast<std::int32_t>(horizontal),
+                                         static_cast<std::int32_t>(vertical), limits, bounded);
+                else
+                    outcome =
+                        input->click_sequence_at(from.x, from.y, *button, *clicks, limits, bounded);
                 outcome.side_effect_may_have_occurred |= moved;
             }
         };

@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cmath>
 #include <mirador/transform.hpp>
+#include <mirage/desktop/input_cadence.hpp>
 #include <mirage/desktop/input_session.hpp>
 #include <stdexcept>
 
@@ -50,7 +51,7 @@ void DesktopImageTurn::register_region_tool(mira::BuiltinToolRegistry &registry,
             continue;
         mira::BuiltinToolSpec spec;
         spec.wire_name = std::string("desktop.vision.") + operation + "_region";
-        spec.version = click ? mira::SemanticVersion{4, 0, 0} : mira::SemanticVersion{1, 0, 0};
+        spec.version = {4, 0, 0};
         spec.has_side_effects = true;
         spec.description =
             std::string(operation) +
@@ -64,12 +65,14 @@ void DesktopImageTurn::register_region_tool(mira::BuiltinToolRegistry &registry,
             "scroll accepts horizontal_steps/vertical_steps (default 0), positive right/down, "
             "total "
             "absolute steps 1..16. drag accepts button and destination_x/y/width/height rectangle; "
-            "complete 16-segment linear drag between rectangle centers, max 2048 desktop pixels. "
+            "complete locally paced curved drag between rectangle centers, max 2048 desktop "
+            "pixels. "
+            "Scroll and drag also approach/revalidate first; wheel steps are paced individually. "
             "scroll/drag require target_context=window, window_id, both targets in the same "
             "focused window. "
             "click also permits target_context=display and display_id for desktop/panel/menu. "
             "Rechecks source geometry/focus and fresh pixels of both targets before input; "
-            "click max three seconds including approach/guards; other actions max one second. "
+            "max three seconds including approach/guards. No model timing parameters. "
             "No held-button continuation. Supplied intent expires after 60 "
             "seconds. "
             "verify_kind is optional; foreground_changed proves UI progress only. "
@@ -150,7 +153,7 @@ mira::Result<Json> DesktopImageTurn::pointer_region(const Json &args,
         if (!drag && args.find(key))
             return failure("invalid_argument");
     const auto cap = operation == "click" ? desktop::pointer_motion_policy::action_timeout
-                                          : std::chrono::milliseconds{1000};
+                                          : desktop::input_cadence_policy::action_timeout;
     const auto end = std::min(ctx.deadline.value_or(std::chrono::steady_clock::now() + cap),
                               std::chrono::steady_clock::now() + cap);
     const desktop::CancelToken bounded([this, ctx, end] {
@@ -318,11 +321,7 @@ mira::Result<Json> DesktopImageTurn::pointer_region(const Json &args,
         auto *input = desktop_.environment->input();
         const desktop::PointerActionScope scope{source.front.window.id,
                                                 source.front.window.geometry};
-        if (drag)
-            outcome = input->drag_with_button(scope, from, to, *button, limits, bounded);
-        else if (scroll)
-            outcome = input->scroll_at(scope, from, *horizontal, *vertical, limits, bounded);
-        else {
+        {
             const auto travel = input->approach_target(from, std::min(start->width, start->height),
                                                        limits, bounded);
             if (!travel.input_released)
@@ -343,10 +342,16 @@ mira::Result<Json> DesktopImageTurn::pointer_region(const Json &args,
             if (!unchanged || !stable())
                 return failure(bounded.cancelled() ? "cancelled" : "arrival_target_changed",
                                travel.side_effect_may_have_occurred);
-            limits.timeout = std::min(std::chrono::milliseconds{1000},
+            limits.timeout = std::min(desktop::input_cadence_policy::action_timeout,
                                       std::chrono::duration_cast<std::chrono::milliseconds>(
                                           end - std::chrono::steady_clock::now()));
-            outcome = input->click_sequence_at(from.x, from.y, *button, *clicks, limits, bounded);
+            if (drag)
+                outcome = input->drag_with_button(scope, from, to, *button, limits, bounded);
+            else if (scroll)
+                outcome = input->scroll_at(scope, from, *horizontal, *vertical, limits, bounded);
+            else
+                outcome =
+                    input->click_sequence_at(from.x, from.y, *button, *clicks, limits, bounded);
             outcome.side_effect_may_have_occurred |= travel.side_effect_may_have_occurred;
         }
     } catch (...) {

@@ -72,7 +72,7 @@ int main() {
                         if (mode == 2)
                             throw std::runtime_error("sequence press");
                         if (mode == 3)
-                            (void)::poll(nullptr, 0, 10);
+                            (void)::poll(nullptr, 0, 1100);
                         if (mode == 6)
                             context.stopped = [] { return true; };
                     }
@@ -105,11 +105,11 @@ int main() {
             action.destination_y = 700;
             events.clear();
             result = dispatch_portal_input(context, action, {}, {});
-            MIRAGE_CHECK(result.ok && result.input_released && events.size() == 19);
+            MIRAGE_CHECK(result.ok && result.input_released && events.size() == 35);
             MIRAGE_CHECK(events[1].value == code && events[1].state == 1 &&
                          events.back().state == 0);
-            MIRAGE_CHECK(events[17].x == 600 && events[17].y == 350);
-            for (std::size_t n = 2; n < 18; ++n)
+            MIRAGE_CHECK(events[33].x == 600 && events[33].y == 350);
+            for (std::size_t n = 2; n < 34; ++n)
                 MIRAGE_CHECK(events[n].kind == PortalInputEvent::Kind::Motion);
         }
         for (int mode = 0; mode < 7; ++mode) {
@@ -117,7 +117,7 @@ int main() {
             desktop::CancelToken token;
             desktop::InputLimits budget;
             if (mode == 3)
-                budget.timeout = std::chrono::milliseconds(20);
+                budget.timeout = std::chrono::milliseconds(1000);
             context.notify = [&](const auto &event) {
                 events.push_back(event);
                 if (events.size() == 6) {
@@ -128,7 +128,7 @@ int main() {
                     if (mode == 2)
                         throw std::runtime_error("drag motion");
                     if (mode == 3)
-                        (void)::poll(nullptr, 0, 30);
+                        (void)::poll(nullptr, 0, 1100);
                     if (mode == 6)
                         context.stopped = [] { return true; };
                 }
@@ -161,8 +161,10 @@ int main() {
         MIRAGE_CHECK(!dispatch_portal_input(context, action, {}, {}).ok && events.empty());
         action.vertical_steps = 0;
         action.horizontal_steps = -16;
-        MIRAGE_CHECK(dispatch_portal_input(context, action, {}, {}).ok &&
-                     events.back().value == -16);
+        desktop::InputLimits wheel_budget;
+        wheel_budget.timeout = std::chrono::milliseconds{3000};
+        MIRAGE_CHECK(dispatch_portal_input(context, action, wheel_budget, {}).ok &&
+                     events.back().value == -1 && events.size() == 17);
         action.vertical_steps = action.horizontal_steps = 0;
         events.clear();
         action.kind = Kind::Key;
@@ -179,7 +181,9 @@ int main() {
         MIRAGE_CHECK(!result.ok && result.error.code == "text_transport_unavailable" &&
                      !result.side_effect_may_have_occurred && events.empty());
         action.value = "https://example.invalid/";
-        result = dispatch_portal_input(context, action, {}, {});
+        desktop::InputLimits text_budget;
+        text_budget.timeout = std::chrono::milliseconds{15000};
+        result = dispatch_portal_input(context, action, text_budget, {});
         MIRAGE_CHECK(result.ok && events.size() == action.value.size() * 2);
         for (const auto &invalid : {"ctrl+unknown", "f0", "f13"}) {
             events.clear();
@@ -222,13 +226,13 @@ int main() {
                     if (mode == 2)
                         throw std::runtime_error("press");
                     if (mode == 3)
-                        (void)::poll(nullptr, 0, 10);
+                        (void)::poll(nullptr, 0, 1100);
                 }
                 return !(mode == 4 && event.state == 0);
             };
             desktop::InputLimits limits;
             if (mode == 3)
-                limits.timeout = std::chrono::milliseconds(1);
+                limits.timeout = std::chrono::milliseconds(1000);
             result = dispatch_portal_input(context, action, limits, cancel);
             MIRAGE_CHECK(!result.ok && result.side_effect_may_have_occurred && events.size() == 4);
             MIRAGE_CHECK(events[2].value == 'a' && events[2].state == 0 &&
@@ -244,8 +248,8 @@ int main() {
         action.vertical_steps = 2;
         action.horizontal_steps = -1;
         result = dispatch_portal_input(context, action, {}, {});
-        MIRAGE_CHECK(result.ok && events.size() == 3 && events[1].value == 2 &&
-                     events[2].value == -1);
+        MIRAGE_CHECK(result.ok && events.size() == 4 && events[1].value == 1 &&
+                     events[2].value == 1 && events[3].value == -1);
         events.clear();
         action.vertical_steps = 21;
         MIRAGE_CHECK(!dispatch_portal_input(context, action, {}, {}).ok && events.empty());
@@ -446,7 +450,7 @@ int main() {
         action.kind = Kind::Drag;
         events.clear();
         result = dispatch_portal_input(context, action, {}, {});
-        MIRAGE_CHECK(result.ok && events.size() == 19);
+        MIRAGE_CHECK(result.ok && events.size() == 35);
         MIRAGE_CHECK(context.pointer_known && context.pointer_x == 600 &&
                      context.pointer_y == 350);
         // 2026-10-20: the pointer origin now lives on the PortalScreenBackend
@@ -568,6 +572,134 @@ int main() {
         }
     });
     work.get();
+    auto timed = executor.submit_auto([] {
+        PortalInputContext context{3, 1600, 1000, 3200, 2000, false, 0, 0, false, 0, 0, {}, {}};
+        context.stopped = [] { return false; };
+        std::vector<PortalInputEvent> events;
+        std::vector<std::chrono::steady_clock::time_point> times;
+        context.notify = [&](const auto &event) {
+            events.push_back(event);
+            times.push_back(std::chrono::steady_clock::now());
+            return true;
+        };
+        const auto elapsed = [&](std::size_t a, std::size_t b) {
+            return std::chrono::duration_cast<std::chrono::milliseconds>(times[b] - times[a])
+                .count();
+        };
+        desktop::InputLimits budget;
+        budget.timeout = std::chrono::milliseconds{3000};
+        desktop::SharedInputAction action{Kind::Key, 800, 500, 3200, 2000, "ctrl+shift+t"};
+        auto out = dispatch_portal_input(context, action, budget, {});
+        MIRAGE_CHECK(out.ok && events.size() == 6);
+        if (events.size() == 6) {
+            MIRAGE_CHECK(elapsed(0, 1) >= 11 && elapsed(1, 2) >= 11);
+            MIRAGE_CHECK(elapsed(2, 3) >= 44);
+            MIRAGE_CHECK(elapsed(3, 4) >= 7 && elapsed(4, 5) >= 7);
+        }
+        events.clear();
+        times.clear();
+        action.value = "shift";
+        out = dispatch_portal_input(context, action, budget, {});
+        MIRAGE_CHECK(out.ok && out.input_released && events.size() == 2);
+        if (events.size() == 2) {
+            MIRAGE_CHECK(events[0].value == 0xffe1 && events[0].state == 1);
+            MIRAGE_CHECK(events[1].value == 0xffe1 && events[1].state == 0);
+            MIRAGE_CHECK(elapsed(0, 1) >= 44);
+        }
+        events.clear();
+        times.clear();
+        action.kind = Kind::Text;
+        action.value = "ab";
+        out = dispatch_portal_input(context, action, budget, {});
+        MIRAGE_CHECK(out.ok && events.size() == 4);
+        if (events.size() == 4)
+            MIRAGE_CHECK(elapsed(0, 1) >= 44 && elapsed(1, 2) >= 34 && elapsed(2, 3) >= 44);
+        events.clear();
+        times.clear();
+        action.kind = Kind::Scroll;
+        action.horizontal_steps = -2;
+        action.vertical_steps = 3;
+        out = dispatch_portal_input(context, action, budget, {});
+        MIRAGE_CHECK(out.ok && events.size() == 6);
+        int horizontal = 0, vertical = 0;
+        for (std::size_t i = 1; i < events.size(); ++i) {
+            MIRAGE_CHECK(events[i].kind == PortalInputEvent::Kind::Axis &&
+                         std::abs(events[i].value) == 1);
+            (events[i].state ? horizontal : vertical) += events[i].value;
+            if (i > 1)
+                MIRAGE_CHECK(elapsed(i - 1, i) >= 37);
+        }
+        MIRAGE_CHECK(horizontal == -2 && vertical == 3);
+        events.clear();
+        times.clear();
+        action.kind = Kind::Drag;
+        action.value = "right";
+        action.destination_x = 1200;
+        action.destination_y = 900;
+        out = dispatch_portal_input(context, action, budget, {});
+        MIRAGE_CHECK(out.ok && out.input_released && events.size() == 35);
+        if (events.size() == 35) {
+            MIRAGE_CHECK(events[1].kind == PortalInputEvent::Kind::Button && events[1].state == 1);
+            MIRAGE_CHECK(elapsed(1, 2) >= 44 && elapsed(2, 33) >= 180 && elapsed(33, 34) >= 34);
+            MIRAGE_CHECK(events[33].x == 600 && events[33].y == 450 &&
+                         events[34].kind == PortalInputEvent::Kind::Button && !events[34].state);
+        }
+        // Full-plan refusal is effect-free; it is different from a timeout
+        // injected after down, which the existing failure matrix exercises.
+        for (const auto kind : {Kind::Key, Kind::Text, Kind::Scroll, Kind::Drag}) {
+            events.clear();
+            times.clear();
+            action.kind = kind;
+            action.value = kind == Kind::Key ? "ctrl+a" : kind == Kind::Text ? "ab" : "left";
+            desktop::InputLimits tiny;
+            tiny.timeout = std::chrono::milliseconds{1};
+            out = dispatch_portal_input(context, action, tiny, {});
+            MIRAGE_CHECK(!out.ok && !out.side_effect_may_have_occurred && out.input_released &&
+                         events.empty());
+        }
+        action.kind = Kind::Text;
+        action.value = std::string(4096, 'a');
+        budget.timeout = std::chrono::milliseconds{15000};
+        out = dispatch_portal_input(context, action, budget, {});
+        MIRAGE_CHECK(!out.ok && out.error.code == "input_timeout" && events.empty());
+        action.value = "abc";
+        int planning_probes = 0;
+        desktop::CancelToken planning_cancel([&] { return ++planning_probes >= 2; });
+        out = dispatch_portal_input(context, action, budget, planning_cancel);
+        MIRAGE_CHECK(out.cancelled && !out.side_effect_may_have_occurred && events.empty());
+        action.kind = Kind::Move;
+        context.has_pointer_origin = true;
+        context.pointer_origin_x = 400;
+        context.pointer_origin_y = 250;
+        out = dispatch_portal_input(context, action, {}, {});
+        MIRAGE_CHECK(out.ok && !out.side_effect_may_have_occurred && events.empty());
+        // A physical-state-like probe ceases being true after release. The
+        // receipt must preserve the cancellation that caused that cleanup.
+        bool held = false;
+        context.notify = [&](const auto &event) {
+            events.push_back(event);
+            if (event.kind == PortalInputEvent::Kind::Key)
+                held = event.state != 0;
+            return true;
+        };
+        desktop::CancelToken cancel([&] { return held; });
+        action.kind = Kind::Text;
+        action.value = "ab";
+        out = dispatch_portal_input(context, action, budget, cancel);
+        MIRAGE_CHECK(!out.ok && out.cancelled && out.input_released && !held && events.size() == 2);
+        events.clear();
+        action.kind = Kind::Key;
+        action.value = "shift";
+        out = dispatch_portal_input(context, action, budget, cancel);
+        MIRAGE_CHECK(!out.ok && out.error.code == "invalid_argument" &&
+                     !out.side_effect_may_have_occurred && events.empty());
+        budget.timeout = std::chrono::milliseconds{3000};
+        out = dispatch_portal_input(context, action, budget, cancel);
+        MIRAGE_CHECK(!out.ok && out.cancelled && out.input_released && !held && events.size() == 2);
+        if (events.size() == 2)
+            MIRAGE_CHECK(events[0].value == 0xffe1 && events[1].value == 0xffe1);
+    });
+    timed.get();
     executor.shutdown(true);
     return testing::finish("portal_input");
 }

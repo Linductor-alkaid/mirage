@@ -531,11 +531,8 @@ desktop::InputOutcome shared_input(CastSession &s, const desktop::SharedInputAct
         }
         const bool accepted = bool(call(s.connection.get(), root, remote_desktop_interface, method,
                                         args, G_VARIANT_TYPE_UNIT, s.sender.c_str()));
-        // A Portal reply acknowledges dispatch, not delivery to the focused
-        // client. Keep keys bounded and paced on this same Executor task so
-        // compositor/IME processing can consume each complete transition.
-        if (accepted && event.kind == Kind::Key)
-            (void)::poll(nullptr, 0, 10);
+        // Dispatch acknowledgement only. The complete action owns cancellable
+        // cadence centrally; cleanup releases have no artificial transport delay.
         return accepted;
     };
     auto out = dispatch_portal_input(input, action, limits, cancel);

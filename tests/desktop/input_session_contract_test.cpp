@@ -494,7 +494,10 @@ int main() {
     // -------------------------------------------------------------------
     // (e) Legacy chord vocabulary regression (shared base-key table).
     // -------------------------------------------------------------------
-    MIRAGE_CHECK(d::parse_key_chord("shift") == std::nullopt);
+    const auto shift_tap = d::parse_key_chord("shift");
+    MIRAGE_CHECK(shift_tap && shift_tap->base == "shift" && !shift_tap->shift);
+    MIRAGE_CHECK(!d::is_base_key_symbol("shift"));
+    MIRAGE_CHECK(!d::parse_key_chord("ctrl+shift"));
     const auto chord = d::parse_key_chord("ctrl+shift+t");
     MIRAGE_CHECK(chord.has_value());
     if (chord) {

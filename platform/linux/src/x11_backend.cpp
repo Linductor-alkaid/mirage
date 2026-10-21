@@ -1,4 +1,6 @@
 #include "x11_backend.hpp"
+#include "input_pacing.hpp"
+#include <mirage/desktop/input_cadence.hpp>
 #include <mirage/desktop/input_session.hpp>
 #include <mirage/desktop/visual_snapshot.hpp>
 
@@ -164,21 +166,16 @@ unsigned long modifier_keysym(const std::string &modifier) {
 
 /// X keysym name for the plain-key vocabulary of the desktop contract.
 std::string named_key_keysym_name(std::string_view base) {
-    static constexpr std::array<std::pair<std::string_view, std::string_view>, 15> kNames = {{
-        {"enter", "Return"},
-        {"tab", "Tab"},
-        {"escape", "Escape"},
-        {"backspace", "BackSpace"},
-        {"delete", "Delete"},
-        {"insert", "Insert"},
-        {"home", "Home"},
-        {"end", "End"},
-        {"pageup", "Prior"},
-        {"pagedown", "Next"},
-        {"left", "Left"},
-        {"right", "Right"},
-        {"up", "Up"},
-        {"down", "Down"},
+    static constexpr std::array<std::pair<std::string_view, std::string_view>, 19> kNames = {{
+        {"ctrl", "Control_L"}, {"alt", "Alt_L"},
+        {"shift", "Shift_L"},  {"meta", "Super_L"},
+        {"enter", "Return"},   {"tab", "Tab"},
+        {"escape", "Escape"},  {"backspace", "BackSpace"},
+        {"delete", "Delete"},  {"insert", "Insert"},
+        {"home", "Home"},      {"end", "End"},
+        {"pageup", "Prior"},   {"pagedown", "Next"},
+        {"left", "Left"},      {"right", "Right"},
+        {"up", "Up"},          {"down", "Down"},
         {"space", "space"},
     }};
     for (const auto &[mirage_name, x_name] : kNames) {
@@ -968,28 +965,58 @@ InputOutcome X11Backend::key_chord(const KeySym &key, const InputLimits &limits,
         out.error = error("cancelled", "key cancelled");
         return out;
     }
-    const auto deadline = std::chrono::steady_clock::now() + limits.timeout;
+    const auto deadline =
+        std::chrono::steady_clock::now() +
+        std::min(limits.timeout, mirage::desktop::input_cadence_policy::action_timeout);
+    using Phase = mirage::desktop::InputCadencePhase;
+    std::uint64_t seed;
+    try {
+        seed = mirage::desktop::make_pointer_motion_variation(0).seed;
+    } catch (...) {
+        return {false, false, {"input_plan_failed", "could not prepare keyboard cadence"}};
+    }
+    if (std::chrono::steady_clock::now() +
+            mirage::desktop::chord_cadence_duration(seed, codes.size()) >=
+        deadline)
+        return {false, false, {"input_timeout", "complete chord exceeds remaining time"}};
+    bool cancelled_during_action = false;
+    const auto ready = [&] {
+        cancelled_during_action |= cancel.cancelled();
+        return !cancelled_during_action && std::chrono::steady_clock::now() < deadline;
+    };
+    const auto wait = [&](Phase phase, std::size_t index = 0) {
+        return pace_input_for(mirage::desktop::input_cadence_delay(seed, phase, index), ready);
+    };
     bool dispatched = true;
     std::size_t owned = 0;
-    for (const auto code : codes) {
-        if (cancel.cancelled() || std::chrono::steady_clock::now() >= deadline) {
+    for (std::size_t i = 0; i < codes.size(); ++i) {
+        if (!ready()) {
             dispatched = false;
             break;
         }
-        ++owned; // An attempted down can have reached the server even on failure.
+        ++owned; // Even a failed down may have reached the server.
         out.side_effect_may_have_occurred = true;
-        if (!XTestFakeKeyEvent(display, code, True, CurrentTime)) {
+        if (!XTestFakeKeyEvent(display, codes[i], True, CurrentTime) || !XSync(display, False)) {
             dispatched = false;
             break;
         }
+        dispatched =
+            i + 1 < codes.size() ? wait(Phase::modifier_interval, i) : wait(Phase::key_dwell);
+        if (!dispatched)
+            break;
     }
     bool released = true;
-    while (owned > 0)
+    std::size_t index = 0;
+    while (owned > 0) {
         released =
             (XTestFakeKeyEvent(display, codes[--owned], False, CurrentTime) != 0) && released;
-    released = (XSync(display, False) != 0) && released;
+        released = (XSync(display, False) != 0) && released;
+        if (owned && dispatched && released && ready())
+            dispatched = wait(Phase::release_interval, index++);
+    }
+
     out.input_released = released;
-    out.cancelled = cancel.cancelled();
+    out.cancelled = cancelled_during_action || cancel.cancelled();
     out.ok =
         dispatched && released && !out.cancelled && std::chrono::steady_clock::now() < deadline;
     if (!out.ok)
@@ -1325,6 +1352,37 @@ InputOutcome X11Backend::pointer_path_locked(const mirage::desktop::PointerActio
         out.error = error("input_busy", "physical button or modifier already held");
         return out;
     }
+    using Phase = mirage::desktop::InputCadencePhase;
+    std::uint64_t seed;
+    std::vector<mirage::desktop::SmoothMoveSample> samples;
+    std::chrono::milliseconds planned{};
+    try {
+        auto variation = mirage::desktop::make_pointer_motion_variation(32);
+        variation.allow_overshoot = false;
+        seed = variation.seed;
+        if (drag) {
+            const auto duration = mirage::desktop::drag_cadence_duration(from, to, variation);
+            samples = mirage::desktop::build_smooth_move_schedule(from, to, duration, 0, variation);
+            const auto &g = scope.geometry;
+            for (auto &sample : samples) {
+                sample.x = static_cast<std::int32_t>(std::clamp<std::int64_t>(
+                    sample.x, g.x,
+                    std::min<std::int64_t>(INT32_MAX, std::int64_t{g.x} + g.width - 1)));
+                sample.y = static_cast<std::int32_t>(std::clamp<std::int64_t>(
+                    sample.y, g.y,
+                    std::min<std::int64_t>(INT32_MAX, std::int64_t{g.y} + g.height - 1)));
+            }
+            planned = duration + mirage::desktop::input_cadence_delay(seed, Phase::drag_press) +
+                      mirage::desktop::input_cadence_delay(seed, Phase::drag_settle);
+        } else {
+            planned = mirage::desktop::wheel_cadence_duration(seed, std::abs(horizontal) +
+                                                                        std::abs(vertical));
+        }
+    } catch (...) {
+        return {false, false, {"input_plan_failed", "could not prepare pointer cadence"}};
+    }
+    if (std::chrono::steady_clock::now() + planned >= deadline)
+        return {false, false, {"input_timeout", "complete pointer plan exceeds remaining time"}};
     // No allocation/throwing application callbacks while a button is owned.
     // CancelToken probes are noexcept; cleanup ignores cancellation/deadline.
     if (drag)
@@ -1341,7 +1399,8 @@ InputOutcome X11Backend::pointer_path_locked(const mirage::desktop::PointerActio
             failure = "focus_changed";
         else if (!pointer(mask, check_owner))
             failure = "target_obscured";
-        else if (mask & (buttons & ~((drag && owned == drag_button) ? drag_mask : 0u)))
+        else if (mask &
+                 (buttons & ~((owned >= 1 && owned <= 5) ? (Button1Mask << (owned - 1)) : 0u)))
             failure = "input_busy";
         else if (mask & (ShiftMask | ControlMask | Mod1Mask | Mod4Mask))
             failure = "input_busy";
@@ -1353,12 +1412,8 @@ InputOutcome X11Backend::pointer_path_locked(const mirage::desktop::PointerActio
         if (!ready(drag && owned == drag_button))
             return false;
         out.side_effect_may_have_occurred = true;
-        // DEC-064: XTEST's native delivery delay gives external toolkits time
-        // to establish their drag session instead of coalescing the entire
-        // gesture before release. This is one synchronous platform request,
-        // not a private timer/task; cleanup release always has zero delay.
-        const unsigned long delivery_delay = drag && owned == drag_button ? 8UL : CurrentTime;
-        if (!XTestFakeMotionEvent(display, -1, point.x, point.y, delivery_delay) ||
+        // Explicit caller-task pacing below; every sample is flushed now.
+        if (!XTestFakeMotionEvent(display, -1, point.x, point.y, CurrentTime) ||
             !XSync(display, False)) {
             failure = "io_error";
             return false;
@@ -1373,31 +1428,47 @@ InputOutcome X11Backend::pointer_path_locked(const mirage::desktop::PointerActio
         }
         released = (XSync(display, False) != 0) && released;
     };
+    const auto wait = [&](Phase phase, std::size_t index = 0) {
+        const bool complete = pace_input_for(
+            mirage::desktop::input_cadence_delay(seed, phase, index), [&] { return ready(true); });
+        if (!complete && !failure)
+            failure = "input_lag";
+        return complete;
+    };
     if (move(from)) {
         if (drag) {
-            owned = drag_button; // attempted down may have reached the server
+            owned = drag_button;
             drag_press_attempted = true;
             if (!XTestFakeButtonEvent(display, owned, True, CurrentTime) || !XSync(display, False))
                 failure = "io_error";
-            for (int step = 1; step <= 16 && !failure; ++step) {
-                const mirage::desktop::PointerPoint point{
-                    static_cast<std::int32_t>(std::int64_t{from.x} +
-                                              (std::int64_t{to.x} - from.x) * step / 16),
-                    static_cast<std::int32_t>(std::int64_t{from.y} +
-                                              (std::int64_t{to.y} - from.y) * step / 16)};
-                if (!move(point))
-                    break;
+            if (!failure && wait(Phase::drag_press)) {
+                const auto started = std::chrono::steady_clock::now();
+                for (const auto &sample : samples) {
+                    if (!pace_input_until(started + sample.at, [&] { return ready(true); })) {
+                        if (!failure)
+                            failure = "input_lag";
+                        break;
+                    }
+                    if (!move({sample.x, sample.y}))
+                        break;
+                }
+                if (!failure)
+                    (void)wait(Phase::drag_settle);
             }
         } else {
+            std::size_t index = 0;
             for (int axis = 0; axis < 2 && !failure; ++axis) {
                 const auto count = axis == 0 ? vertical : horizontal;
                 const auto code = axis == 0 ? (count < 0 ? 4u : 5u) : (count < 0 ? 6u : 7u);
-                for (int step = 0; step < (count < 0 ? -count : count) && !failure; ++step) {
-                    if (!ready(true))
+                for (int step = 0; step < std::abs(count) && !failure; ++step, ++index) {
+                    if ((index && !wait(Phase::wheel_interval, index)) || !ready(true))
                         break;
                     owned = code;
-                    if (!XTestFakeButtonEvent(display, owned, True, CurrentTime))
+                    if (!XTestFakeButtonEvent(display, owned, True, CurrentTime) ||
+                        !XSync(display, False))
                         failure = "io_error";
+                    if (!failure)
+                        (void)wait(Phase::wheel_dwell, index);
                     release();
                     if (!released)
                         failure = "input_release_failed";
@@ -1490,43 +1561,89 @@ InputOutcome X11Backend::type_text(const std::string &text, const InputLimits &l
             return outcome;
         }
     }
-    const auto deadline = std::chrono::steady_clock::now() + limits.timeout;
-    for (const TextStroke &stroke : strokes) {
-        if (cancel.cancelled() || std::chrono::steady_clock::now() >= deadline) {
-            outcome.cancelled = cancel.cancelled();
-            outcome.error = error(outcome.cancelled ? "cancelled" : "timeout",
-                                  "text input stopped between complete strokes");
-            XSync(display, False);
-            return outcome;
+    const auto deadline =
+        std::chrono::steady_clock::now() +
+        std::min(limits.timeout, mirage::desktop::input_cadence_policy::text_timeout);
+    using Phase = mirage::desktop::InputCadencePhase;
+    std::uint64_t seed;
+    std::chrono::milliseconds planned{};
+    try {
+        seed = mirage::desktop::make_pointer_motion_variation(0).seed;
+        for (std::size_t n = 0; n < strokes.size(); ++n) {
+            if ((n % 64 == 0) && cancel.cancelled())
+                return {false, true, {"cancelled", "text cadence planning cancelled"}};
+            planned += mirage::desktop::input_cadence_delay(seed, Phase::key_dwell, n);
+            if (n)
+                planned += mirage::desktop::input_cadence_delay(seed, Phase::key_interval, n);
+            if (strokes[n].shift)
+                planned += mirage::desktop::input_cadence_delay(seed, Phase::modifier_interval, n) +
+                           mirage::desktop::input_cadence_delay(seed, Phase::release_interval, n);
+            if (std::chrono::steady_clock::now() + planned >= deadline)
+                break;
         }
-        outcome.side_effect_may_have_occurred = true;
-        bool sent = true;
+    } catch (...) {
+        return {false, false, {"input_plan_failed", "could not prepare text cadence"}};
+    }
+    if (std::chrono::steady_clock::now() + planned >= deadline)
+        return {
+            false, false, {"input_timeout", "complete text exceeds remaining time; split text"}};
+    Window focus = None;
+    int revert = 0;
+    XGetInputFocus(display, &focus, &revert);
+    bool cancelled_during_action = false;
+    const auto ready = [&] {
+        cancelled_during_action |= cancel.cancelled();
+        return !cancelled_during_action && std::chrono::steady_clock::now() < deadline;
+    };
+    const auto wait = [&](Phase phase, std::size_t index) {
+        return pace_input_for(mirage::desktop::input_cadence_delay(seed, phase, index), ready);
+    };
+    bool sent = true, released = true, focus_changed = false;
+    for (std::size_t n = 0; n < strokes.size() && sent && released; ++n) {
+        if (!ready()) {
+            sent = false;
+            break;
+        }
+        Window current = None;
+        XGetInputFocus(display, &current, &revert);
+        if (current != focus) {
+            focus_changed = true;
+            sent = false;
+            break;
+        }
+        std::array<KeyCode, 2> owned{};
+        std::size_t count = 0;
+        const auto press = [&](KeyCode code) {
+            owned[count++] = code;
+            outcome.side_effect_may_have_occurred = true;
+            return XTestFakeKeyEvent(display, code, True, CurrentTime) && XSync(display, False);
+        };
+        const auto &stroke = strokes[n];
         if (stroke.shift)
-            sent = XTestFakeKeyEvent(display, shift_code, True, CurrentTime) != 0;
-        sent = (XTestFakeKeyEvent(display, stroke.keycode, True, CurrentTime) != 0) && sent;
-        // Release even if down reported failure; cancellation cannot block cleanup.
-        bool released = XTestFakeKeyEvent(display, stroke.keycode, False, CurrentTime) != 0;
-        if (stroke.shift)
+            sent = press(shift_code) && wait(Phase::modifier_interval, n);
+        if (sent)
+            sent = press(stroke.keycode) && wait(Phase::key_dwell, n);
+        while (count) {
             released =
-                (XTestFakeKeyEvent(display, shift_code, False, CurrentTime) != 0) && released;
-        if (!sent || !released) {
-            outcome.input_released = released;
-            outcome.error = error(released ? "io_error" : "input_release_failed",
-                                  "text stroke failed; input may have occurred");
-            XSync(display, False);
-            return outcome;
+                (XTestFakeKeyEvent(display, owned[--count], False, CurrentTime) != 0) && released;
+            released = (XSync(display, False) != 0) && released;
+            if (count && sent && released && ready())
+                sent = wait(Phase::release_interval, n);
         }
+        if (sent && released && n + 1 < strokes.size())
+            sent = wait(Phase::key_interval, n + 1);
     }
-    outcome.ok = XSync(display, False) != 0;
-    if (!outcome.ok) {
-        outcome.input_released = false;
-        outcome.error = error("io_error", "text injection failed on the X server");
-    } else if (cancel.cancelled() || std::chrono::steady_clock::now() >= deadline) {
-        outcome.ok = false;
-        outcome.cancelled = cancel.cancelled();
-        outcome.error = error(outcome.cancelled ? "cancelled" : "timeout",
-                              "text input stopped after its last complete stroke");
-    }
+    outcome.input_released = released;
+    outcome.cancelled = cancelled_during_action || cancel.cancelled();
+    outcome.ok =
+        sent && released && !outcome.cancelled && std::chrono::steady_clock::now() < deadline;
+    if (!outcome.ok)
+        outcome.error = error(!released           ? "input_release_failed"
+                              : outcome.cancelled ? "cancelled"
+                              : focus_changed     ? "focus_changed"
+                              : std::chrono::steady_clock::now() >= deadline ? "timeout"
+                                                                             : "io_error",
+                              "text input did not complete; do not retry uncertain input");
     return outcome;
 }
 

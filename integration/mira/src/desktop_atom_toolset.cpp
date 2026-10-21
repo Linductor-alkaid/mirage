@@ -9,6 +9,7 @@
 #include <mirage/desktop/application_provider.hpp>
 #include <mirage/desktop/clipboard_provider.hpp>
 #include <mirage/desktop/filesystem_provider.hpp>
+#include <mirage/desktop/input_cadence.hpp>
 #include <mirage/desktop/input_provider.hpp>
 #include <mirage/desktop/notification_provider.hpp>
 #include <mirage/desktop/process_provider.hpp>
@@ -555,6 +556,7 @@ AtomRegistration input_type_text(AtomPermissionGate gate, mirage::desktop::Input
                                  std::shared_ptr<mirage::desktop::ActionCoordinator> actions = {}) {
     AtomRegistration registration;
     registration.spec.wire_name = "desktop.input.type_text";
+    registration.spec.version = {4, 0, 0};
     registration.spec.description = "Types UTF-8 text into the focused window.";
     registration.spec.has_side_effects = true;
     registration.spec.parameters_schema =
@@ -642,6 +644,7 @@ AtomRegistration input_type_text(AtomPermissionGate gate, mirage::desktop::Input
             return cancelled_error();
         }
         mirage::desktop::InputLimits limits;
+        limits.timeout = mirage::desktop::input_cadence_policy::text_timeout;
         if (context.deadline) {
             limits.timeout =
                 std::min(limits.timeout, std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -793,11 +796,17 @@ AtomRegistration scoped_mutation(const std::string &name, const DesktopToolConte
                                  const mirage::desktop::CancelToken &parent_cancel) {
     AtomRegistration registration;
     registration.spec.wire_name = name;
-    registration.spec.version = {2, 2, 0};
+    registration.spec.version = (name == "desktop.input.key" || name == "desktop.input.type_text")
+                                    ? mira::SemanticVersion{4, 0, 0}
+                                    : mira::SemanticVersion{2, 2, 0};
     const std::string use =
         name == "desktop.input.click" ? "Click a semantic @e reference from the latest snapshot. "
-        : name == "desktop.input.key" ? "Send a key chord to the observed focused window. "
-        : name == "desktop.input.type_text" ? "Type text into the observed focused field. "
+        : name == "desktop.input.key"
+            ? "Send a locally timed complete key chord (ordered modifiers, dwell, reverse release) "
+              "to the observed focused window. "
+        : name == "desktop.input.type_text" ? "Type text character by character with local key "
+                                              "dwell and intervals (15 second budget; "
+                                              "split long text) into the observed focused field. "
                                             : "Activate an observed window. ";
     registration.spec.description =
         use +
@@ -825,10 +834,11 @@ AtomRegistration scoped_mutation(const std::string &name, const DesktopToolConte
     const bool click = name == "desktop.input.click";
     if (typing || key || click) {
         const auto field = typing ? "text" : key ? "key" : "ref";
-        properties.emplace_back(field,
-                                string_schema(typing ? "UTF-8, at most 64 KiB"
-                                              : key  ? "Complete canonical chord, e.g. ctrl+shift+t"
-                                                     : "Semantic @eN from this observation"));
+        properties.emplace_back(
+            field,
+            string_schema(typing ? "UTF-8, at most 64 KiB"
+                          : key  ? "Complete key tap or canonical chord, e.g. shift or ctrl+shift+t"
+                                 : "Semantic @eN from this observation"));
         required.emplace_back(field);
     }
     registration.spec.parameters_schema =
@@ -881,6 +891,9 @@ AtomRegistration scoped_mutation(const std::string &name, const DesktopToolConte
                                   lease.error().code != "input_release_failed");
         auto *window = desktop.environment->window();
         mirage::desktop::InputLimits limits;
+        if (typing || key)
+            limits.timeout = typing ? mirage::desktop::input_cadence_policy::text_timeout
+                                    : mirage::desktop::input_cadence_policy::action_timeout;
         if (ctx.deadline)
             limits.timeout =
                 std::min(limits.timeout, std::chrono::duration_cast<std::chrono::milliseconds>(

@@ -1,10 +1,11 @@
 #include "portal_input.hpp"
+#include "input_pacing.hpp"
 #include <algorithm>
 #include <array>
 #include <chrono>
 #include <cmath>
+#include <mirage/desktop/input_cadence.hpp>
 #include <mirage/desktop/input_session.hpp>
-#include <thread>
 #include <vector>
 namespace mirage::platform::linux_backend {
 // Notify calls are finite on the caller's Executor task. A failed press is
@@ -23,7 +24,9 @@ desktop::InputOutcome dispatch_portal_input(PortalInputContext &s,
     };
     if ((s.devices & 3) != 3 || !s.notify || !s.stopped)
         return failed("portal_session_closed");
-    if (limits.timeout.count() <= 0 || limits.timeout > std::chrono::seconds(5))
+    if (limits.timeout.count() <= 0 ||
+        limits.timeout > (action.kind == Kind::Text ? desktop::input_cadence_policy::text_timeout
+                                                    : std::chrono::milliseconds{5000}))
         return failed("invalid_argument");
     if (!desktop::valid_click_count(action.click_count) ||
         (action.kind != Kind::Click && action.click_count != 1))
@@ -62,6 +65,7 @@ desktop::InputOutcome dispatch_portal_input(PortalInputContext &s,
         if (chord->meta)
             keys.push_back(0xffeb);
         static const std::pair<const char *, int> special[] = {
+            {"ctrl", 0xffe3},   {"alt", 0xffe9},    {"shift", 0xffe1},  {"meta", 0xffeb},
             {"enter", 0xff0d},  {"tab", 0xff09},    {"escape", 0xff1b}, {"backspace", 0xff08},
             {"delete", 0xffff}, {"insert", 0xff63}, {"pageup", 0xff55}, {"pagedown", 0xff56},
             {"home", 0xff50},   {"end", 0xff57},    {"left", 0xff51},   {"up", 0xff52},
@@ -150,15 +154,95 @@ desktop::InputOutcome dispatch_portal_input(PortalInputContext &s,
          s.pointer_origin_x < 0 || s.pointer_origin_y < 0 ||
          s.pointer_origin_x >= s.logical_width || s.pointer_origin_y >= s.logical_height))
         return failed("pointer_origin_unknown");
-    const auto end = std::chrono::steady_clock::now() + limits.timeout;
+    const auto cap = action.kind == Kind::Text ? desktop::input_cadence_policy::text_timeout
+                                               : desktop::input_cadence_policy::action_timeout;
+    const auto end = std::chrono::steady_clock::now() + std::min(limits.timeout, cap);
+    bool cancelled_during_action = false;
     const auto stopped = [&] {
-        return cancel.cancelled() || s.stopped() || std::chrono::steady_clock::now() >= end;
+        try {
+            cancelled_during_action |= cancel.cancelled();
+            return cancelled_during_action || s.stopped() ||
+                   std::chrono::steady_clock::now() >= end;
+        } catch (...) {
+            return true;
+        }
     };
     if (stopped())
-        return failed(cancel.cancelled() ? "cancelled" : "input_timeout");
+        return failed(cancelled_during_action ? "cancelled" : "input_timeout");
+    if (action.kind == Kind::Move &&
+        action.x * s.logical_width / s.frame_width == s.pointer_origin_x &&
+        action.y * s.logical_height / s.frame_height == s.pointer_origin_y)
+        return {true, false, {}, false, true};
+    using Phase = desktop::InputCadencePhase;
+    std::uint64_t seed = 0;
+    std::chrono::milliseconds planned{};
+    std::vector<desktop::SmoothMoveSample> path;
+    double target_x = 0, target_y = 0;
+    bool has_travel = false;
+    try {
+        auto variation = action.kind == Kind::Click
+                             ? desktop::PointerMotionVariation{}
+                             : desktop::make_pointer_motion_variation(action.target_width);
+        seed = variation.seed;
+        if (action.kind == Kind::Move || action.kind == Kind::Drag ||
+            (action.kind == Kind::Click && action.glide_ms)) {
+            const double from_x = action.kind == Kind::Drag
+                                      ? action.x * s.logical_width / s.frame_width
+                                      : s.pointer_origin_x;
+            const double from_y = action.kind == Kind::Drag
+                                      ? action.y * s.logical_height / s.frame_height
+                                      : s.pointer_origin_y;
+            target_x = (action.kind == Kind::Drag ? action.destination_x : action.x) *
+                       s.logical_width / s.frame_width;
+            target_y = (action.kind == Kind::Drag ? action.destination_y : action.y) *
+                       s.logical_height / s.frame_height;
+            const desktop::PointerPoint from{static_cast<std::int32_t>(std::llround(from_x)),
+                                             static_cast<std::int32_t>(std::llround(from_y))};
+            const desktop::PointerPoint to{static_cast<std::int32_t>(std::llround(target_x)),
+                                           static_cast<std::int32_t>(std::llround(target_y))};
+            variation.target_width =
+                action.target_width > 0 ? static_cast<std::int32_t>(double(action.target_width) *
+                                                                    s.logical_width / s.frame_width)
+                                        : 0;
+            variation.allow_overshoot = action.kind != Kind::Drag;
+            const auto duration =
+                action.kind == Kind::Click  ? std::chrono::milliseconds{action.glide_ms}
+                : action.kind == Kind::Drag ? desktop::drag_cadence_duration(from, to, variation)
+                                            : desktop::varied_pointer_duration(from, to, variation);
+            path = desktop::build_smooth_move_schedule(
+                from, to, duration, 0,
+                action.kind == Kind::Click ? std::nullopt : std::optional{variation});
+            has_travel = from_x != target_x || from_y != target_y;
+            planned += has_travel ? duration : std::chrono::milliseconds{};
+            if (action.kind == Kind::Drag)
+                planned += desktop::input_cadence_delay(seed, Phase::drag_press) +
+                           desktop::input_cadence_delay(seed, Phase::drag_settle);
+        } else if (action.kind == Kind::Key) {
+            planned = desktop::chord_cadence_duration(seed, keys.size());
+        } else if (action.kind == Kind::Text) {
+            for (std::size_t i = 0; i < keys.size(); ++i) {
+                if ((i % 64 == 0) && stopped())
+                    return failed(cancelled_during_action ? "cancelled" : "input_timeout");
+                planned += desktop::input_cadence_delay(seed, Phase::key_dwell, i);
+                if (i)
+                    planned += desktop::input_cadence_delay(seed, Phase::key_interval, i);
+                if (std::chrono::steady_clock::now() + planned >= end)
+                    break; // A monotonic prefix already proves the whole plan cannot fit.
+            }
+        } else if (action.kind == Kind::Scroll) {
+            planned = desktop::wheel_cadence_duration(seed, std::abs(action.horizontal_steps) +
+                                                                std::abs(action.vertical_steps));
+        }
+    } catch (...) {
+        return failed("input_plan_failed");
+    }
+    if (std::chrono::steady_clock::now() + planned >= end)
+        return failed("input_timeout"); // Full plan admission, before any input.
+    if (stopped())
+        return failed(cancelled_during_action ? "cancelled" : "input_timeout");
     std::array<int, 5> held{};
     std::size_t count = 0;
-    bool held_button = false, effects = false, released = true, ok = true;
+    bool held_button = false, effects = false, released = true, ok = true, lagged = false;
     auto notify = [&](PortalInputEvent event) {
         effects = true;
         try {
@@ -170,145 +254,143 @@ desktop::InputOutcome dispatch_portal_input(PortalInputContext &s,
     auto key = [&](int symbol, bool pressed) {
         return notify({PortalInputEvent::Kind::Key, symbol, pressed ? 1u : 0u});
     };
-    // DEC-110 (M7-26): record the same-origin pointer position after every
-    // accepted motion so a later glide has a trusted start.
+    auto wait = [&](Phase phase, std::size_t index = 0) {
+        const bool result = pace_input_for(desktop::input_cadence_delay(seed, phase, index),
+                                           [&] { return !stopped(); });
+        lagged |= !result && !stopped();
+        return result;
+    };
     auto note_pointer = [&](double x, double y) {
         s.pointer_known = true;
         s.pointer_x = x;
         s.pointer_y = y;
     };
-    // Timed travel on the frozen minimum-jerk schedule. Every notify is a
-    // synchronous Portal call (no client-side buffering to flush); a delivery
-    // more than 250 ms behind its schedule stops the travel instead of
-    // replaying a backlog, mirroring the X11 path.
-    auto travel = [&](double from_x, double from_y, double to_x, double to_y) {
-        if (from_x == to_x && from_y == to_y)
+    auto travel = [&] {
+        if (!has_travel)
             return true;
-        const desktop::PointerPoint from{static_cast<std::int32_t>(std::llround(from_x)),
-                                         static_cast<std::int32_t>(std::llround(from_y))};
-        const desktop::PointerPoint to{static_cast<std::int32_t>(std::llround(to_x)),
-                                       static_cast<std::int32_t>(std::llround(to_y))};
-        std::optional<desktop::PointerMotionVariation> variation;
-        if (action.kind == Kind::Move)
-            variation = desktop::make_pointer_motion_variation(
-                action.target_width > 0 ? static_cast<std::int32_t>(double(action.target_width) *
-                                                                    s.logical_width / s.frame_width)
-                                        : 0);
-        const auto glide = variation ? desktop::varied_pointer_duration(from, to, *variation)
-                                     : std::chrono::milliseconds{action.glide_ms};
-        if (glide > limits.timeout)
-            return false;
-        const auto schedule = desktop::build_smooth_move_schedule(from, to, glide, 0, variation);
         const auto started = std::chrono::steady_clock::now();
-        const auto kMaxLag = std::chrono::milliseconds{250};
-        for (const auto &sample : schedule) {
-            if (cancel.cancelled() || s.stopped())
+        for (const auto &sample : path) {
+            if (!pace_input_until(started + sample.at, [&] { return !stopped(); })) {
+                lagged = !stopped();
                 return false;
-            const auto scheduled = started + sample.at;
-            std::this_thread::sleep_until(scheduled);
-            const auto now = std::chrono::steady_clock::now();
-            if (stopped() || now > scheduled + kMaxLag || now >= end)
-                return false;
-            // The schedule is built in logical coordinates (from/to above are
-            // the same space the plain Motion dispatch sends), so samples go
-            // to the compositor as-is — no further frame-to-logical scaling.
-            const double px = variation
-                                  ? std::clamp(double(sample.x), 0.0, double(s.logical_width) - 1.0)
-                                  : double(sample.x);
+            }
+            const double px =
+                action.kind == Kind::Click
+                    ? double(sample.x)
+                    : std::clamp(double(sample.x), 0.0, double(s.logical_width) - 1.0);
             const double py =
-                variation ? std::clamp(double(sample.y), 0.0, double(s.logical_height) - 1.0)
-                          : double(sample.y);
+                action.kind == Kind::Click
+                    ? double(sample.y)
+                    : std::clamp(double(sample.y), 0.0, double(s.logical_height) - 1.0);
             if (!notify({PortalInputEvent::Kind::Motion, 0, 0, px, py}))
                 return false;
             note_pointer(px, py);
         }
-        // Land on the exact logical target; the schedule rounds to pixels.
-        if (to_x != std::llround(to_x) || to_y != std::llround(to_y)) {
-            if (!notify({PortalInputEvent::Kind::Motion, 0, 0, to_x, to_y}))
+        // Fractional logical targets also land exactly; never rescale samples twice.
+        if (path.empty() || target_x != path.back().x || target_y != path.back().y) {
+            if (stopped() || !notify({PortalInputEvent::Kind::Motion, 0, 0, target_x, target_y}))
                 return false;
-            note_pointer(to_x, to_y);
+            note_pointer(target_x, target_y);
         }
         return true;
     };
-    auto release = [&] {
+    auto release = [&](bool paced = false) {
         if (held_button) {
             released = notify({PortalInputEvent::Kind::Button, button, 0u}) && released;
             held_button = false;
         }
-        while (count)
+        std::size_t index = 0;
+        while (count) {
             released = key(held[--count], false) && released;
+            if (count && paced && ok && released && !stopped())
+                ok = wait(Phase::release_interval, index++);
+        }
     };
     try {
         if (action.kind == Kind::Click || action.kind == Kind::Scroll ||
             action.kind == Kind::Drag || action.kind == Kind::Move) {
-            const double target_x = action.x * s.logical_width / s.frame_width;
-            const double target_y = action.y * s.logical_height / s.frame_height;
-            if (action.kind == Kind::Move || (action.kind == Kind::Click && action.glide_ms != 0)) {
-                ok = travel(s.pointer_origin_x, s.pointer_origin_y, target_x, target_y);
+            const double start_x = action.x * s.logical_width / s.frame_width;
+            const double start_y = action.y * s.logical_height / s.frame_height;
+            if (action.kind == Kind::Move || (action.kind == Kind::Click && action.glide_ms)) {
+                ok = travel();
             } else {
-                ok = notify({PortalInputEvent::Kind::Motion, 0, 0, target_x, target_y});
+                ok = notify({PortalInputEvent::Kind::Motion, 0, 0, start_x, start_y});
                 if (ok)
-                    note_pointer(target_x, target_y);
+                    note_pointer(start_x, start_y);
             }
             if (ok && !stopped() && action.kind == Kind::Click) {
-                for (std::uint32_t index = 0;
-                     index < action.click_count && ok && released && !stopped(); ++index) {
+                for (std::uint32_t i = 0; i < action.click_count && ok && released && !stopped();
+                     ++i) {
                     held_button = true;
                     ok = notify({PortalInputEvent::Kind::Button, button, 1u});
-                    release(); // Each click completes even on cancellation/failed down.
+                    release();
                 }
             } else if (ok && !stopped() && action.kind == Kind::Drag) {
                 held_button = true;
                 ok = notify({PortalInputEvent::Kind::Button, button, 1u});
-                for (int step = 1; step <= 16 && ok && !stopped(); ++step) {
-                    const double x = action.x + (action.destination_x - action.x) * step / 16;
-                    const double y = action.y + (action.destination_y - action.y) * step / 16;
-                    ok = notify({PortalInputEvent::Kind::Motion, 0, 0,
-                                 x * s.logical_width / s.frame_width,
-                                 y * s.logical_height / s.frame_height});
-                    if (ok)
-                        note_pointer(x * s.logical_width / s.frame_width,
-                                     y * s.logical_height / s.frame_height);
-                }
+                if (ok)
+                    ok = wait(Phase::drag_press) && travel() && wait(Phase::drag_settle);
             } else if (ok && !stopped() && action.kind == Kind::Scroll) {
+                std::size_t index = 0;
                 for (unsigned axis = 0; axis < 2 && ok && !stopped(); ++axis) {
                     const int steps = axis ? action.horizontal_steps : action.vertical_steps;
-                    if (steps)
-                        ok = notify({PortalInputEvent::Kind::Axis, steps, axis});
+                    for (int i = 0; i < std::abs(steps) && ok && !stopped(); ++i, ++index) {
+                        if (index)
+                            ok = wait(Phase::wheel_interval, index);
+                        if (ok)
+                            ok = notify({PortalInputEvent::Kind::Axis, steps < 0 ? -1 : 1, axis}) &&
+                                 wait(Phase::wheel_dwell, index);
+                    }
                 }
             }
         } else {
-            for (const int symbol : keys) {
+            for (std::size_t i = 0; i < keys.size(); ++i) {
                 if (stopped()) {
                     ok = false;
                     break;
                 }
-                held[count++] = symbol;
-                if (!key(symbol, true)) {
+                held[count++] = keys[i];
+                if (!key(keys[i], true)) {
                     ok = false;
                     break;
                 }
                 if (action.kind == Kind::Text) {
-                    const bool up = key(symbol, false);
+                    if (!wait(Phase::key_dwell, i)) {
+                        ok = false;
+                        break;
+                    }
+                    const bool up = key(keys[i], false);
                     --count;
                     if (!up) {
                         released = false;
                         ok = false;
                         break;
                     }
+                    if (i + 1 < keys.size() && !wait(Phase::key_interval, i + 1)) {
+                        ok = false;
+                        break;
+                    }
+                } else if (i + 1 < keys.size()) {
+                    if (!wait(Phase::modifier_interval, i)) {
+                        ok = false;
+                        break;
+                    }
+                } else {
+                    ok = wait(Phase::key_dwell);
                 }
             }
         }
     } catch (...) {
         ok = false;
     }
-    release(); // Cancellation/deadline must never suppress releases.
+    release(action.kind == Kind::Key); // Emergency cleanup never waits.
     const bool stop = stopped();
     if (!released || !ok || stop) {
-        return failed(!released            ? "input_release_failed"
-                      : cancel.cancelled() ? "cancelled"
-                      : stop               ? "input_timeout"
-                                           : "portal_input_failed",
+        return failed(!released                 ? "input_release_failed"
+                      : cancelled_during_action ? "cancelled"
+                      : stop                    ? "input_timeout"
+                      : lagged                  ? "input_lag"
+                                                : "portal_input_failed",
                       effects, released);
     }
     return {true, false, {}, effects, true};

@@ -19,7 +19,9 @@ namespace mirage::desktop {
 /// "delete", "home", "end", "left", "right", "up", "down", "f1".."f12",
 /// with modifier prefixes "ctrl+", "alt+", "shift+", "meta+" applied in
 /// this order, e.g. "ctrl+shift+t"). Unknown names are rejected before any
-/// injection.
+/// injection. key_chord treats standalone "ctrl", "alt", "shift", "meta" as
+/// complete taps of the logical (left) modifier. The low-level inject_key
+/// primitive still follows its explicit pressed argument.
 struct KeySym {
     std::string name;
 };
@@ -38,8 +40,8 @@ constexpr bool valid_click_count(std::uint32_t count) {
     return count >= 1 && count <= max_click_count;
 }
 
-/// Budget for one input action (RULE-07). Injection itself is fast; the
-/// timeout is cooperative: backends check it between platform steps; it does
+/// Budget for one complete, locally timed input action (RULE-07).
+/// The timeout is cooperative: backends check it between platform steps; it does
 /// not forcibly interrupt a blocked platform round-trip or suppress cleanup.
 struct InputLimits {
     std::chrono::milliseconds timeout{1000};
@@ -78,6 +80,7 @@ struct PointerPoint {
 struct PointerMotionVariation {
     std::uint64_t seed = 0;
     std::int32_t target_width = 0;
+    bool allow_overshoot = true; ///< Held drags disable forward overshoot.
 };
 
 /// Common, overflow-safe preflight for bounded complete pointer paths.
@@ -108,7 +111,7 @@ class InputProvider {
     virtual InputOutcome scroll_at(const PointerActionScope &, PointerPoint,
                                    std::int32_t horizontal, std::int32_t vertical,
                                    const InputLimits &, const CancelToken &);
-    /// Left-button complete action, 16 linear segments, no held-button API.
+    /// Left-button complete action, locally paced curve, no held-button continuation.
     virtual InputOutcome drag_to(const PointerActionScope &, PointerPoint from, PointerPoint to,
                                  const InputLimits &, const CancelToken &);
     virtual InputOutcome key_chord(const KeySym &key, const InputLimits &limits,

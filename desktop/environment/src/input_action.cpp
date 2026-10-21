@@ -1,3 +1,4 @@
+#include <mirage/desktop/input_cadence.hpp>
 #include <mirage/desktop/input_provider.hpp>
 #include <mirage/desktop/input_session.hpp>
 namespace mirage::desktop {
@@ -8,7 +9,7 @@ bool valid_pointer_scope(const PointerActionScope &scope, PointerPoint p,
            g.height > 0 && p.x >= g.x && p.y >= g.y &&
            std::int64_t{p.x} < std::int64_t{g.x} + g.width &&
            std::int64_t{p.y} < std::int64_t{g.y} + g.height && limits.timeout.count() > 0 &&
-           limits.timeout.count() <= 1000;
+           limits.timeout <= input_cadence_policy::action_timeout;
 }
 bool valid_scroll_steps(std::int32_t horizontal, std::int32_t vertical) {
     if (horizontal < -16 || horizontal > 16 || vertical < -16 || vertical > 16)

@@ -1,6 +1,7 @@
 add_library(mirage_desktop STATIC
     environment/src/action_coordinator.cpp
     environment/src/input_action.cpp
+    environment/src/input_cadence.cpp
     environment/src/input_session.cpp
     environment/src/desktop_environment.cpp
     environment/src/element_target_executor.cpp

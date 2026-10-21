@@ -1318,6 +1318,13 @@ mirage_add_test(smooth_move_schedule_test
     TIMEOUT 30
     )
 
+mirage_add_test(input_cadence_test
+    SOURCES desktop/input_cadence_test.cpp
+    LIBS Mirage::desktop
+    LABELS "unit;desktop"
+    TIMEOUT 30
+    )
+
 # DEC-110 / M7-26 smooth pointer travel tool surface: the glide_ms opt-in of
 # desktop.vision.click / desktop.vision.click_region over the fake desktop
 # environment (gate order, honest failure receipts, deadline cap extension).

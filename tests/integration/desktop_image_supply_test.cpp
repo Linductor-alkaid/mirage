@@ -585,7 +585,7 @@ void shared_contracts(const std::string &mode) {
             args.set("button", "bad");
         if (mode == "button_type")
             args.set("button", 3);
-        if (mode == "wheel")
+        if (mode.starts_with("wheel") && mode != "wheel_budget")
             args.set("horizontal_steps", -16);
         if (mode == "wheel_budget") {
             args.set("horizontal_steps", 16);
@@ -602,9 +602,10 @@ void shared_contracts(const std::string &mode) {
             args.set("glide_ms", 300);
         // 2026-10-20: the session refuses glide travel before any dispatched
         // origin exists (the Portal backend's first-glide shape).
-        if (mode == "glide_origin_unknown")
+        if (mode == "glide_origin_unknown" || mode == "wheel_origin_unknown" ||
+            mode == "drag_origin_unknown")
             env->glide_origin_unknown = true;
-        if (mode == "arrival_changed")
+        if (mode.ends_with("arrival_changed"))
             env->arrival_changed = true;
         if (mode.starts_with("pointer_"))
             env->cursor_fault = mode;
@@ -625,10 +626,17 @@ void shared_contracts(const std::string &mode) {
             check(result && result.value().failed &&
                   result.value().safe_error_summary.find("input_pre_capture_timeout") !=
                       std::string::npos);
-        if (mode == "arrival_changed") {
+        if (mode.ends_with("arrival_changed")) {
             check(result && result.value().failed && env->moves == 1 && env->inputs == 0);
             check(result.value().safe_error_summary.find("arrival_target_changed") != std::string::npos);
             check(!verification.settle());
+            return;
+        }
+        if (mode == "wheel_origin_unknown" || mode == "drag_origin_unknown") {
+            check(result && result.value().failed && env->moves == 0 && env->inputs == 0);
+            check(tools.actions->epoch() == epoch_before_input);
+            check(result.value().safe_error_summary.find("pointer_origin_unknown") !=
+                  std::string::npos);
             return;
         }
         if (mode == "glide_origin_unknown" || mode.starts_with("pointer_")) {
@@ -809,7 +817,7 @@ void shared_contracts(const std::string &mode) {
                   *proof->find("evidence_scope")->as_string() ==
                       (mode == "ocr" ? "text_presence" : "fresh_frame"));
             const auto before = measured.capture.calls;
-            check(before == (mode == "drag" || mode == "wheel" ? 3u : 4u) && measured.ocr.calls == (mode == "ocr" ? 1u : 0u));
+            check(before == 4u && measured.ocr.calls == (mode == "ocr" ? 1u : 0u));
             check(verification.settle());
             check(measured.capture.calls == before &&
                   measured.ocr.calls == (mode == "ocr" ? 1u : 0u));
@@ -3002,6 +3010,10 @@ int main() {
                 for (const auto &mode : {"right",
                                          "middle",
                                          "drag",
+                                         "drag_arrival_changed",
+                                         "drag_origin_unknown",
+                                         "wheel_arrival_changed",
+                                         "wheel_origin_unknown",
                                          "wheel",
                                          "drag_invalid",
                                          "invalid_button",

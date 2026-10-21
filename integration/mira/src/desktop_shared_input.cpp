@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <mirage/desktop/input_cadence.hpp>
 #include <mirage/desktop/input_session.hpp>
 #include <stdexcept>
 #include <string_view>
@@ -39,8 +40,7 @@ void DesktopImageTurn::register_shared_input(mira::BuiltinToolRegistry &registry
     for (const auto *operation : {"click", "key", "type_text", "scroll", "drag"}) {
         mira::BuiltinToolSpec spec;
         spec.wire_name = std::string("desktop.session.") + operation;
-        if (std::string_view(operation) == "click")
-            spec.version = {4, 0, 0};
+        spec.version = {4, 0, 0};
         spec.has_side_effects = true;
         const std::string use =
             std::string_view(operation) == "click"
@@ -57,9 +57,9 @@ void DesktopImageTurn::register_shared_input(mira::BuiltinToolRegistry &registry
             : std::string_view(operation) == "type_text"
                 ? "Type text into the focused field after confirming focus. "
             : std::string_view(operation) == "drag"
-                ? "Complete button-selected linear drag between source rectangle center and "
+                ? "Complete locally paced curved drag between source rectangle center and "
                   "destination_x/y/width/height rectangle center in the same shared image. "
-                  "16 segments, max 2048 desktop pixels, max one second. "
+                  "Max 2048 desktop pixels; automatically approach and revalidate before pressing. "
                 : "Scroll a visible UI region to reveal more content. ";
         spec.description =
             use +
@@ -69,13 +69,17 @@ void DesktopImageTurn::register_shared_input(mira::BuiltinToolRegistry &registry
             "input. Every capture or OCR refresh replaces the previous image_scope; use the "
             "latest actionable image, including for key and type_text. "
             "click/scroll use rectangle center. key uses canonical lowercase key_name (e.g. "
-            "ctrl+l, alt+f2, enter; meta+ for Super chords); type_text "
+            "ctrl+l, enter, shift; bare ctrl/alt/shift/meta tap and release; meta+ for "
+            "Super chords); type_text "
             "uses text (printable ASCII, <=4096 bytes, no controls; arbitrary UTF-8 returns "
             "text_transport_unavailable before dispatch on this legacy Portal transport); scroll "
             "uses "
             "vertical_steps/horizontal_steps "
             "(default 0; positive right/down, negative left/up; total absolute steps 1..16). "
-            "click/drag use button=left/middle/right (default left). No held keys. "
+            "click/drag use button=left/middle/right (default left). Scroll and drag approach "
+            "and revalidate the target first. Wheel steps, drag motion and key transitions "
+            "use local natural timing; text is typed character by character. No timing arguments "
+            "or held keys. Text has a 15 second budget; split longer text. "
             "verify_kind=shared_frame_observed proves released input and "
             "fresh frame only, or shared_text_exists with expected_text checks same-stream OCR. "
             "verify_kind is optional. Without it, no post-action frame or OCR is captured; "
@@ -229,11 +233,13 @@ mira::Result<Json> DesktopImageTurn::shared_input(const std::string &operation, 
         if (!drag && args.find(key))
             return rejected("invalid_argument");
     const auto authority = native_authority_;
-    const auto deadline =
-        std::min(ctx.deadline.value_or(std::chrono::steady_clock::now() + std::chrono::seconds(5)),
-                 std::chrono::steady_clock::now() + std::chrono::seconds(5));
-    const desktop::CancelToken bounded([this, authority, deadline] {
+    const auto cap = operation == "type_text" ? desktop::input_cadence_policy::text_timeout
+                                              : std::chrono::milliseconds{5000};
+    const auto deadline = std::min(ctx.deadline.value_or(std::chrono::steady_clock::now() + cap),
+                                   std::chrono::steady_clock::now() + cap);
+    const desktop::CancelToken bounded([this, ctx, authority, deadline] {
         return cancel_.cancelled() || desktop_.actions->authority_epoch() != authority ||
+               ctx.cancelled_or_expired(mira::Timestamp::now()) ||
                std::chrono::steady_clock::now() >= deadline;
     });
     const auto allowed = [&](const char *capability) {
@@ -352,7 +358,8 @@ mira::Result<Json> DesktopImageTurn::shared_input(const std::string &operation, 
         return rejected("invalid_argument");
     action.image_width = old.width;
     action.image_height = old.height;
-    if (operation == "click") {
+    const bool pointer_action = operation == "click" || operation == "scroll" || drag;
+    if (pointer_action) {
         // Availability is a read-only preflight. Do not retire the current
         // image/epoch merely because the stream lacks cursor metadata.
         try {
@@ -373,10 +380,16 @@ mira::Result<Json> DesktopImageTurn::shared_input(const std::string &operation, 
         return rejected(lease.error().code);
     desktop::InputLimits limits;
     limits.max_text_bytes = 4096;
+    const auto action_cap = operation == "type_text"
+                                ? desktop::input_cadence_policy::text_timeout
+                                : desktop::input_cadence_policy::action_timeout;
+    const auto execution_end = std::min(deadline, std::chrono::steady_clock::now() + action_cap);
+    limits.timeout = std::min(action_cap, std::chrono::duration_cast<std::chrono::milliseconds>(
+                                              execution_end - std::chrono::steady_clock::now()));
     desktop::InputOutcome out;
     try {
         bool moved = false;
-        if (operation == "click") {
+        if (pointer_action) {
             auto approach = action;
             approach.kind = Kind::Move;
             approach.click_count = 1;
@@ -407,6 +420,9 @@ mira::Result<Json> DesktopImageTurn::shared_input(const std::string &operation, 
                 fresh = arrived;
             }
         }
+        limits.timeout =
+            std::min(action_cap, std::chrono::duration_cast<std::chrono::milliseconds>(
+                                     execution_end - std::chrono::steady_clock::now()));
         out = native_session_->input(action, limits, bounded);
         out.side_effect_may_have_occurred |= moved;
     } catch (...) {

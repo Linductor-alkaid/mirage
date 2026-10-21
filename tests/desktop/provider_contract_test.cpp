@@ -329,6 +329,13 @@ void input_provider_contract() {
 }
 
 void key_name_and_utf8_helpers() {
+    for (const char *modifier : {"ctrl", "alt", "shift", "meta"}) {
+        const auto tap = mirage::desktop::parse_key_chord(modifier);
+        MIRAGE_CHECK(tap && tap->base == modifier && !tap->ctrl && !tap->alt && !tap->shift &&
+                     !tap->meta);
+    }
+    MIRAGE_CHECK(!mirage::desktop::is_valid_key_name("shift+shift"));
+    MIRAGE_CHECK(!mirage::desktop::is_valid_key_name("ctrl+shift"));
     MIRAGE_CHECK(mirage::desktop::is_valid_key_name("a"));
     MIRAGE_CHECK(mirage::desktop::is_valid_key_name("?"));
     MIRAGE_CHECK(mirage::desktop::is_valid_key_name("space"));

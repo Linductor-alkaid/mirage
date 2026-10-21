@@ -400,7 +400,7 @@ build_smooth_move_schedule(PointerPoint from, PointerPoint to, std::chrono::mill
         bend = sign * (0.35 + 0.65 * unit_random(random)) * std::min({24.0, 0.08 * distance, 0.75 * width});
         correction =
             (2 * unit_random(random) - 1) * std::min({3.0, 0.10 * width, 0.015 * distance});
-        if (unit_random(random) < 0.35)
+        if (unit_random(random) < 0.35 && variation->allow_overshoot)
             overshoot =
                 (0.5 + 0.5 * unit_random(random)) * std::min({3.0, 0.10 * width, 0.01 * distance});
     }
