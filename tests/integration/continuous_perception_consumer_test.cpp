@@ -104,6 +104,193 @@ VisualAnalysisRequest refreshed(const std::string &source, std::uint64_t sequenc
     return request;
 }
 
+VisualAnalysisRequest spatial_request(const std::string &source, std::uint64_t sequence) {
+    auto request = refreshed(source, sequence);
+    request.continuous->full_frame_evidence_digest = 0;
+    request.continuous->spatial_evidence_digest = 73;
+    request.continuous->attention.conditions[0].roi = {1, 1, 2, 2};
+    return request;
+}
+
+class MeasuredOcr final : public mirador::OcrBackend {
+  public:
+    FakeOcrBackend backend;
+    std::uint64_t calls = 0, pixels_seen = 0, fail_at = 0;
+    mirador::BackendInfo info() const override { return backend.info(); }
+    mirador::Result<std::vector<mirador::TextRegion>>
+    recognize(const mirador::ImageView &image, const mirador::OcrRequest &request,
+              const mirador::ExecutionContext &context) override {
+        ++calls;
+        pixels_seen += static_cast<std::uint64_t>(image.width) * image.height;
+        if (calls == fail_at)
+            return mirador::Status{mirador::ErrorCode::kBackendFailure, "injected ROI failure"};
+        return backend.recognize(image, request, context);
+    }
+};
+
+void spatial_work_reduces_backend_input_and_preserves_coordinates() {
+    Owner owner;
+    MeasuredOcr ocr;
+    FakeDetectorBackend detector;
+    auto config = config_for(ocr);
+    config.detector_backend = &detector;
+    VisualSessionHost host(owner.executor, "spatial", config);
+    std::string error;
+    MIRAGE_CHECK(host.start(error));
+    for (std::uint64_t sequence = 1; sequence <= 3; ++sequence) {
+        auto request = spatial_request("spatial", sequence);
+        auto second = request.continuous->attention.conditions[0];
+        second.roi = {5, 5, 2, 2};
+        request.continuous->attention.conditions.push_back(second);
+        request.run_detector = true;
+        request.detector.cache_policy = mirador::CachePolicy::kRefresh;
+        const auto result = get(host.submit(std::move(request)));
+        MIRAGE_CHECK(result.outcome.kind == Kind::kCompleted && result.continuous &&
+                     result.spatial);
+        if (!result.continuous || !result.spatial || !result.snapshot)
+            return;
+        MIRAGE_CHECK(result.spatial->plan.work.size() == 2);
+        MIRAGE_CHECK(result.spatial->requested_pixels == 8);
+        MIRAGE_CHECK(result.spatial->ocr_completed == 2);
+        MIRAGE_CHECK(result.spatial->detector_completed == 2);
+        MIRAGE_CHECK(result.text.size() == 2 && result.detections.size() == 2);
+        MIRAGE_CHECK(result.text[0].bounds == (mirador::RectF{1, 1, 2, 2}));
+        MIRAGE_CHECK(result.text[1].bounds == (mirador::RectF{5, 5, 2, 2}));
+        MIRAGE_CHECK(result.detections[1].bounds == result.text[1].bounds);
+        MIRAGE_CHECK(result.snapshot->regions.size() == 2);
+        MIRAGE_CHECK(result.continuous->plan_owned_bytes <= 64 * 1024);
+        MIRAGE_CHECK(result.continuous->plan_owned_bytes > result.spatial->plan_owned_bytes);
+        MIRAGE_CHECK(result.continuous->accepted && result.continuous->accepted->committed);
+        if (sequence == 1) {
+            MIRAGE_CHECK(result.continuous->accepted->adopted_count == 2);
+            for (const auto &binding : result.continuous->cycle.work)
+                MIRAGE_CHECK(binding.token.request_digest == 73);
+        }
+        if (sequence == 2) {
+            MIRAGE_CHECK(result.admission_change && result.admission_change->classification ==
+                                                        mirador::ChangeClassification::kNone);
+            MIRAGE_CHECK(result.continuous->temporal.confirmed_frame == 2);
+            MIRAGE_CHECK(result.continuous->events.events.size() == 2);
+        }
+        if (sequence == 3)
+            MIRAGE_CHECK(result.continuous->events.events.empty());
+    }
+    MIRAGE_CHECK(ocr.calls == 6 && ocr.pixels_seen == 24); // 8 instead of 64 source pixels/frame.
+    MIRAGE_CHECK(detector.calls() == 6);
+    auto switch_scope = refreshed("spatial", 4, 1, 73);
+    MIRAGE_CHECK(get(host.submit(switch_scope)).outcome.kind == Kind::kRejected);
+    switch_scope.continuous->full_frame_evidence_digest = 74;
+    MIRAGE_CHECK(get(host.submit(switch_scope)).outcome.kind == Kind::kCompleted);
+}
+
+void spatial_validation_and_budgets_precede_backend_calls() {
+    Owner owner;
+    MeasuredOcr ocr;
+    auto config = config_for(ocr);
+    config.continuous->max_spatial_work_items = 1;
+    config.continuous->max_spatial_pixels = 4;
+    VisualSessionHost host(owner.executor, "spatial-limits", config);
+    std::string error;
+    MIRAGE_CHECK(host.start(error));
+    for (int mode = 0; mode < 15; ++mode) {
+        auto request = spatial_request("spatial-limits", static_cast<std::uint64_t>(mode + 1));
+        auto &input = *request.continuous;
+        if (mode == 0)
+            input.full_frame_evidence_digest = 1;
+        if (mode == 1)
+            request.analyze_change = false;
+        if (mode == 2)
+            input.attention.conditions.clear();
+        if (mode == 3)
+            input.attention.conditions[0].text_equals = "unseen";
+        if (mode == 4)
+            input.attention.conditions[0].bind_stable_id = true;
+        if (mode == 5)
+            input.attention.conditions[0].roi_space = mirador::CoordinateSpaceId::kDisplay;
+        if (mode == 6)
+            request.ocr.output_space = mirador::CoordinateSpaceId::kFrame;
+        if (mode == 7)
+            request.frame.image.rotation = mirador::Rotation::k90;
+        if (mode == 8)
+            input.attention.conditions[0].roi.x = 0.5F;
+        if (mode == 9)
+            input.attention.conditions[0].roi = {7, 7, 2, 2};
+        if (mode == 10)
+            input.attention.conditions[0].roi.width = 0;
+        if (mode == 11)
+            input.attention.conditions[0].roi.x = std::numeric_limits<float>::quiet_NaN();
+        if (mode == 12)
+            input.attention.conditions[0].roi = {0, 0, 4, 4};
+        if (mode == 13)
+            input.attention.conditions.push_back(input.attention.conditions[0]);
+        if (mode == 14)
+            request.ocr.cache_policy = mirador::CachePolicy::kReadWrite;
+        const auto result = get(host.submit(std::move(request)));
+        MIRAGE_CHECK(result.outcome.kind ==
+                     (mode < 8 || mode == 14 ? Kind::kRejected : Kind::kFailed));
+        MIRAGE_CHECK(!result.snapshot && !result.continuous);
+        if (mode == 12 || mode == 13)
+            MIRAGE_CHECK(result.outcome.code == mirador::ErrorCode::kBudgetExceeded);
+        MIRAGE_CHECK(ocr.calls == 0);
+    }
+    const auto recovered = get(host.submit(spatial_request("spatial-limits", 16)));
+    MIRAGE_CHECK(recovered.outcome.kind == Kind::kCompleted);
+    MIRAGE_CHECK(recovered.continuous && recovered.continuous->accepted->adopted_count == 1);
+}
+
+void failed_roi_batch_does_not_advance_confirmation() {
+    Owner owner;
+    MeasuredOcr ocr;
+    ocr.fail_at = 2;
+    VisualSessionHost host(owner.executor, "spatial-failure", config_for(ocr));
+    std::string error;
+    MIRAGE_CHECK(host.start(error));
+    for (std::uint64_t sequence = 1; sequence <= 3; ++sequence) {
+        auto request = spatial_request("spatial-failure", sequence);
+        auto second = request.continuous->attention.conditions[0];
+        second.roi = {5, 5, 2, 2};
+        request.continuous->attention.conditions.push_back(second);
+        const auto result = get(host.submit(std::move(request)));
+        MIRAGE_CHECK(result.spatial.has_value());
+        if (sequence == 1) {
+            MIRAGE_CHECK(result.outcome.kind == Kind::kFailed);
+            MIRAGE_CHECK(!result.continuous && !result.snapshot);
+            MIRAGE_CHECK(result.spatial && result.spatial->ocr_completed == 1);
+            MIRAGE_CHECK(result.text.size() ==
+                         1); // Diagnostic partial evidence, not a published snapshot.
+        } else {
+            MIRAGE_CHECK(result.outcome.kind == Kind::kCompleted && result.continuous);
+            if (result.continuous) {
+                MIRAGE_CHECK(result.continuous->temporal.confirmed_frame ==
+                             (sequence == 2 ? 0 : 3));
+                MIRAGE_CHECK(result.continuous->events.events.size() == (sequence == 2 ? 0 : 2));
+            }
+        }
+    }
+}
+
+void combined_plan_budget_is_checked_before_adoption() {
+    Owner owner;
+    FakeOcrBackend ocr;
+    std::string error;
+    VisualSessionHost reference(owner.executor, "plan-reference", config_for(ocr));
+    MIRAGE_CHECK(reference.start(error));
+    const auto measured = get(reference.submit(spatial_request("plan-reference", 1)));
+    MIRAGE_CHECK(measured.spatial && measured.continuous);
+    if (!measured.spatial || !measured.continuous)
+        return;
+    auto config = config_for(ocr);
+    // Exactly enough for the preliminary plan, insufficient for both plans.
+    config.continuous->max_plan_bytes = measured.spatial->plan_owned_bytes;
+    VisualSessionHost limited(owner.executor, "plan-limited", config);
+    MIRAGE_CHECK(limited.start(error));
+    const auto result = get(limited.submit(spatial_request("plan-limited", 1)));
+    MIRAGE_CHECK(result.outcome.kind == Kind::kFailed);
+    MIRAGE_CHECK(result.outcome.code == mirador::ErrorCode::kBudgetExceeded);
+    MIRAGE_CHECK(result.spatial && result.spatial->ocr_completed == 1);
+    MIRAGE_CHECK(!result.snapshot && !result.continuous);
+}
+
 void completed_evidence_confirms_and_reset_terminates() {
     Owner owner;
     FakeOcrBackend ocr;
@@ -442,7 +629,8 @@ class InterruptibleOcr final : public mirador::OcrBackend {
 };
 
 void cancellation_deadline_exception_and_shutdown_settle() {
-    for (int mode = 0; mode < 5; ++mode) {
+    for (int variant = 0; variant < 10; ++variant) {
+        const auto mode = variant % 5;
         std::fprintf(stderr, "[continuous consumer] lifecycle mode %d\n", mode);
         Owner owner;
         InterruptibleOcr ocr;
@@ -450,7 +638,7 @@ void cancellation_deadline_exception_and_shutdown_settle() {
         VisualSessionHost host(owner.executor, "lifecycle", config_for(ocr));
         std::string error;
         MIRAGE_CHECK(host.start(error));
-        auto request = refreshed("lifecycle", 1);
+        auto request = variant < 5 ? refreshed("lifecycle", 1) : spatial_request("lifecycle", 1);
         desktop::CancelToken cancel;
         request.external_cancel = cancel;
         if (mode == 1)
@@ -470,7 +658,8 @@ void cancellation_deadline_exception_and_shutdown_settle() {
         MIRAGE_CHECK(!result.snapshot && !result.continuous);
         if (mode == 0 || mode == 1) {
             ocr.release = true;
-            const auto next = get(host.submit(refreshed("lifecycle", 2)));
+            const auto next = get(host.submit(variant < 5 ? refreshed("lifecycle", 2)
+                                                          : spatial_request("lifecycle", 2)));
             MIRAGE_CHECK(next.outcome.kind == Kind::kCompleted);
             MIRAGE_CHECK(next.continuous && next.continuous->temporal.confirmed_frame == 0);
             MIRAGE_CHECK(next.continuous && next.continuous->events.events.empty());
@@ -565,6 +754,10 @@ void shared_capture_analysis_churn_does_not_pin_settled_requests() {
 } // namespace
 
 int main() {
+    spatial_work_reduces_backend_input_and_preserves_coordinates();
+    spatial_validation_and_budgets_precede_backend_calls();
+    failed_roi_batch_does_not_advance_confirmation();
+    combined_plan_budget_is_checked_before_adoption();
     completed_evidence_confirms_and_reset_terminates();
     adoption_admission_and_identity_are_explicit();
     notification_filter_and_overflow_are_visible();

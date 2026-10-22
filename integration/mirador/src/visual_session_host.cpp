@@ -168,6 +168,7 @@ struct detail::VisualSessionCore {
     mirador::Rotation last_rotation = mirador::Rotation::k0;
     std::optional<mirador::ImportancePolicy> importance;
     std::uint64_t evidence_digest = 0;
+    bool spatial_mode = false;
     struct BackgroundBaseline {
         mirador::ChangeSignature signature;
         std::uint64_t sequence = 0, policy_revision = 0;
@@ -191,6 +192,11 @@ struct detail::VisualSessionCore {
 };
 
 namespace {
+
+std::uint64_t evidence_digest(const VisualContinuousRequest &input) {
+    return input.spatial_evidence_digest != 0 ? input.spatial_evidence_digest
+                                              : input.full_frame_evidence_digest;
+}
 /// No algorithm is reproduced here: apply owner configuration, scope the old
 /// session's caches/IDs to their source revision, and let Mirador plan/relate.
 mirador::Result<bool> prepare_continuous(detail::VisualSessionCore &core,
@@ -217,14 +223,16 @@ mirador::Result<bool> prepare_continuous(detail::VisualSessionCore &core,
     }
     const bool invalidate = new_source || previous_policy != coordinator.policy_revision() ||
                             !core.importance || *core.importance != input.importance ||
-                            core.evidence_digest != input.full_frame_evidence_digest;
+                            core.evidence_digest != evidence_digest(input) ||
+                            core.spatial_mode != (input.spatial_evidence_digest != 0);
     core.source_revision = input.source_revision;
     core.last_continuous_sequence = request.frame.sequence;
     core.last_width = request.frame.image.width;
     core.last_height = request.frame.image.height;
     core.last_rotation = request.frame.image.rotation;
     core.importance = input.importance;
-    core.evidence_digest = input.full_frame_evidence_digest;
+    core.evidence_digest = evidence_digest(input);
+    core.spatial_mode = input.spatial_evidence_digest != 0;
     return invalidate;
 }
 
@@ -261,6 +269,55 @@ std::int64_t state_owned_bytes(const VisualContinuousResult &output) {
         bytes += output.accepted->item_rejections.capacity() *
                  sizeof(std::optional<mirador::WorkRejectionReason>);
     return static_cast<std::int64_t>(bytes);
+}
+
+mirador::Result<VisualAnalysisResult::SpatialExecution>
+plan_spatial(detail::VisualSessionCore &core, const VisualAnalysisRequest &request,
+             const mirador::ChangeReport &change, const mirador::ExecutionContext &context) {
+    // Current frame, genuinely empty evidence: no old entity is asserted current,
+    // and this stateless fusion never advances the live session's tracker.
+    auto fused = mirador::fuse_evidence({}, request.frame, {}, context);
+    if (!fused)
+        return fused.status();
+    mirador::SemanticSnapshot unobserved;
+    unobserved.coordinate_space = mirador::CoordinateSpaceId::kOriented;
+    unobserved.regions = std::move(fused.value().regions);
+    unobserved.change = change;
+    auto planned = core.coordinator->plan_attention(unobserved, request.frame,
+                                                    request.continuous->importance, context);
+    if (!planned)
+        return planned.status();
+    const auto &limits = *core.config.continuous;
+    mirador::WorkPlan storage;
+    storage.attention = planned.take_value();
+    const auto bytes = plan_owned_bytes(storage, limits.max_plan_bytes);
+    if (!bytes ||
+        storage.attention.work.size() > static_cast<std::size_t>(limits.max_spatial_work_items))
+        return mirador::Status{mirador::ErrorCode::kBudgetExceeded,
+                               "spatial work/plan budget exceeded before recognition"};
+    VisualAnalysisResult::SpatialExecution output;
+    output.plan = std::move(storage.attention);
+    output.plan_owned_bytes = *bytes;
+    for (const auto &work : output.plan.work) {
+        const auto &roi = work.roi;
+        if (work.kind != mirador::PlannedWorkKind::kFocus ||
+            work.space != mirador::CoordinateSpaceId::kOriented || !std::isfinite(roi.x) ||
+            !std::isfinite(roi.y) || !std::isfinite(roi.width) || !std::isfinite(roi.height) ||
+            roi.x < 0 || roi.y < 0 || roi.width <= 0 || roi.height <= 0 ||
+            std::trunc(roi.x) != roi.x || std::trunc(roi.y) != roi.y ||
+            std::trunc(roi.width) != roi.width || std::trunc(roi.height) != roi.height ||
+            static_cast<double>(roi.x) + roi.width > request.frame.image.width ||
+            static_cast<double>(roi.y) + roi.height > request.frame.image.height)
+            return mirador::Status{mirador::ErrorCode::kInvalidArgument,
+                                   "spatial work must be an in-frame oriented integer ROI"};
+        const auto pixels =
+            static_cast<std::int64_t>(roi.width) * static_cast<std::int64_t>(roi.height);
+        if (pixels > limits.max_spatial_pixels - output.requested_pixels)
+            return mirador::Status{mirador::ErrorCode::kBudgetExceeded,
+                                   "spatial pixel budget exceeded before recognition"};
+        output.requested_pixels += pixels;
+    }
+    return output;
 }
 
 /// Runs the requested capabilities serially on the session: template
@@ -308,6 +365,13 @@ void execute(detail::VisualSessionCore &core, RequestState &state) {
                             request.frame.image.rotation != core.last_rotation)) {
             core.background_baseline = std::move(baseline);
             settle_rejected(state, "continuous geometry change requires a new source revision");
+            return;
+        }
+        if (same_source && core.evidence_digest != 0 &&
+            evidence_digest(*request.continuous) == core.evidence_digest &&
+            core.spatial_mode != (request.continuous->spatial_evidence_digest != 0)) {
+            core.background_baseline = std::move(baseline);
+            settle_rejected(state, "execution scope change requires a new evidence digest");
             return;
         }
     }
@@ -458,6 +522,68 @@ void execute(detail::VisualSessionCore &core, RequestState &state) {
         }
     }
 
+    // ---- Spatial selection is complete and budgeted before any expensive call.
+    if (request.continuous && request.continuous->spatial_evidence_digest != 0) {
+        auto planned = plan_spatial(core, request, result.change, context);
+        if (!planned) {
+            settle_failed(state, planned.status());
+            return;
+        }
+        result.spatial = planned.take_value();
+        const auto &limits = *core.config.continuous;
+        for (const auto &work : result.spatial->plan.work) {
+            if (interrupted())
+                return;
+            if (request.run_ocr) {
+                auto ocr = request.ocr;
+                ocr.roi = work.roi;
+                ocr.roi_space = work.space;
+                auto regions =
+                    core.session.run_ocr(request.frame, core.config.ocr_backend, ocr, context);
+                if (!regions) {
+                    fail_result(result, regions.status());
+                    settle(state, std::move(result));
+                    return;
+                }
+                ++result.spatial->ocr_completed;
+                if (result.text.size() + result.detections.size() + regions.value().size() >
+                    static_cast<std::size_t>(limits.max_entities)) {
+                    fail_result(result, mirador::ErrorCode::kBudgetExceeded,
+                                "spatial evidence count budget exceeded");
+                    settle(state, std::move(result));
+                    return;
+                }
+                auto values = regions.take_value();
+                result.text.insert(result.text.end(), std::make_move_iterator(values.begin()),
+                                   std::make_move_iterator(values.end()));
+            }
+            if (request.run_detector) {
+                auto detector = request.detector;
+                detector.roi = work.roi;
+                detector.roi_space = work.space;
+                auto regions = core.session.run_detector(
+                    request.frame, core.config.detector_backend, detector, context);
+                if (!regions) {
+                    fail_result(result, regions.status());
+                    settle(state, std::move(result));
+                    return;
+                }
+                ++result.spatial->detector_completed;
+                if (result.text.size() + result.detections.size() + regions.value().size() >
+                    static_cast<std::size_t>(limits.max_entities)) {
+                    fail_result(result, mirador::ErrorCode::kBudgetExceeded,
+                                "spatial evidence count budget exceeded");
+                    settle(state, std::move(result));
+                    return;
+                }
+                auto values = regions.take_value();
+                result.detections.insert(result.detections.end(),
+                                         std::make_move_iterator(values.begin()),
+                                         std::make_move_iterator(values.end()));
+            }
+        }
+    }
+
     // ---- geometric closed-region proposals (geometric facts only)
     std::vector<mirador::GeometricRegionProposal> proposals;
     if (request.geometry.run) {
@@ -502,7 +628,7 @@ void execute(detail::VisualSessionCore &core, RequestState &state) {
     }
 
     // ---- OCR
-    if (request.run_ocr) {
+    if (request.run_ocr && !result.spatial) {
         if (request.ocr_budget) {
             // M8-07 (upstream DEC-025): budgeted execution with per-line
             // completion states. No configured backend fails the request
@@ -572,7 +698,7 @@ void execute(detail::VisualSessionCore &core, RequestState &state) {
     // ---- detection: the caller's single request, or one request per
     // geometry proposal context ROI (the closed regions supply the
     // detection requests; each ROI keeps its own capability-cache key).
-    if (request.run_detector) {
+    if (request.run_detector && !result.spatial) {
         const bool roi_split = request.geometry.run &&
                                request.geometry.detector_roi_from_geometry && !proposals.empty();
         if (roi_split) {
@@ -802,16 +928,18 @@ void execute(detail::VisualSessionCore &core, RequestState &state) {
         }
         if (interrupted())
             return;
-        auto plan = core.coordinator->plan_cycle(
-            *result.snapshot, request.frame, request.continuous->importance,
-            request.continuous->full_frame_evidence_digest, context);
+        auto plan = core.coordinator->plan_cycle(*result.snapshot, request.frame,
+                                                 request.continuous->importance,
+                                                 evidence_digest(*request.continuous), context);
         if (!plan) {
             result.snapshot.reset();
             fail_result(result, plan.status());
             settle(state, std::move(result));
             return;
         }
-        const auto plan_bytes = plan_owned_bytes(plan.value(), limits.max_plan_bytes);
+        const auto preliminary_bytes = result.spatial ? result.spatial->plan_owned_bytes : 0;
+        const auto plan_bytes =
+            plan_owned_bytes(plan.value(), limits.max_plan_bytes - preliminary_bytes);
         if (!plan_bytes) {
             result.snapshot.reset();
             fail_result(result, mirador::ErrorCode::kBudgetExceeded,
@@ -822,11 +950,24 @@ void execute(detail::VisualSessionCore &core, RequestState &state) {
         VisualContinuousResult output;
         if (interrupted())
             return;
-        if (request.continuous->full_frame_evidence_digest != 0) {
+        if (evidence_digest(*request.continuous) != 0) {
             std::vector<mirador::WorkToken> tokens;
             tokens.reserve(plan.value().work.size());
-            for (const auto &binding : plan.value().work)
+            for (const auto &binding : plan.value().work) {
+                if (result.spatial &&
+                    std::none_of(result.spatial->plan.work.begin(), result.spatial->plan.work.end(),
+                                 [&](const auto &executed) {
+                                     return executed.roi == binding.token.roi &&
+                                            executed.space == binding.token.roi_space;
+                                 })) {
+                    result.snapshot.reset();
+                    fail_result(result, mirador::ErrorCode::kInvalidArgument,
+                                "continuous token has no completed spatial work");
+                    settle(state, std::move(result));
+                    return;
+                }
                 tokens.push_back(binding.token);
+            }
             auto accepted = core.coordinator->accept_work(tokens, request.frame, context);
             if (!accepted || !accepted.value().committed) {
                 result.snapshot.reset();
@@ -849,7 +990,7 @@ void execute(detail::VisualSessionCore &core, RequestState &state) {
         output.source_epoch = core.coordinator->source_epoch();
         output.relation_owned_bytes = mirador::relation_view_owned_bytes(relations.value());
         output.coordination_owned_bytes = core.coordinator->coordination_owned_bytes();
-        output.plan_owned_bytes = *plan_bytes;
+        output.plan_owned_bytes = *plan_bytes + preliminary_bytes;
         output.relations = relations.take_value();
         output.cycle = plan.take_value();
         output.state_owned_bytes = state_owned_bytes(output);
@@ -990,7 +1131,9 @@ bool VisualSessionHost::start(std::string &error) {
             limits.max_plan_bytes > 64 * 1024 || limits.max_entities <= 0 ||
             limits.max_entities > 256 || limits.max_relations <= 0 || limits.max_relations > 1024 ||
             limits.max_focus_conditions <= 0 || limits.max_focus_conditions > 16 ||
-            limits.max_events <= 0 || limits.max_events > 256) {
+            limits.max_events <= 0 || limits.max_events > 256 ||
+            limits.max_spatial_work_items <= 0 || limits.max_spatial_work_items > 4 ||
+            limits.max_spatial_pixels <= 0 || limits.max_spatial_pixels > 4 * 1024 * 1024) {
             lifecycle_.store(Lifecycle::New, std::memory_order_release);
             error = "continuous observation budgets invalid or template assets configured";
             return false;
@@ -1103,7 +1246,7 @@ std::future<VisualAnalysisResult> VisualSessionHost::submit(VisualAnalysisReques
         settle_rejected(*state, "continuous background request identity/stages invalid");
         return future;
     }
-    if (analysis.continuous && analysis.continuous->full_frame_evidence_digest != 0 &&
+    if (analysis.continuous && evidence_digest(*analysis.continuous) != 0 &&
         (!(analysis.run_ocr || analysis.run_detector) || analysis.ocr_budget ||
          analysis.geometry.run ||
          (analysis.run_ocr &&
@@ -1113,6 +1256,26 @@ std::future<VisualAnalysisResult> VisualSessionHost::submit(VisualAnalysisReques
            analysis.detector.cache_policy != mirador::CachePolicy::kRefresh)))) {
         settle_rejected(*state, "continuous adoption requires completed full-frame refresh stages");
         return future;
+    }
+    if (analysis.continuous && analysis.continuous->spatial_evidence_digest != 0) {
+        const auto &input = *analysis.continuous;
+        if (input.full_frame_evidence_digest != 0 || !analysis.analyze_change ||
+            analysis.frame.image.rotation != mirador::Rotation::k0 ||
+            input.attention.conditions.empty() ||
+            (analysis.run_ocr &&
+             analysis.ocr.output_space != mirador::CoordinateSpaceId::kOriented) ||
+            (analysis.run_detector &&
+             analysis.detector.output_space != mirador::CoordinateSpaceId::kOriented) ||
+            std::any_of(input.attention.conditions.begin(), input.attention.conditions.end(),
+                        [](const auto &condition) {
+                            return condition.bind_stable_id || !condition.text_equals.empty() ||
+                                   !condition.label_equals.empty() ||
+                                   condition.roi_space != mirador::CoordinateSpaceId::kOriented;
+                        })) {
+            settle_rejected(*state,
+                            "spatial scheduling requires explicit oriented ROI-only conditions");
+            return future;
+        }
     }
     if (analysis.admission != VisualAnalysisAdmission::always &&
         analysis.admission != VisualAnalysisAdmission::when_changed) {

@@ -32,14 +32,15 @@ M9-06/07/08 按 [DEC-109](../decisions/DEC-109-continuous-perception-attention-a
 
 Mirador `2a9f483` 的 Experimental 连续感知消费复用现有 worker，默认新增
 coordinator 512 KiB/256 实体/256 事件/16 条条件、单份 relation view 512 KiB/256 实体/1,024 关系、
-单份 token 化 WorkPlan 64 KiB（含 source 字符串），时间/焦点/drain 输出按相同
+前置 AttentionPlan + token 化 WorkPlan 合计 64 KiB（含 source 字符串），时间/焦点/drain 输出按相同
 数量与协调器字符串预算有界，单列 state_owned_bytes，配置仅可收紧，见
 [消费契约](continuous-visual-analysis.md)。这些是新增状态/结果的局部预算，原有
 缓存、快照与消费者保留代数继续单列，不能据此宣称全产品存量门禁完成。
 
 已结算请求在唤醒 future 消费者前释放源帧/attention payload，避免 mailbox
 历史版本继续占用采集的两代像素；worker 唤醒接入在途能力取消，覆盖 Executor
-优先关闭。当前识别后的规划不等于当前 OCR 已按 ROI 减少，也不表示静态退避
+优先关闭。显式空间模式默认限 4 个 ROI/4,194,304 源像素；先整批检查再调用
+OCR/Detector，诊断记录计划面积与完成次数。测试中的面积下降不表示静态退避
 或真实资源收益已经验收。负责人 Mirage 维护者，由 M9-11/12 在生产接线后补测。
 
 ### 2026-10-22：采集基础层局部预算

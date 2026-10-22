@@ -111,6 +111,8 @@ struct VisualContinuousConfig {
     std::int32_t max_relations = 1024;
     std::int32_t max_focus_conditions = 16;
     std::int32_t max_events = 256;
+    std::int32_t max_spatial_work_items = 4;
+    std::int64_t max_spatial_pixels = 4 * 1024 * 1024;
 };
 
 struct VisualContinuousRequest {
@@ -124,6 +126,11 @@ struct VisualContinuousRequest {
     /// one OCR/detector stage, all enabled stages kRefresh without ROI, and no
     /// budgeted OCR or geometry. Advance identity when that stack changes.
     std::uint64_t full_frame_evidence_digest = 0;
+    /// Nonzero opts into pre-recognition ROI-only scheduling. Mutually exclusive
+    /// with full_frame_evidence_digest; identity includes this execution scope.
+    /// Conditions must be in-frame oriented integer ROIs without id/text/label.
+    /// All enabled stages refresh, without caller ROI, budgeted OCR or geometry.
+    std::uint64_t spatial_evidence_digest = 0;
 };
 
 struct VisualContinuousResult {
@@ -238,6 +245,14 @@ struct VisualAnalysisOutcome {
 struct VisualAnalysisResult {
     /// Present only for completed opt-in continuous fusion; no payload on skip.
     std::optional<VisualContinuousResult> continuous;
+    struct SpatialExecution {
+        mirador::AttentionPlan plan;
+        std::int64_t requested_pixels = 0, plan_owned_bytes = 0;
+        std::uint32_t ocr_completed = 0, detector_completed = 0;
+    };
+    /// Pre-recognition plan and successful stage calls, retained on failure as
+    /// diagnostics. No partial result is adopted or published as a snapshot.
+    std::optional<SpatialExecution> spatial;
     VisualAnalysisOutcome outcome;
     /// Change decision of this frame (when `analyze_change` ran); the first
     /// submission of a session reports kGlobal / kFirstFrame.

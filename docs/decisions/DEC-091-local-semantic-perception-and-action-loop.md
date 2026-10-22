@@ -70,9 +70,10 @@ owner，复用现有 kairo blocking worker；共享帧用 LatestMailbox 合并�
 不代表 DEC-109 全部协议冻结，也不改变现有产品采集/pet 默认值。
 
 同日后续：从 Mirador `2a9f483` 消费 Experimental 关系、token/覆盖采纳与
-时间状态/事件，独立 oriented 宿主使用当前帧快照；对显式全帧刷新证据批量采纳，
+时间状态/事件，独立 oriented 宿主使用当前帧快照；对显式全帧/空间 ROI 完整刷新证据批量采纳，
 不将缓存/部分结果视为新完成。来源、预算和结算边界见
-[消费设计](../design/continuous-visual-analysis.md)。前置 ROI、无帧查询与生产模型
+[消费设计](../design/continuous-visual-analysis.md)。ROI-only 选区已前置；对象/文本
+前置定位、无帧查询与生产模型
 供给仍按 M9-07/18 推进，不在 Mirage 重写覆盖或去抖算法。
 
 - 连续帧是输入源，不要求每一帧都复制、编码、识别、融合和发送。优先消费平台
