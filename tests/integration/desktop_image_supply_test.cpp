@@ -1481,6 +1481,139 @@ void native_region_sources() {
 // capture/OCR returned "native sharing ended or failed". Session liveness now
 // belongs to the failure sites: only real sharing-path failures poison, while
 // argument, budget, and staleness rejections leave the session reusable.
+auto execute_native_tool(mira::BuiltinToolRegistry &registry, const mira::OperationContext &ctx,
+                         const std::string &name, const char *args) {
+    const auto exposed = registry.exposed_tools();
+    const auto tool = std::find_if(exposed.begin(), exposed.end(),
+                                   [&](const auto &spec) { return spec.wire_name == name; });
+    check(tool != exposed.end());
+    mira::ToolProposal call;
+    call.tool_id = tool->tool_id;
+    call.tool_version = tool->version;
+    call.wire_name = name;
+    call.operation_id = mira::OperationId::generate();
+    call.provider_call_id.value = "native-wiring";
+    call.arguments = mira::parse_json(args).value();
+    call.arguments_digest = mira::canonical_json_digest(call.arguments);
+    return registry.execute(call, ctx);
+}
+
+void native_text_only_and_state_wiring() {
+    auto env = std::make_shared<NativeEnvironment>();
+    env->interactive = true;
+    auto tools = desktop();
+    tools.environment = env;
+    tools.reuse_recent_observation = true;
+    tools.gate = [](const auto &, const auto &, const auto &cancel) { return !cancel(); };
+    int reads = 0, queries = 0;
+    bool revoke_during_query = false;
+    std::string observed_key;
+    tools.ocr_image = [](const auto &, const auto &, const auto &) {
+        throw std::runtime_error("contextual product path must be used");
+        return integration::ImageOcrOutcome{};
+    };
+    tools.ocr_image_contextual = [&](const auto &, const auto &key, const auto &, const auto &) {
+        ++reads;
+        observed_key = key;
+        integration::ImageOcrOutcome out;
+        out.ok = true;
+        out.regions = {{"untrusted OCR text", 0.9, 0, 0, 1, 1}};
+        out.continuous = integration::ImageContinuousState{};
+        out.continuous->ok = true;
+        out.continuous->source_revision = 3;
+        return out;
+    };
+    tools.query_image_state = [&](const auto &key, const auto &, const auto &) {
+        ++queries;
+        check(key == observed_key && key.size() == 64);
+        integration::ImageContinuousState out;
+        out.ok = true;
+        out.source_revision = 3;
+        out.analysis_age_ms = 25;
+        if (revoke_during_query)
+            tools.actions->invalidate_authority();
+        return out;
+    };
+    auto source = std::make_shared<detail::DesktopImageSource>();
+    const auto ctx = context();
+    detail::DesktopImageTurn turn(source, tools, ctx, {});
+    mira::BuiltinToolRegistry registry;
+    turn.register_tool(registry, {}, true);
+    const auto initial = execute_native_tool(registry, ctx, "desktop.vision.state", "{}");
+    check(!initial || initial.value().failed);
+    const auto capture = execute_native_tool(registry, ctx, "desktop.screen.capture",
+                                             R"({"source":"desktop","interaction":true})");
+    check(capture && !capture.value().failed);
+    mira::AgentLoopSpec spec;
+    spec.task_id = ctx.task;
+    spec.session_id = ctx.session;
+    spec.task_epoch = ctx.task_epoch;
+    const auto old_input = turn.supply(spec);
+    check(old_input && !old_input.value().empty());
+    const auto read =
+        execute_native_tool(registry, ctx, "desktop.vision.ocr", R"({"text_only":true})");
+    check(read && !read.value().failed && reads == 1);
+    if (read && !read.value().failed) {
+        check(read.value().result.find("input_actionable")->as_boolean() == false);
+        check(read.value().result.find("text_only")->as_boolean() == true);
+        check(read.value().result.find("image_artifact_id")->as_string()->empty());
+        check(read.value().result.find("continuous") != nullptr);
+    }
+    const auto text_supply = turn.supply(spec);
+    check(text_supply && text_supply.value().empty() && !turn.supplied_image());
+    mira::ModelRequest stale;
+    stale.task_id = ctx.task;
+    stale.task_epoch = ctx.task_epoch;
+    stale.input = old_input.value();
+    check(!turn.validate_request(stale, ctx));
+    const auto captures = env->captures;
+    const auto state = execute_native_tool(registry, ctx, "desktop.vision.state", "{}");
+    check(state && !state.value().failed && queries == 1);
+    check(env->captures == captures && reads == 1);
+    auto wrong = ctx;
+    wrong.task = mira::TaskId::generate();
+    const auto wrong_task = execute_native_tool(registry, wrong, "desktop.vision.state", "{}");
+    check(!wrong_task || wrong_task.value().failed);
+    revoke_during_query = true;
+    const auto late_revoke = execute_native_tool(registry, ctx, "desktop.vision.state", "{}");
+    check(!late_revoke || late_revoke.value().failed);
+    const auto revoked = execute_native_tool(registry, ctx, "desktop.vision.state", "{}");
+    check(!revoked || revoked.value().failed);
+    check(queries == 2);
+}
+
+void native_roi_pixel_budget() {
+    auto env = std::make_shared<NativeEnvironment>();
+    env->frame_width = 1600;
+    env->frame_height = 1600;
+    auto tools = desktop();
+    tools.environment = env;
+    tools.gate = [](const auto &, const auto &, const auto &cancel) { return !cancel(); };
+    auto source = std::make_shared<detail::DesktopImageSource>();
+    const auto ctx = context();
+    const auto budget = std::chrono::seconds(MIRAGE_TSAN_SLOW ? 60 : 5);
+    detail::DesktopImageTurn turn(source, tools, ctx, {}, true, budget, budget);
+    mira::BuiltinToolRegistry registry;
+    turn.register_tool(registry, {}, false);
+    const auto result =
+        execute_native_tool(registry, ctx, "desktop.screen.capture",
+                            R"({"source":"roi","x":0,"y":0,"width":1420,"height":1560})");
+    if (!result || result.value().failed)
+        throw std::runtime_error(
+            "native ROI pixel-budget fixture: " +
+            (result ? result.value().safe_error_summary : result.error().safe_message));
+    check(result && !result.value().failed);
+    if (result && !result.value().failed) {
+        const auto &value = result.value().result;
+        const auto w = *value.find("width")->as_integer();
+        const auto h = *value.find("height")->as_integer();
+        check(w > 0 && w < 1420 && h > 0 && h < 1560);
+        check(w * h * 4 <= (8 << 20));
+        check(*value.find("source_width")->as_integer() == 1420);
+        check(*value.find("source_height")->as_integer() == 1560);
+    }
+}
+
 void native_session_poison_discipline() {
     auto env = std::make_shared<NativeEnvironment>();
     env->interactive = true;
@@ -1927,6 +2060,7 @@ class NativeOcrScript final : public mira::IModelProvider {
     std::vector<mira::ModelRequest> requests;
     std::vector<std::string> steps;
     bool images = false, throw_final = false, invalid_args = false, expect_truncated = false;
+    bool text_first = false;
     explicit NativeOcrScript(const mira::ModelProfile &p) : profile_(p) {}
     const mira::ModelProfile &profile() const override { return profile_; }
     mira::Result<mira::ModelResponse> infer(const mira::ModelRequest &request,
@@ -1947,7 +2081,9 @@ class NativeOcrScript final : public mira::IModelProvider {
             }
         if (!images)
             check(image_count == 0);
-        if (images && ocr) {
+        if (text_first && ocr)
+            check(image_count == 0);
+        if (images && ocr && !text_first) {
             check(image_count == 1 && image);
             check(image->source.id.to_string() ==
                   *ocr->result.find("image_artifact_id")->as_string());
@@ -1994,6 +2130,7 @@ class NativeOcrScript final : public mira::IModelProvider {
             call.provider_call_id.value = "native-ocr-" + std::to_string(step);
             call.arguments = name == "desktop.screen.capture"
                                  ? JsonValue{JsonValue::Object{{"source", "desktop"}}}
+                             : text_first ? JsonValue{JsonValue::Object{{"text_only", true}}}
                              : invalid_args
                                  ? JsonValue{JsonValue::Object{{"window_id", "invented"}}}
                                  : JsonValue{JsonValue::Object{}};
@@ -2220,6 +2357,7 @@ void native_ocr_loop(kairo::Executor &executor, const std::string &mode) {
         script->images = images;
         script->throw_final = mode == "model_throw";
         script->invalid_args = mode == "invalid_args";
+        script->text_first = mode == "text_first";
         script->expect_truncated =
             mode == "output_budget" || mode == "escaped_budget" || mode == "candidate_prefix";
         if (images)
@@ -2240,9 +2378,9 @@ void native_ocr_loop(kairo::Executor &executor, const std::string &mode) {
                                                              "", false, {}, {}, stop);
                       })
                       .get();
-    const bool success = mode == "normal" || mode == "text_only" || mode == "recovery" ||
-                         mode == "output_budget" || mode == "escaped_budget" ||
-                         mode == "candidate_prefix";
+    const bool success = mode == "normal" || mode == "text_only" || mode == "text_first" ||
+                         mode == "recovery" || mode == "output_budget" ||
+                         mode == "escaped_budget" || mode == "candidate_prefix";
     if (result.ok != success)
         std::cerr << "native OCR " << mode << ": " << result.error << '\n';
     check(result.ok == success);
@@ -3250,7 +3388,7 @@ int main() {
         for (const auto &mode :
              {"normal", "text_only", "recovery", "denied", "failed", "throw", "cancel", "epoch",
               "takeover", "nan", "bounds", "regions", "text_budget", "output_budget",
-              "escaped_budget", "candidate_prefix", "invalid_args", "model_throw"})
+              "escaped_budget", "candidate_prefix", "invalid_args", "model_throw", "text_first"})
             native_ocr_loop(executor, mode);
         input_reuse_contention(executor);
         shared_long_press_contract();
@@ -3296,6 +3434,8 @@ int main() {
         rejected_layer.shutdown();
         png_content_matrix();
         native_region_sources();
+        native_roi_pixel_budget();
+        native_text_only_and_state_wiring();
         native_session_poison_discipline();
         native_observation_efficiency();
         input_reuse_identity();

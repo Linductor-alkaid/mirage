@@ -311,6 +311,7 @@ std::unique_ptr<PpOcrPipeline> PpOcrPipeline::create(kairo::Executor &executor,
         p->display_id = config.display_id;
         config.capture_limits.max_bytes = 32u << 20; // DEC-068: bounded 4K acquisition.
         config.run_ocr = true;
+        config.session.enable_image_session = true;
         config.geometry_marks = geometry_marks;
         config.roi_capture = roi_capture;
         config.session.template_assets = std::move(template_assets);
@@ -487,9 +488,10 @@ PpOcrPipeline::refresh_impl(bool analyze, bool marks,
         return reject("OCR display changed");
     return result;
 }
-ImageOcrOutcome PpOcrPipeline::read_image_ocr(
-    const desktop::ImageFrame &image, const desktop::CancelToken &cancel,
-    const std::optional<std::chrono::steady_clock::time_point> &deadline) {
+ImageOcrOutcome
+PpOcrPipeline::read_image_ocr(const desktop::ImageFrame &image, const desktop::CancelToken &cancel,
+                              const std::optional<std::chrono::steady_clock::time_point> &deadline,
+                              const std::string &source_key) {
     if (!running())
         return {
             false,
@@ -501,10 +503,20 @@ ImageOcrOutcome PpOcrPipeline::read_image_ocr(
             0,
             std::nullopt,
         };
-    auto result = impl_->pipeline->read_image_ocr(image, cancel, deadline);
+    auto result = impl_->pipeline->read_image_ocr(image, cancel, deadline, source_key);
     result.model_revision = model_revision();
     result.backend_calls = backend_calls();
     return result;
+}
+ImageContinuousState PpOcrPipeline::query_image_state(
+    const std::string &source_key, const desktop::CancelToken &cancel,
+    const std::optional<std::chrono::steady_clock::time_point> &deadline) {
+    if (!running()) {
+        ImageContinuousState out;
+        out.error = {"unavailable", "image pipeline is not running"};
+        return out;
+    }
+    return impl_->pipeline->query_image_state(source_key, cancel, deadline);
 }
 void PpOcrPipeline::stop() {
     if (impl_->pipeline)

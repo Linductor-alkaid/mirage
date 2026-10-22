@@ -41,3 +41,9 @@ OCR 刷新后返回实际新的 image_scope 与 input_actionable，观察区域�
 解决静态生产者不交新帧的问题，旧帧也无法证明动作效果，因此采用有界自有副本与
 源帧水位。代价是动作无新增可观察画面时仍可能明确返回未验证，必须由目标证据或
 人工确认收敛，不能以输入已发送声明业务完成。
+
+
+2026-10-22：能力提示明确未请求 verify_kind 的派发回执不自动带图；需要立即观察
+时可请求 shared_frame_observed 并使用回执的新图/新 scope，无需再绕一次模型取图。
+新帧仍不证明业务完成。OCR 的 text_only 入口退休旧图引用，后续输入必须重新 capture；
+无帧 state 查询不构成当前观察，见[产品接线](../design/native-continuous-perception-wiring.md)。

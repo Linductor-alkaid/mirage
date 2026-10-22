@@ -675,6 +675,36 @@ template <typename Scenario> void run_scenario(const char *name, Scenario scenar
     scenario();
 }
 
+void native_companion_preserves_partial_coverage(kairo::Executor &executor) {
+    ScriptedBudgetedOcrBackend backend;
+    backend.set_next_result(
+        batch_report({scripted_line(0, {0, 0, 4, 4}, 0.9F, true, "fresh", 0.9F, 0),
+                      scripted_line(1, {5, 0, 4, 4}, 0.9F, false, "", 0, -1)},
+                     mirador::OcrBatchStopReason::kRecLineLimit));
+    VisualSessionConfig config;
+    config.enable_image_session = true;
+    config.budgeted_ocr_backend = &backend;
+    VisualSessionHost host(executor, "native-partial", config);
+    std::string error;
+    MIRAGE_CHECK(host.start(error));
+    auto request = budgeted_request("native-partial", 1);
+    request.image_session = true;
+    request.continuous = mirage::integration::VisualContinuousRequest{};
+    request.continuous->source_revision = 1;
+    request.fuse = true;
+    request.analyze_change = true;
+    request.ocr.cache_policy = mirador::CachePolicy::kRefresh;
+    auto future = host.submit(std::move(request));
+    VisualAnalysisResult result;
+    MIRAGE_CHECK(settle_within(future, result));
+    MIRAGE_CHECK(result.outcome.kind == VisualAnalysisOutcome::Kind::kCompleted);
+    MIRAGE_CHECK(result.ocr_batch && result.ocr_batch->deferred == 1);
+    MIRAGE_CHECK(result.continuous && !result.continuous->accepted);
+    MIRAGE_CHECK(result.continuous && result.continuous->temporal.confirmed_frame == 0);
+    MIRAGE_CHECK(backend.calls() == 1);
+    host.stop();
+}
+
 } // namespace
 
 int main() {
@@ -686,6 +716,7 @@ int main() {
     const bool executor_ready = executor.initialize(kairo::ExecutorConfig{}).ok;
     MIRAGE_CHECK(executor_ready);
     if (executor_ready) {
+        native_companion_preserves_partial_coverage(executor);
         run_scenario("budgeted_request_maps_pipeline_and_budget_fields",
                      [&] { budgeted_request_maps_pipeline_and_budget_fields(executor); });
         run_scenario("budgeted_request_applies_roi_and_max_side",

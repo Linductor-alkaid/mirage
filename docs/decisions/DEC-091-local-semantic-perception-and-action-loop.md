@@ -274,3 +274,14 @@ provider input tokens、OCR/detector 实际调用数、P50/P95 时延及本地�
   [DEC-059](DEC-059-visual-text-postconditions.md)、[DEC-069](DEC-069-local-visual-workflow-grounding.md)、
   [DEC-081](DEC-081-native-cua-capability-and-observation-continuity.md)、
   [DEC-083](DEC-083-target-region-stability-reverification.md)。
+
+
+### 2026-10-22：首个原生产品消费者
+
+维护者授权进行 M9 接线；产品默认 PP-OCR pipeline 在同一 worker 内启用独立的
+image session/coordinator，保持 display 模板/引用隔离并复用现有模型。Runtime
+以可信 task/authority/ROI 来源键接通 OCR 文本供给与无帧 advisory 查询；文本模式
+不生成 PNG/artifact，不把历史图片当作输入授权。预算化 OCR 保留 partial/deferred，
+不以部分证据登记完整覆盖；未开启后台帧采样或新的通知默认值。
+本局部实施契约与预算见[产品接线](../design/native-continuous-perception-wiring.md)，
+实际验证和剩余范围见[证据](../compatibility/native-observation-and-continuous-wiring-20261022.md)。

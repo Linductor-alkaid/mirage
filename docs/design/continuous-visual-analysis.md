@@ -186,3 +186,13 @@ if (result.outcome.kind == VisualAnalysisOutcome::Kind::kQueried) {
 
 [无帧查询验证](../compatibility/continuous-state-query-20261022.md)覆盖无识别读取、
 策略/源隔离、drain 来源、资源拒绝与混合生产者关闭竞争。
+
+
+## 原生产品消费者（2026-10-22）
+
+独立背景宿主继续适用于受管采集基础层。原生产品另在现有 VisualSessionHost
+worker 中维护独立 image core，复用同一个 mailbox、取消与后端；旧 display core
+及模板不因 image 源重建而清空。该路径按任务需求接收已授权图像，不另开周期采集。
+产品文本供给、来源键、预算、查询和完整覆盖限制见
+[接线设计](native-continuous-perception-wiring.md)及
+[验证记录](../compatibility/native-observation-and-continuous-wiring-20261022.md)。

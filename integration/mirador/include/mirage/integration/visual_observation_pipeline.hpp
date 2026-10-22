@@ -107,7 +107,11 @@ class VisualObservationPipeline final : public EnvironmentVisualPipeline {
     /// Analyze an already-authorized <=8 MiB preview on the existing worker,
     /// without display enumeration or registry publication (DEC-075).
     ImageOcrOutcome read_image_ocr(const desktop::ImageFrame &, const desktop::CancelToken &,
-                                   const std::optional<std::chrono::steady_clock::time_point> &);
+                                   const std::optional<std::chrono::steady_clock::time_point> &,
+                                   const std::string &source_key = {});
+    ImageContinuousState
+    query_image_state(const std::string &source_key, const desktop::CancelToken &,
+                      const std::optional<std::chrono::steady_clock::time_point> &);
 
     EnvironmentVisualRefresh
     refresh_marked(const std::optional<desktop::WindowGeometry> &crop,
@@ -134,6 +138,9 @@ class VisualObservationPipeline final : public EnvironmentVisualPipeline {
     /// Guards the frame sequence counter across concurrent refresh callers.
     std::mutex sequence_mutex_;
     std::uint64_t sequence_ = 0;
+    std::string image_source_key_;
+    std::int32_t image_width_ = 0, image_height_ = 0;
+    std::uint64_t image_source_revision_ = 0;
 };
 
 } // namespace mirage::integration

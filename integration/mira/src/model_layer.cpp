@@ -1365,6 +1365,13 @@ DialogCompletion ModelLayer::complete_harness_turn(
             "environment. Capture and OCR tools are absent; do not attempt visual observation, "
             "and explain this limitation once if the task needs it.\n";
     }
+    if (native_ocr && turn_desktop.ocr_image_contextual)
+        spec.goal +=
+            "\nFor native text-reading tasks prefer desktop.vision.ocr with text_only=true: "
+            "it supplies untrusted text without PNG or image tokens. Use an explicit capture for "
+            "visual layout or to establish fresh input references. desktop.vision.state only reads "
+            "advisory history and its age; it never observes current pixels or verifies an "
+            "action.\n";
     // DEC-081: current registry facts outrank examples and prior tool history.
     spec.goal += "\nAvailable tools for THIS turn (closed set):";
     bool shared_click_available = false;
@@ -1385,8 +1392,12 @@ DialogCompletion ModelLayer::complete_harness_turn(
             "y+height<=image.height. source_width/source_height describe capture coordinates, "
             "not action-image bounds. A 3200x2000 source may be supplied as a 1600x1000 preview. "
             "ROI capture uses source coordinates; input on that crop uses its local image pixels. "
-            "Successful actions include observation.image_scope and environment_epoch for the next "
-            "step, and their verification image is already supplied: do not recapture it. "
+            "When the next step needs to observe an action result, request "
+            "verify_kind=shared_frame_observed to receive the fresh image and its "
+            "observation.image_scope/environment_epoch in the same tool round trip. "
+            "That proves a fresh frame, not task success. Without verify_kind a dispatched "
+            "action does not automatically include a new image. If a receipt includes a "
+            "verification image, use it without recapturing. "
             "A capture may reuse recent pixels without extending their original age. "
             "A fresh capture or OCR refresh replaces the preceding image_scope. When OCR returns "
             "input_actionable=true, use its new image_scope, not a prior screenshot scope. "

@@ -118,7 +118,9 @@ MiniCPM-o 4.5 仅参考视觉 token 压缩与时分复用机制，不纳入模�
   缩图仍发生的全帧取回/拷贝。小文字或相似目标不足时从当前源帧提清晰度。
   2026-10-22 首增量：opt-in 连续采集宿主与零拷贝 Mirador 帧适配，需求代际、
   两代像素背压及取消/关闭契约见[基础层设计](../design/continuous-capture-infrastructure.md)。
-  native/IPC 文本供给与生产消费者未接线，本项保持开放。
+  同日产品增量已接 Runtime 原生 OCR/既有 IPC 过程 JSON 的文本优先与无帧状态摘要，
+  复用同一 worker 的独立 image session；后台采样、独立增量订阅及无图动作引用仍开放，
+  本项保持 In Progress，见[产品接线](../design/native-continuous-perception-wiring.md)。
 - [ ] `M9-07` **In Progress**（依赖 05/06）：变化驱动感知与 ROI 增量。无相关变化
   跳过重识别，局部变化更新相交区域，布局切换重置；为关键文字设强制新识别
   路径。冻结采样/工作/缓存/忽略区域预算与迟到丢弃语义。验收：微小文字、动画、
@@ -581,3 +583,14 @@ M9-18 继续 In Progress，产品供给/订阅/gap 恢复仍开放；完整证�
 定向各 7/7；消费专项 1,908 checks 零失败，288 次受控混合命令均结算。变更 C++
 格式/公开边界及文档检查通过；全量格式门禁仍受原 model_layer.cpp:1528 影响，
 未修改该文件，负责人和补跑条件见上述证据。真实平台/模型净收益不作已验收声明。
+
+
+2026-10-22 最新会话修复与产品接线（M9-05/06/07/11/12/18，关联 M7-18/25/26）：
+修复 AT-SPI 应用层窗口遍历、env 启动器运行状态、ROI 像素预算、OCR 校验诊断和
+动作观察提示。生产 PP-OCR pipeline 开启同 worker 的独立 image session/coordinator，
+Runtime 接入 task/authority/ROI 来源键、OCR 2.1.0 的 text_only 和 state 1.0.0 查询。
+无 PNG 文本入口退休旧输入图引用；查询不获取新证据；部分 OCR 不采纳完整覆盖。
+契约/预算见[产品接线设计](../design/native-continuous-perception-wiring.md)，实机只读、
+自动回归与未验收范围见[本轮证据](../compatibility/native-observation-and-continuous-wiring-20261022.md)。
+后台采样、静态退避、焦点策略、增量订阅/gap 恢复和目标平台资源验收继续开放，
+不关闭 M9 整项。

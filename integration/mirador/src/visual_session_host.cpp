@@ -1,3 +1,4 @@
+#include "image_ocr_validation.hpp"
 #include "visual_mark_renderer.hpp"
 #include <mirage/integration/visual_session_host.hpp>
 
@@ -156,6 +157,7 @@ struct detail::VisualSessionCore {
           session(std::move(perception_session)), templates(std::move(template_index)),
           coordinator(std::move(continuous_state)) {}
 
+    std::unique_ptr<VisualSessionCore> image_core;
     const std::string source_id;
     const VisualSessionConfig config;
     /// Only ever touched on the worker thread: one session, one scheduling
@@ -913,6 +915,19 @@ void execute(detail::VisualSessionCore &core, RequestState &state) {
     // identities are stamped onto the fused template regions (the fusion
     // itself carries no template label source; the DEC-016 mapper reads the
     // identity from the label)
+    if (request.image_session) {
+        for (std::size_t i = 0; i < result.text.size(); ++i) {
+            if (const auto *invalid = detail::invalid_image_text(
+                    result.text[i], request.frame.image.width, request.frame.image.height)) {
+                result.invalid_ocr_region = i;
+                result.outcome = {VisualAnalysisOutcome::Kind::kFailed,
+                                  mirador::ErrorCode::kInvalidArgument, invalid};
+                result.text.clear();
+                settle(state, std::move(result));
+                return;
+            }
+        }
+    }
     if (request.fuse) {
         if (!core.coordinator && !request.display_transform) {
             fail_result(result, mirador::ErrorCode::kInvalidArgument,
@@ -1205,7 +1220,9 @@ class VisualSessionWorker final : public kairo::IBlockingIoWorker {
                 core_->in_flight = request;
             }
             try {
-                execute(*core_, *request);
+                const bool image =
+                    request->query ? request->query->image_session : request->request.image_session;
+                execute(image ? *core_->image_core : *core_, *request);
             } catch (...) {
                 // Session calls are no-throw by contract; this guards the
                 // settlement plumbing instead, so the request still settles.
@@ -1340,6 +1357,38 @@ bool VisualSessionHost::start(std::string &error) {
     }
     auto core = std::make_shared<detail::VisualSessionCore>(
         source_id_, config_, session.take_value(), templates.take_value(), std::move(coordinator));
+    if (config_.enable_image_session) {
+        if (config_.continuous) {
+            lifecycle_.store(Lifecycle::New, std::memory_order_release);
+            error = "image companion requires a legacy display host";
+            return false;
+        }
+        auto image_config = config_;
+        image_config.enable_image_session = false;
+        image_config.continuous = VisualContinuousConfig{};
+        image_config.template_assets.clear();
+        image_config.frame_cache_bytes = 1 << 20;
+        image_config.result_cache_bytes = 2 << 20;
+        auto image_session = mirador::PerceptionSession::create(
+            {source_id_, image_config.frame_cache_bytes, image_config.result_cache_bytes});
+        auto image_templates = VisualTemplateIndex::create(image_config.templates);
+        mirador::ContinuousPerceptionOptions image_options;
+        image_options.source_id = source_id_;
+        image_options.max_coordination_bytes = 512 * 1024;
+        image_options.max_entities = 256;
+        image_options.max_relations = 1024;
+        image_options.max_focus_conditions = 16;
+        image_options.max_events = 256;
+        auto image_coordinator = mirador::ContinuousPerception::create(image_options);
+        if (!image_session || !image_templates || !image_coordinator) {
+            lifecycle_.store(Lifecycle::New, std::memory_order_release);
+            error = "image companion state creation failed";
+            return false;
+        }
+        core->image_core = std::make_unique<detail::VisualSessionCore>(
+            source_id_, std::move(image_config), image_session.take_value(),
+            image_templates.take_value(), image_coordinator.take_value());
+    }
     kairo::BlockingWorkerSpec spec;
     spec.name = "mirage-visual-" + source_id_;
     spec.config.thread_name = spec.name;
@@ -1369,7 +1418,12 @@ std::future<VisualAnalysisResult> VisualSessionHost::submit(VisualAnalysisReques
     // frame in oriented coordinates, which is only the view's own pixel
     // space for the adapter's rotation-k0 capture form.
     const VisualAnalysisRequest &analysis = state->request;
-    if (analysis.continuous.has_value() != config_.continuous.has_value()) {
+    if (analysis.image_session && !config_.enable_image_session) {
+        settle_rejected(*state, "image companion is unavailable");
+        return future;
+    }
+    if (analysis.continuous.has_value() !=
+        (analysis.image_session || config_.continuous.has_value())) {
         settle_rejected(*state, "continuous requests require a dedicated continuous host");
         return future;
     }
@@ -1499,8 +1553,12 @@ std::future<VisualAnalysisResult> VisualSessionHost::submit(VisualAnalysisReques
 std::future<VisualAnalysisResult> VisualSessionHost::query_continuous(VisualContinuousQuery query) {
     auto state = std::make_shared<RequestState>(std::move(query));
     auto future = state->done.get_future();
-    if (lifecycle_.load(std::memory_order_acquire) != Lifecycle::Running || !config_.continuous ||
-        state->query->expected_source_revision == 0) {
+    const bool image = state->query->image_session;
+    const auto *limits = image && core_ && core_->image_core
+                             ? &*core_->image_core->config.continuous
+                             : (config_.continuous ? &*config_.continuous : nullptr);
+    if (lifecycle_.load(std::memory_order_acquire) != Lifecycle::Running || !limits ||
+        (image && !config_.enable_image_session) || state->query->expected_source_revision == 0) {
         settle_rejected(
             *state,
             "continuous state query requires a running continuous host and source revision");
@@ -1508,9 +1566,8 @@ std::future<VisualAnalysisResult> VisualSessionHost::query_continuous(VisualCont
     }
     if (state->query->attention) {
         const auto &policy = *state->query->attention;
-        if (policy.conditions.size() >
-                static_cast<std::size_t>(config_.continuous->max_focus_conditions) ||
-            !query_policy_fits(policy, *config_.continuous)) {
+        if (policy.conditions.size() > static_cast<std::size_t>(limits->max_focus_conditions) ||
+            !query_policy_fits(policy, *limits)) {
             settle_failed(*state, {mirador::ErrorCode::kBudgetExceeded,
                                    "query policy payload budget exceeded"});
             return future;

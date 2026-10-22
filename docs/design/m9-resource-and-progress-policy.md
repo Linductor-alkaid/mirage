@@ -129,3 +129,13 @@ max_coordination_bytes（默认 512 KiB）检查；每个命令最多 16 条条�
 在途+一个最新待处理命令。结果沿用实体/事件/焦点数量上限并计 state_owned_bytes；
 mailbox 历史槽中的已结算 policy 在 future 可见前释放。最后完成分析时间/序号
 仅为状态年龄元数据，查询/skip/失败不推进，不建立任务监控或定时器。
+
+
+### 2026-10-22：原生产品按需消费者预算
+
+生产 PP-OCR pipeline 的同 worker image core 新增 frame cache 1 MiB、result cache
+2 MiB、协调器 512 KiB，单次关系视图 512 KiB、计划 64 KiB；沿用 256 实体/
+1024 关系/256 事件和 OCR 128 区域/16 KiB JSON 前缀上限。复用模型、backend 和
+worker，不新增周期取图；text_only 不生成 PNG/artifact，退休旧图输入引用。
+文本 preview 仍受 8 MiB 限制，平台原始获取仍按 32 MiB 单列；不把这些局部上限
+当作全进程 RSS。契约及验证见[产品接线](native-continuous-perception-wiring.md)。

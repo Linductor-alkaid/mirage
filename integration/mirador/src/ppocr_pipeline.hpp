@@ -38,7 +38,11 @@ class PpOcrPipeline final : public EnvironmentVisualPipeline {
                    const std::optional<std::chrono::steady_clock::time_point> &,
                    const desktop::CapturePresentation &presentation = {});
     ImageOcrOutcome read_image_ocr(const desktop::ImageFrame &, const desktop::CancelToken &,
-                                   const std::optional<std::chrono::steady_clock::time_point> &);
+                                   const std::optional<std::chrono::steady_clock::time_point> &,
+                                   const std::string &source_key = {});
+    ImageContinuousState
+    query_image_state(const std::string &source_key, const desktop::CancelToken &cancel,
+                      const std::optional<std::chrono::steady_clock::time_point> &deadline);
     void stop();
     const std::string &model_revision() const;
     std::uint64_t backend_calls() const;

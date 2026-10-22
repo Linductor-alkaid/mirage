@@ -28,20 +28,49 @@ std::string text(const JsonValue &value, const char *field) {
 mira::ArtifactRef reference(const mira::ArtifactDescriptor &value) {
     return {value.id, value.digest, value.byte_size, value.media_type, value.sensitivity};
 }
+JsonValue continuous_json(const ImageContinuousState &state) {
+    const auto number = [](std::uint64_t v) {
+        return static_cast<std::int64_t>(std::min(v, std::uint64_t(INT64_MAX)));
+    };
+    JsonValue value{JsonValue::Object{{"available", state.ok},
+                                      {"advisory", true},
+                                      {"current_observation", false},
+                                      {"background_updates", false},
+                                      {"coverage_accepted", false},
+                                      {"actionable", false},
+                                      {"source_revision", number(state.source_revision)},
+                                      {"source_epoch", number(state.source_epoch)},
+                                      {"last_analyzed_frame", number(state.frame_sequence)},
+                                      {"entities", number(state.entities)},
+                                      {"pending_events", number(state.pending_events)},
+                                      {"dropped_events", number(state.dropped_events)}}};
+    if (state.analysis_age_ms)
+        value.set("analysis_age_ms", *state.analysis_age_ms);
+    if (!state.ok) {
+        const bool valid = !state.error.code.empty() && state.error.code.size() <= 64 &&
+                           std::all_of(state.error.code.begin(), state.error.code.end(),
+                                       [](char c) { return (c >= 'a' && c <= 'z') || c == '_'; });
+        value.set("error_code", valid ? state.error.code : "unavailable");
+    }
+    return value;
+}
 JsonValue string_field(const char *description) {
     return JsonValue{JsonValue::Object{
         {"type", "string"}, {"description", description}, {"maxLength", std::int64_t{256}}}};
 }
 
-/// Shared 1600px preview transform (M7-17): the longest side maps to 1600,
-/// area-resampled inside the image budget. False when the resampler refuses;
+/// Shared preview transform (M7-17): fit both the 1600-side limit and the
+/// raw pixel budget without upscaling. False when the resampler refuses;
 /// on success `dst` carries the scaled pixels; fields beyond geometry,
 /// stride, format and pixels stay at their defaults.
 bool preview_downscale(const desktop::ImageFrame &frame, std::size_t budget_bytes,
                        desktop::ImageFrame &dst) {
     const auto longest = std::max(frame.width, frame.height);
-    const auto w = std::max(1, static_cast<int>(std::int64_t(frame.width) * 1600 / longest));
-    const auto h = std::max(1, static_cast<int>(std::int64_t(frame.height) * 1600 / longest));
+    const auto scale =
+        std::min({1.0, 1600.0 / longest,
+                  std::sqrt(double(budget_bytes) / 4.0 / frame.width / frame.height)});
+    const auto w = std::max(1, static_cast<int>(frame.width * scale));
+    const auto h = std::max(1, static_cast<int>(frame.height * scale));
     mirador::ImageView view;
     view.data = reinterpret_cast<const std::byte *>(frame.pixels.data());
     view.width = frame.width;
@@ -130,6 +159,7 @@ void DesktopImageTurn::clear() {
     if (image_)
         (void)store_->erase({image_->id, "desktop image retired"});
     image_.reset();
+    continuous_source_key_.clear();
     native_frame_.reset();
     native_input_frame_.reset();
     marks_.reset();
@@ -193,8 +223,8 @@ void DesktopImageTurn::register_tool(mira::BuiltinToolRegistry &registry,
     spec.version = {1, 5, 0};
     spec.description =
         "Capture an authorized display, window, or display-contained ROI as PNG. "
-        "Captures longer than 1600 on a side are downscaled read-only previews with exact "
-        "origin/scale metadata; smaller captures (including small ROIs) are 1:1 for precise "
+        "Captures are downscaled to fit the 1600-side and 8 MiB pixel limits, with exact "
+        "origin/scale metadata; captures within both limits (including small ROIs) stay 1:1 for "
         "grounding. "
         "Only source=roi accepts x/y/width/height (all required, desktop pixels). "
         "Max raw acquisition 32 MiB, ROI/PNG 8 MiB, no cumulative capture limit. "
@@ -312,22 +342,26 @@ void DesktopImageTurn::register_native_ocr(mira::BuiltinToolRegistry &registry,
         return;
     mira::BuiltinToolSpec spec;
     spec.wire_name = "desktop.vision.ocr";
-    spec.version = {2, 0, 0};
+    spec.version = {2, 1, 0};
     spec.description =
         "Read untrusted text from the latest native desktop/ROI/window preview using the current "
-        "task's sharing session and bundled OCR. Takes no arguments. A recent preview is reused; "
+        "task's sharing session and bundled OCR. Set text_only=true for reading tasks: "
+        "no PNG/image is created or supplied, and old image input refs are retired. "
+        "Otherwise a recent preview is reused; "
         "capture a small ROI first to limit OCR work. Without an image it obtains a desktop frame. "
         "First observation may ask for sharing; later frames reuse authorization without a "
         "cumulative frame limit. Boxes are IMAGE pixels in a <=1600-side preview, read-only, no "
         "clickable refs. "
-        "The source image is supplied too when the model supports images. OCR does not prove page "
+        "With text_only=false the source image is also supplied when supported. OCR does not prove "
+        "page "
         "navigation or task success; desktop input may remain unavailable. A truncated result "
         "contains only a prefix of whole regions and cannot prove text is absent.";
-    spec.parameters_schema =
-        mira::JsonSchema{JsonValue{JsonValue::Object{{"type", "object"},
-                                                     {"properties", JsonValue{JsonValue::Object{}}},
-                                                     {"required", JsonValue{JsonValue::Array{}}},
-                                                     {"additionalProperties", false}}}};
+    spec.parameters_schema = mira::JsonSchema{JsonValue{JsonValue::Object{
+        {"type", "object"},
+        {"properties", JsonValue{JsonValue::Object{
+                           {"text_only", JsonValue{JsonValue::Object{{"type", "boolean"}}}}}}},
+        {"required", JsonValue{JsonValue::Array{}}},
+        {"additionalProperties", false}}}};
     mira::BuiltinToolHandler handler = [this](const auto &args,
                                               const auto &ctx) -> mira::Result<JsonValue> {
         try {
@@ -345,12 +379,60 @@ void DesktopImageTurn::register_native_ocr(mira::BuiltinToolRegistry &registry,
         handler = decorate(spec.wire_name, std::move(handler));
     if (!registry.register_tool(std::move(spec), std::move(handler)))
         throw std::logic_error("native OCR tool registration rejected");
+    if (desktop_.query_image_state && desktop_.ocr_image_contextual) {
+        mira::BuiltinToolSpec query;
+        query.wire_name = "desktop.vision.state";
+        query.version = {1, 0, 0};
+        query.description =
+            "Read the advisory continuous state of this task's latest OCR source. "
+            "No capture, OCR, image supply, fresh observation or input authorization. "
+            "State advances only when OCR runs; background monitoring is not enabled. Do not poll "
+            "this query waiting for screen changes. Zero entities does not prove an empty screen. "
+            "Returns source revision and last analysis age; unavailable until this task has read "
+            "OCR. "
+            "Never use this historical query to verify an action or claim text is unchanged.";
+        query.parameters_schema = mira::JsonSchema{
+            JsonValue{JsonValue::Object{{"type", "object"},
+                                        {"properties", JsonValue{JsonValue::Object{}}},
+                                        {"additionalProperties", false}}}};
+        mira::BuiltinToolHandler read = [this](const auto &args,
+                                               const auto &ctx) -> mira::Result<JsonValue> {
+            if (!args.as_object() || !args.as_object()->empty() || ctx.task != owner_.task ||
+                ctx.session != owner_.session || ctx.task_epoch != owner_.task_epoch)
+                return error(ErrorCode::InvalidArgument,
+                             "image state query owner or arguments invalid");
+            if (continuous_source_key_.empty())
+                return error(ErrorCode::Unavailable, "no continuous OCR state for this task");
+            if (cancel_.cancelled() || ctx.cancelled_or_expired(mira::Timestamp::now()) ||
+                desktop_.actions->authority_epoch() != continuous_authority_)
+                return error(ErrorCode::Cancelled, "image state authority expired");
+            const auto state =
+                desktop_.query_image_state(continuous_source_key_, cancel_, ctx.deadline);
+            if (cancel_.cancelled() || ctx.cancelled_or_expired(mira::Timestamp::now()) ||
+                desktop_.actions->authority_epoch() != continuous_authority_)
+                return error(ErrorCode::Cancelled, "image state authority expired before delivery");
+            if (!state.ok)
+                return error(ErrorCode::Unavailable, "continuous state query unavailable");
+            return continuous_json(state);
+        };
+        if (decorate)
+            read = decorate(query.wire_name, std::move(read));
+        if (!registry.register_tool(std::move(query), std::move(read)))
+            throw std::logic_error("image state query registration rejected");
+    }
 }
 mira::Result<JsonValue> DesktopImageTurn::native_ocr(const JsonValue &args,
                                                      const mira::OperationContext &ctx) {
-    if (!args.as_object() || !args.as_object()->empty())
-        return error(ErrorCode::InvalidArgument,
-                     "native OCR accepts no arguments or window/display ids");
+    const auto *text_arg = args.find("text_only");
+    if (!args.as_object() || args.as_object()->size() > (text_arg ? 1u : 0u) ||
+        (text_arg && !text_arg->as_boolean().has_value()))
+        return error(ErrorCode::InvalidArgument, "native OCR accepts only text_only boolean");
+    const bool text_only = text_arg && *text_arg->as_boolean();
+    text_only_capture_ = text_only;
+    struct ResetMode {
+        bool &flag;
+        ~ResetMode() { flag = false; }
+    } reset{text_only_capture_};
     if (ctx.task != owner_.task || ctx.session != owner_.session ||
         ctx.task_epoch != owner_.task_epoch)
         return error(ErrorCode::InvalidArgument, "native OCR owner mismatch");
@@ -358,6 +440,8 @@ mira::Result<JsonValue> DesktopImageTurn::native_ocr(const JsonValue &args,
         desktop_.reuse_recent_observation && image_ && native_capture_args_.as_object()
             ? native_capture_args_
             : JsonValue{JsonValue::Object{{"source", "desktop"}}};
+    if (text_only)
+        clear();
     auto captured = capture(capture_args, ctx);
     if (!captured)
         // capture_desktop already poisons the session on its own fatal paths;
@@ -367,7 +451,19 @@ mira::Result<JsonValue> DesktopImageTurn::native_ocr(const JsonValue &args,
     if (!native_frame_)
         return error(ErrorCode::PlatformError, "native OCR source frame unavailable");
     const auto epoch = epoch_, authority = native_authority_;
-    const auto digest = image_->digest.to_string();
+    const auto digest =
+        image_ ? image_->digest.to_string()
+               : mira::digest_bytes(std::as_bytes(std::span(native_frame_->pixels))).to_string();
+    std::string source_identity = owner_.session.to_string() + ":" + owner_.task.to_string() + ":" +
+                                  std::to_string(owner_.task_epoch) + ":" +
+                                  std::to_string(authority);
+    for (const auto *name : {"source", "source_id", "origin_x", "origin_y", "source_width",
+                             "source_height", "width", "height"})
+        if (const auto *value = metadata_.find(name))
+            source_identity += ":" + mira::to_json_string(*value);
+        else
+            source_identity += ":0";
+    const auto source_key = mira::digest_string(source_identity).to_string();
     if (desktop_.reuse_recent_observation && ocr_failed_result_ && ocr_failed_epoch_ == epoch &&
         ocr_failed_digest_ == digest)
         return *ocr_failed_result_;
@@ -390,7 +486,9 @@ mira::Result<JsonValue> DesktopImageTurn::native_ocr(const JsonValue &args,
                         ocr_success_digest_ == digest && ocr_success_epoch_ == epoch &&
                         ocr_success_authority_ == authority;
     auto read = reused ? *ocr_success_ : measure_phase(timings_ ? &timings_->ocr : nullptr, [&] {
-        return desktop_.ocr_image(*native_frame_, bounded, end);
+        return desktop_.ocr_image_contextual
+                   ? desktop_.ocr_image_contextual(*native_frame_, source_key, bounded, end)
+                   : desktop_.ocr_image(*native_frame_, bounded, end);
     });
     if (cancel_.cancelled() || desktop_.actions->authority_epoch() != authority) {
         native_session_.reset();
@@ -408,7 +506,11 @@ mira::Result<JsonValue> DesktopImageTurn::native_ocr(const JsonValue &args,
                          [](unsigned char c) { return (c >= 'a' && c <= 'z') || c == '_'; }))
             code = "analysis_failed";
         return failed_analysis(
-            error(ErrorCode::PlatformError, "native_ocr_analysis_failed: " + code));
+            error(ErrorCode::PlatformError,
+                  "native_ocr_analysis_failed: " + code +
+                      (read.invalid_region_index && *read.invalid_region_index < 512
+                           ? " region=" + std::to_string(*read.invalid_region_index)
+                           : "")));
     }
     if (read.regions.size() > 128 || read.model_revision.size() > 256 ||
         read.backend_calls > std::uint64_t(INT64_MAX))
@@ -462,11 +564,19 @@ mira::Result<JsonValue> DesktopImageTurn::native_ocr(const JsonValue &args,
         {"regions", JsonValue{JsonValue::Array{}}}}};
     // DEC-081: OCR publishes the replacement interactive scope when its image
     // will be supplied to the model. Observation regions themselves stay non-actionable.
-    const bool input_actionable = native_input_enabled_ && supply_images_ && native_session_ &&
-                                  native_session_->input_supported();
+    const bool input_actionable = !text_only && native_input_enabled_ && supply_images_ &&
+                                  native_session_ && native_session_->input_supported();
     result.set("input_actionable", input_actionable);
     if (input_actionable)
         result.set("image_scope", *metadata_.find("image_scope"));
+    if (read.continuous) {
+        result.set("continuous", continuous_json(*read.continuous));
+        if (read.continuous->ok) {
+            continuous_source_key_ = source_key;
+            continuous_authority_ = authority;
+        }
+    }
+    result.set("text_only", text_only);
     // Preserve complete regions and the wire budget, including JSON escaping.
     // Reserve the growth of region_count from one to three digits.
     auto bytes = mira::to_json_string(result).size() + 2;
@@ -563,7 +673,7 @@ mira::Result<JsonValue> DesktopImageTurn::capture_desktop(const JsonValue &args,
     std::erase_if(key_args, [](const auto &field) { return field.first == "interaction"; });
     const auto capture_key =
         mira::canonical_json_digest(JsonValue{std::move(key_args)}).to_string();
-    if (desktop_.reuse_recent_observation && image_ && native_frame_ &&
+    if (!text_only_capture_ && desktop_.reuse_recent_observation && image_ && native_frame_ &&
         !native_newer_than_sequence_ && epoch_ == desktop_.actions->epoch() &&
         native_capture_key_ == capture_key &&
         std::chrono::steady_clock::now() - captured_ < image_max_age_) {
@@ -688,7 +798,7 @@ mira::Result<JsonValue> DesktopImageTurn::capture_desktop(const JsonValue &args,
         if (source_kind == "roi")
             kind_id.clear();
     }
-    if (std::max(frame.width, frame.height) > 1600) {
+    if (std::max(frame.width, frame.height) > 1600 || frame.pixels.size() > desktop_image_bytes) {
         desktop::ImageFrame scaled;
         if (!preview_downscale(frame, desktop_image_bytes, scaled))
             return error(ErrorCode::PlatformError, "native desktop preview resize failed");
@@ -719,7 +829,7 @@ DesktopImageTurn::finish_native_publish(desktop::ImageFrame frame,
     const auto captured = std::chrono::steady_clock::now();
     const desktop::CancelToken bounded([this, captured] {
         return cancel_.cancelled() ||
-               std::chrono::steady_clock::now() - captured >= std::chrono::seconds(5);
+               std::chrono::steady_clock::now() - captured >= acquire_budget_;
     });
     std::string scene_change = "unknown";
     const auto coordinate = [&](const char *key) -> std::int64_t {
@@ -747,6 +857,32 @@ DesktopImageTurn::finish_native_publish(desktop::ImageFrame frame,
                            : classification == mirador::ChangeClassification::kPartial ? "partial"
                                                                                        : "global";
         }
+    }
+    if (text_only_capture_) {
+        // M9-06: keep only the authorized preview pixels. No encoding/store
+        // artifact and no supplied-image lease can survive a text-only read.
+        clear();
+        epoch_ = epoch;
+        captured_ = captured;
+        metadata_ = JsonValue{JsonValue::Object{
+            {"source", kind},
+            {"source_id", kind_id},
+            {"artifact_id", ""},
+            {"width", std::int64_t(frame.width)},
+            {"height", std::int64_t(frame.height)},
+            {"source_width", std::int64_t(area.width)},
+            {"source_height", std::int64_t(area.height)},
+            {"origin_x", std::int64_t(area.x)},
+            {"origin_y", std::int64_t(area.y)},
+            {"environment_epoch", static_cast<std::int64_t>(epoch)},
+            {"received_at_ms", std::chrono::duration_cast<std::chrono::milliseconds>(
+                                   std::chrono::system_clock::now().time_since_epoch())
+                                   .count()},
+            {"input_actionable", false},
+            {"observation_only", true}}};
+        native_frame_ = std::move(frame);
+        native_newer_than_sequence_ = 0;
+        return metadata_;
     }
     auto result = publish_image(frame, area, kind, kind_id, epoch, captured, bounded);
     if (!result)
@@ -988,7 +1124,7 @@ mira::Result<JsonValue> DesktopImageTurn::capture(const JsonValue &args,
     };
     // M7-17: large ROIs preview-scale like display/window captures (exact
     // origin/scale metadata keeps click_region mapping); small ROIs stay 1:1.
-    if (std::max(frame.width, frame.height) <= 1600)
+    if (std::max(frame.width, frame.height) <= 1600 && frame.pixels.size() <= desktop_image_bytes)
         return publish(frame);
     // Loose source check (an over-allocated pixel buffer is fine here).
     if (frame.format != desktop::ImageFormat::Bgra8 ||

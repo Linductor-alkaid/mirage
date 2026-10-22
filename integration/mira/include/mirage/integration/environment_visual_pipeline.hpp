@@ -73,6 +73,16 @@ struct ImageOcrDiagnostics {
     std::uint64_t detected = 0, recognized = 0, deferred = 0;
     bool det_limit_hit = false;
 };
+/// M9: read-only continuous state. An age/query is never current input authority.
+struct ImageContinuousState {
+    bool ok = false;
+    desktop::ProviderError error;
+    std::uint64_t source_revision = 0, source_epoch = 0, frame_sequence = 0;
+    std::optional<std::int64_t> analysis_age_ms;
+    std::uint64_t entities = 0, pending_events = 0, dropped_events = 0;
+    bool advisory = true;
+};
+
 struct ImageOcrOutcome {
     bool ok = false, cancelled = false;
     desktop::ProviderError error;
@@ -87,6 +97,9 @@ struct ImageOcrOutcome {
     /// M8-07: set when the run executed through the budgeted entry;
     /// nullopt keeps the legacy all-or-nothing shape.
     std::optional<ImageOcrDiagnostics> diagnostics;
+    /// Validation diagnostic only; no recognized text is included on failure.
+    std::optional<std::uint64_t> invalid_region_index = std::nullopt;
+    std::optional<ImageContinuousState> continuous = std::nullopt;
 };
 
 /// Pinned-free visual observation surface the MiraEnvironmentBinding drives

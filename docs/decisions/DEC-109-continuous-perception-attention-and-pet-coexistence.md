@@ -422,3 +422,14 @@ shutdown 沿同一 Executor 生命周期。此近似后台筛选不是像素精�
 提交与 transport 发布在同一锁内排序，关闭在同一边界停止接纳；不另起控制队列、
 线程或 timer。默认不 drain，事件消费仍属显式的单一 owner。产品订阅/通知、
 静态零识别复用和生产供给继续开放，M9-18 保持 In Progress。
+
+
+### 2026-10-22：首个原生产品消费者
+
+维护者授权进行 M9 接线；产品默认 PP-OCR pipeline 在同一 worker 内启用独立的
+image session/coordinator，保持 display 模板/引用隔离并复用现有模型。Runtime
+以可信 task/authority/ROI 来源键接通 OCR 文本供给与无帧 advisory 查询；文本模式
+不生成 PNG/artifact，不把历史图片当作输入授权。预算化 OCR 保留 partial/deferred，
+不以部分证据登记完整覆盖；未开启后台帧采样或新的通知默认值。
+本局部实施契约与预算见[产品接线](../design/native-continuous-perception-wiring.md)，
+实际验证和剩余范围见[证据](../compatibility/native-observation-and-continuous-wiring-20261022.md)。

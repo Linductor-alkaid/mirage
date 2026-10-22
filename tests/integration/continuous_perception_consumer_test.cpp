@@ -838,16 +838,23 @@ void query_cancels_inflight_analysis_without_inventing_completion() {
 }
 
 void cancellation_deadline_exception_and_shutdown_settle() {
-    for (int variant = 0; variant < 10; ++variant) {
+    for (int variant = 0; variant < 15; ++variant) {
         const auto mode = variant % 5;
         std::fprintf(stderr, "[continuous consumer] lifecycle mode %d\n", mode);
         Owner owner;
         InterruptibleOcr ocr;
         ocr.throws = mode == 2;
-        VisualSessionHost host(owner.executor, "lifecycle", config_for(ocr));
+        auto config = config_for(ocr);
+        if (variant >= 10) {
+            config.continuous.reset();
+            config.enable_image_session = true;
+        }
+        VisualSessionHost host(owner.executor, "lifecycle", config);
         std::string error;
         MIRAGE_CHECK(host.start(error));
-        auto request = variant < 5 ? refreshed("lifecycle", 1) : spatial_request("lifecycle", 1);
+        auto request = variant < 5 || variant >= 10 ? refreshed("lifecycle", 1)
+                                                    : spatial_request("lifecycle", 1);
+        request.image_session = variant >= 10;
         desktop::CancelToken cancel;
         request.external_cancel = cancel;
         if (mode == 1)
@@ -867,8 +874,10 @@ void cancellation_deadline_exception_and_shutdown_settle() {
         MIRAGE_CHECK(!result.snapshot && !result.continuous);
         if (mode == 0 || mode == 1) {
             ocr.release = true;
-            const auto next = get(host.submit(variant < 5 ? refreshed("lifecycle", 2)
-                                                          : spatial_request("lifecycle", 2)));
+            auto next_request = variant < 5 || variant >= 10 ? refreshed("lifecycle", 2)
+                                                             : spatial_request("lifecycle", 2);
+            next_request.image_session = variant >= 10;
+            const auto next = get(host.submit(std::move(next_request)));
             MIRAGE_CHECK(next.outcome.kind == Kind::kCompleted);
             MIRAGE_CHECK(next.continuous && next.continuous->temporal.confirmed_frame == 0);
             MIRAGE_CHECK(next.continuous && next.continuous->events.events.empty());
@@ -960,9 +969,56 @@ void shared_capture_analysis_churn_does_not_pin_settled_requests() {
     MIRAGE_CHECK(wait_until([&] { return capture.stats().live_generations == 0; }));
     analysis.stop();
 }
+void product_companion_keeps_display_state_separate() {
+    Owner owner;
+    FakeOcrConfig ocr_config;
+    ocr_config.info.accepted_formats = {mirador::PixelFormat::kBgra8};
+    FakeOcrBackend ocr(ocr_config);
+    VisualSessionConfig config;
+    config.ocr_backend = &ocr;
+    config.enable_image_session = true;
+    VisualSessionHost host(owner.executor, "product-companion", config);
+    std::string error;
+    MIRAGE_CHECK(host.start(error));
+    auto image = request_for("product-companion", 1);
+    image.image_session = true;
+    image.admission = VisualAnalysisAdmission::always;
+    image.ocr.cache_policy = mirador::CachePolicy::kRefresh;
+    auto result = get(host.submit(std::move(image)));
+    MIRAGE_CHECK(result.outcome.kind == Kind::kCompleted && result.continuous && result.snapshot);
+    MIRAGE_CHECK(result.snapshot &&
+                 result.snapshot->coordinate_space == mirador::CoordinateSpaceId::kOriented);
+    const auto calls = ocr.calls();
+    VisualContinuousQuery query;
+    query.image_session = true;
+    query.expected_source_revision = 1;
+    auto state = get(host.query_continuous(query));
+    MIRAGE_CHECK(state.outcome.kind == Kind::kQueried && state.queried);
+    MIRAGE_CHECK(ocr.calls() == calls);
+    auto display = request_for("product-companion", 2);
+    display.continuous.reset();
+    display.display_transform = mirador::make_translation(
+        0, 0, mirador::CoordinateSpaceId::kOriented, mirador::CoordinateSpaceId::kDisplay);
+    display.admission = VisualAnalysisAdmission::always;
+    result = get(host.submit(std::move(display)));
+    MIRAGE_CHECK(result.outcome.kind == Kind::kCompleted && result.snapshot && !result.continuous);
+    MIRAGE_CHECK(result.snapshot &&
+                 result.snapshot->coordinate_space == mirador::CoordinateSpaceId::kDisplay);
+    state = get(host.query_continuous(query));
+    MIRAGE_CHECK(state.queried && state.queried->last_analyzed_frame == 1);
+    auto old = request_for("product-companion", 3);
+    old.image_session = true;
+    old.continuous->source_revision = 2;
+    MIRAGE_CHECK(get(host.submit(std::move(old))).outcome.kind == Kind::kCompleted);
+    MIRAGE_CHECK(get(host.query_continuous(query)).outcome.kind != Kind::kQueried);
+    host.stop();
+    MIRAGE_CHECK(get(host.query_continuous(query)).outcome.kind == Kind::kRejected);
+}
+
 } // namespace
 
 int main() {
+    product_companion_keeps_display_state_separate();
     frame_free_queries_switch_focus_without_observation();
     query_rejection_cancellation_and_drain_preserve_provenance();
     concurrent_commands_and_stop_settle_every_future();

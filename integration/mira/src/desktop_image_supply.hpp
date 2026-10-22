@@ -143,6 +143,9 @@ class DesktopImageTurn {
     std::optional<desktop::ImageFrame> native_frame_;
     std::optional<desktop::ImageFrame> native_input_frame_;
     bool native_input_enabled_ = false;
+    bool text_only_capture_ = false;
+    std::string continuous_source_key_;
+    std::uint64_t continuous_authority_ = 0;
     std::uint64_t native_newer_than_sequence_ = 0;
     bool supply_images_ = true;
     std::chrono::milliseconds acquire_budget_ = std::chrono::seconds{5};
