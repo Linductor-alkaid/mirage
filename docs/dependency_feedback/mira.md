@@ -949,6 +949,8 @@ debug 全量 91/91、asan 聚焦 9/9。原长任务问题（2026-10-15 09:56 会
 ## MIRA-20261022-001：ConversationLoop 终态不携带输出截断结构化原因，事件面不可观测
 
 - 状态：Open；日期：2026-10-22；负责人：Mirage 维护者，处理方：Mira 上游。
+  上游：[mira#100](https://github.com/Linductor-alkaid/mira/issues/100)（2026-10-22
+  提报）。
   关联 [MIRA-20261009-002](#mira-20261009-002)、
   [MIRA-20261016-002](#mira-20261016-002)（DEC-085 系列）、
   [DEC-112](../decisions/DEC-112-output-limit-failure-category.md)。

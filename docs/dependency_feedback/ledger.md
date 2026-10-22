@@ -10,7 +10,9 @@
 ## 分依赖台账
 
 2026-10-22：截断观测收口新增 [MIRA-20261022-001](mira.md#mira-20261022-001)
-（Open）：pinned `ConversationLoopResult` 与 `ConversationSettled` 事件不携带输出
+（Open，已提报上游
+[mira#100](https://github.com/Linductor-alkaid/mira/issues/100)）：pinned
+`ConversationLoopResult` 与 `ConversationSettled` 事件不携带输出
 截断结构化原因，harness 耗尽 settle 只能文本匹配 `safe_summary`，事件订阅方完全
 无法感知截断。Mirage 同步在自有边界交付 [DEC-112](../decisions/DEC-112-output-limit-failure-category.md)
 消费面：`DialogCompletion` 结构化标记、IPC 对话轮 `error_kind` 封闭词表
