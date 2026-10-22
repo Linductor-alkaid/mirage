@@ -36,6 +36,11 @@ struct RequestState {
 
 /// Settlement must never throw, even for an abandoned future.
 void settle(RequestState &state, VisualAnalysisResult result) {
+    // Mailbox version slots can outlive this completed request. Release its
+    // source pixels/policy before waking the consumer, so transport history
+    // cannot pin all generations of ContinuousCaptureHost's pixel budget.
+    state.request.frame = {};
+    state.request.continuous.reset();
     try {
         state.done.set_value(std::move(result));
     } catch (...) {
@@ -142,9 +147,11 @@ mirador::Result<mirador::ImageBuffer> crop_patch(const mirador::Frame &frame,
 struct detail::VisualSessionCore {
     VisualSessionCore(std::string host_source_id, VisualSessionConfig host_config,
                       mirador::PerceptionSession perception_session,
-                      VisualTemplateIndex template_index)
+                      VisualTemplateIndex template_index,
+                      std::optional<mirador::ContinuousPerception> continuous_state)
         : source_id(std::move(host_source_id)), config(std::move(host_config)),
-          session(std::move(perception_session)), templates(std::move(template_index)) {}
+          session(std::move(perception_session)), templates(std::move(template_index)),
+          coordinator(std::move(continuous_state)) {}
 
     const std::string source_id;
     const VisualSessionConfig config;
@@ -154,6 +161,12 @@ struct detail::VisualSessionCore {
     /// The template index shares the session's serial context (plan item
     /// `M3-04`); it dies with the core when the host stops.
     VisualTemplateIndex templates;
+    /// Experimental coordination remains on this same worker. It stores no pixels.
+    std::optional<mirador::ContinuousPerception> coordinator;
+    std::uint64_t source_revision = 0, last_continuous_sequence = 0;
+    std::int32_t last_width = 0, last_height = 0;
+    mirador::Rotation last_rotation = mirador::Rotation::k0;
+    std::optional<mirador::ImportancePolicy> importance;
     struct BackgroundBaseline {
         mirador::ChangeSignature signature;
         std::uint64_t sequence = 0, policy_revision = 0;
@@ -177,6 +190,57 @@ struct detail::VisualSessionCore {
 };
 
 namespace {
+/// No algorithm is reproduced here: apply owner configuration, scope the old
+/// session's caches/IDs to their source revision, and let Mirador plan/relate.
+mirador::Result<bool> prepare_continuous(detail::VisualSessionCore &core,
+                                         const VisualAnalysisRequest &request) {
+    const auto &input = *request.continuous;
+    const auto &limits = *core.config.continuous;
+    if (const auto valid = mirador::validate(request.frame.image); !valid)
+        return valid.status();
+    if (input.attention.conditions.size() > static_cast<std::size_t>(limits.max_focus_conditions))
+        return mirador::Status{mirador::ErrorCode::kBudgetExceeded,
+                               "attention condition cap exceeded"};
+    auto &coordinator = *core.coordinator;
+    const auto previous_policy = coordinator.policy_revision();
+    if (const auto applied = coordinator.set_attention_policy(input.attention); !applied)
+        return applied.status();
+    const bool new_source = core.source_revision != input.source_revision;
+    if (new_source && core.source_revision != 0) {
+        auto session = mirador::PerceptionSession::create(
+            {core.source_id, core.config.frame_cache_bytes, core.config.result_cache_bytes});
+        if (!session)
+            return session.status();
+        core.session = session.take_value();
+        (void)coordinator.notify_source_reset();
+    }
+    const bool invalidate = new_source || previous_policy != coordinator.policy_revision() ||
+                            !core.importance || *core.importance != input.importance;
+    core.source_revision = input.source_revision;
+    core.last_continuous_sequence = request.frame.sequence;
+    core.last_width = request.frame.image.width;
+    core.last_height = request.frame.image.height;
+    core.last_rotation = request.frame.image.rotation;
+    core.importance = input.importance;
+    return invalidate;
+}
+
+std::optional<std::int64_t> plan_owned_bytes(const mirador::AttentionPlan &plan,
+                                             std::int64_t budget) {
+    std::int64_t bytes = 0;
+    const auto add = [&](std::size_t capacity, std::size_t element_size) {
+        if (capacity > static_cast<std::size_t>(budget - bytes) / element_size)
+            return false;
+        bytes += static_cast<std::int64_t>(capacity * element_size);
+        return true;
+    };
+    if (!add(plan.work.capacity(), sizeof(mirador::PlannedWork)) ||
+        !add(plan.resolutions.capacity(), sizeof(mirador::FocusResolution)) ||
+        !add(plan.reconsiderations.capacity(), sizeof(mirador::FocusReconsideration)))
+        return std::nullopt;
+    return bytes;
+}
+
 /// Runs the requested capabilities serially on the session: template
 /// enrollment, change gating, geometry proposals, OCR, detection (optionally
 /// ROI-split per geometry proposal), template probes at the detection
@@ -198,6 +262,7 @@ void execute(detail::VisualSessionCore &core, RequestState &state) {
     auto baseline = std::move(core.background_baseline);
     core.background_baseline.reset();
     std::optional<mirador::ChangeSignature> current_signature;
+    std::optional<VisualContinuousResult> continuous_result;
     VisualAnalysisResult result;
     // Cancellation lands before the first side effect (enrollments mutate
     // session state), never silently swallowed.
@@ -206,6 +271,23 @@ void execute(detail::VisualSessionCore &core, RequestState &state) {
         result.outcome.message = "cancelled before the first stage";
         settle(state, std::move(result));
         return;
+    }
+    if (request.continuous) {
+        const auto revision = request.continuous->source_revision;
+        const bool same_source = revision == core.source_revision;
+        if (revision < core.source_revision ||
+            (same_source && request.frame.sequence <= core.last_continuous_sequence)) {
+            core.background_baseline = std::move(baseline);
+            settle_rejected(state, "stale continuous source revision or frame sequence");
+            return;
+        }
+        if (same_source && (request.frame.image.width != core.last_width ||
+                            request.frame.image.height != core.last_height ||
+                            request.frame.image.rotation != core.last_rotation)) {
+            core.background_baseline = std::move(baseline);
+            settle_rejected(state, "continuous geometry change requires a new source revision");
+            return;
+        }
     }
 
     // The adapter's rotation-k0 capture form is the only shape the
@@ -222,9 +304,22 @@ void execute(detail::VisualSessionCore &core, RequestState &state) {
         } else {
             return false;
         }
+        if (core.coordinator)
+            result.snapshot.reset();
         settle(state, std::move(result));
         return true;
     };
+    if (core.coordinator) {
+        if (interrupted())
+            return;
+        const auto prepared = prepare_continuous(core, request);
+        if (!prepared) {
+            settle_failed(state, prepared.status());
+            return;
+        }
+        if (prepared.value())
+            baseline.reset();
+    }
     if (request.probe_geometry_templates) {
         if (!core.assets_enrolled) {
             for (const auto &asset : core.config.template_assets) {
@@ -333,6 +428,9 @@ void execute(detail::VisualSessionCore &core, RequestState &state) {
             result.cache_stats.result_cache_entries = core.session.result_cache().entry_count();
             result.cache_stats.template_index_bytes = core.templates.byte_size();
             result.cache_stats.template_index_entries = core.templates.entry_count();
+            if (core.coordinator)
+                result.cache_stats.continuous_coordination_bytes =
+                    core.coordinator->coordination_owned_bytes();
             settle(state, std::move(result));
             return;
         }
@@ -542,7 +640,7 @@ void execute(detail::VisualSessionCore &core, RequestState &state) {
     // itself carries no template label source; the DEC-016 mapper reads the
     // identity from the label)
     if (request.fuse) {
-        if (!request.display_transform) {
+        if (!core.coordinator && !request.display_transform) {
             fail_result(result, mirador::ErrorCode::kInvalidArgument,
                         "fusion requires the kOriented -> kDisplay display transform (DEC-016)");
             settle(state, std::move(result));
@@ -601,9 +699,12 @@ void execute(detail::VisualSessionCore &core, RequestState &state) {
             }
         }
         mirador::FusionOptions options;
-        // DEC-016 decision 3: the fusion target space is fixed to kDisplay,
-        // with the caller-supplied window placement as the transform.
-        options.target_space = mirador::CoordinateSpaceId::kDisplay;
+        // Legacy display facts and opt-in image-space background observations
+        // are separate host configurations. No guessed display transform.
+        options.target_space = core.coordinator ? mirador::CoordinateSpaceId::kOriented
+                                                : mirador::CoordinateSpaceId::kDisplay;
+        if (core.config.continuous)
+            options.max_regions = core.config.continuous->max_entities;
         options.display_transform = request.display_transform;
         mirador::Result<mirador::SemanticSnapshot> fused =
             core.session.fuse(request.frame, evidence, options, context);
@@ -636,7 +737,9 @@ void execute(detail::VisualSessionCore &core, RequestState &state) {
                 if (const std::optional<std::string> identity =
                         core.templates.identity_for(probe->entry_id)) {
                     const auto bounds =
-                        mirador::transform_rect(*request.display_transform, probe->bounds);
+                        core.coordinator
+                            ? probe->bounds
+                            : mirador::transform_rect(*request.display_transform, probe->bounds);
                     if (identity_stamped &&
                         (matched_identity != *identity ||
                          (matched_bounds && !same_bounds(*matched_bounds, bounds))))
@@ -661,6 +764,47 @@ void execute(detail::VisualSessionCore &core, RequestState &state) {
         result.snapshot = std::make_shared<const mirador::SemanticSnapshot>(std::move(enriched));
     }
 
+    if (core.coordinator) {
+        const auto &limits = *core.config.continuous;
+        mirador::RelationViewOptions relation_options;
+        relation_options.expected_generation = result.snapshot->generation;
+        relation_options.max_entities = limits.max_entities;
+        relation_options.max_relations = limits.max_relations;
+        relation_options.max_view_bytes = limits.max_relation_bytes;
+        auto relations = mirador::build_relation_view(*result.snapshot, relation_options, context);
+        if (!relations) {
+            result.snapshot.reset();
+            fail_result(result, relations.status());
+            settle(state, std::move(result));
+            return;
+        }
+        auto plan = core.coordinator->plan_attention(*result.snapshot, request.frame,
+                                                     request.continuous->importance, context);
+        if (!plan) {
+            result.snapshot.reset();
+            fail_result(result, plan.status());
+            settle(state, std::move(result));
+            return;
+        }
+        const auto plan_bytes = plan_owned_bytes(plan.value(), limits.max_plan_bytes);
+        if (!plan_bytes) {
+            result.snapshot.reset();
+            fail_result(result, mirador::ErrorCode::kBudgetExceeded,
+                        "attention plan byte budget exceeded");
+            settle(state, std::move(result));
+            return;
+        }
+        VisualContinuousResult output;
+        output.source_revision = core.source_revision;
+        output.source_epoch = core.coordinator->source_epoch();
+        output.relation_owned_bytes = mirador::relation_view_owned_bytes(relations.value());
+        output.coordination_owned_bytes = core.coordinator->coordination_owned_bytes();
+        output.plan_owned_bytes = *plan_bytes;
+        output.relations = relations.take_value();
+        output.attention = plan.take_value();
+        continuous_result = std::move(output);
+    }
+
     if (request.render_marks) {
         const auto rendered = detail::render_marks(request, result, context);
         if (!rendered) {
@@ -677,6 +821,9 @@ void execute(detail::VisualSessionCore &core, RequestState &state) {
     result.cache_stats.result_cache_entries = core.session.result_cache().entry_count();
     result.cache_stats.template_index_bytes = core.templates.byte_size();
     result.cache_stats.template_index_entries = core.templates.entry_count();
+    if (core.coordinator)
+        result.cache_stats.continuous_coordination_bytes =
+            core.coordinator->coordination_owned_bytes();
 
     if (interrupted())
         return;
@@ -688,6 +835,7 @@ void execute(detail::VisualSessionCore &core, RequestState &state) {
         result.cache_stats.background_signature_bytes =
             core.background_baseline->signature.thumbnail.byte_size();
     result.outcome.kind = VisualAnalysisOutcome::Kind::kCompleted;
+    result.continuous = std::move(continuous_result);
     settle(state, std::move(result));
 }
 
@@ -750,6 +898,11 @@ class VisualSessionWorker final : public kairo::IBlockingIoWorker {
 
     void wakeup() noexcept override {
         std::lock_guard lock(core_->mutex);
+        // Executor shutdown can precede the host's supported stop order.
+        // Wake must also interrupt the currently executing capability, whose
+        // context otherwise only sees host/external cancellation.
+        if (core_->in_flight)
+            core_->in_flight->cancel.request_cancel();
         core_->cv.notify_all();
     }
 
@@ -776,6 +929,33 @@ bool VisualSessionHost::start(std::string &error) {
         lifecycle_.store(Lifecycle::New, std::memory_order_release);
         error = "visual session source id must not be empty";
         return false;
+    }
+    std::optional<mirador::ContinuousPerception> coordinator;
+    if (config_.continuous) {
+        const auto &limits = *config_.continuous;
+        if (!config_.template_assets.empty() || limits.max_coordination_bytes <= 0 ||
+            limits.max_coordination_bytes > 512 * 1024 || limits.max_relation_bytes <= 0 ||
+            limits.max_relation_bytes > 512 * 1024 || limits.max_plan_bytes <= 0 ||
+            limits.max_plan_bytes > 64 * 1024 || limits.max_entities <= 0 ||
+            limits.max_entities > 256 || limits.max_relations <= 0 || limits.max_relations > 1024 ||
+            limits.max_focus_conditions <= 0 || limits.max_focus_conditions > 16) {
+            lifecycle_.store(Lifecycle::New, std::memory_order_release);
+            error = "continuous observation budgets invalid or template assets configured";
+            return false;
+        }
+        mirador::ContinuousPerceptionOptions options;
+        options.source_id = source_id_;
+        options.max_coordination_bytes = limits.max_coordination_bytes;
+        options.max_entities = limits.max_entities;
+        options.max_relations = limits.max_relations;
+        options.max_focus_conditions = limits.max_focus_conditions;
+        auto created = mirador::ContinuousPerception::create(std::move(options));
+        if (!created) {
+            lifecycle_.store(Lifecycle::New, std::memory_order_release);
+            error = "continuous coordinator creation failed: " + created.status().message();
+            return false;
+        }
+        coordinator = created.take_value();
     }
     std::set<std::string> asset_ids;
     std::size_t asset_bytes = 0;
@@ -828,7 +1008,7 @@ bool VisualSessionHost::start(std::string &error) {
         return false;
     }
     auto core = std::make_shared<detail::VisualSessionCore>(
-        source_id_, config_, session.take_value(), templates.take_value());
+        source_id_, config_, session.take_value(), templates.take_value(), std::move(coordinator));
     kairo::BlockingWorkerSpec spec;
     spec.name = "mirage-visual-" + source_id_;
     spec.config.thread_name = spec.name;
@@ -858,6 +1038,18 @@ std::future<VisualAnalysisResult> VisualSessionHost::submit(VisualAnalysisReques
     // frame in oriented coordinates, which is only the view's own pixel
     // space for the adapter's rotation-k0 capture form.
     const VisualAnalysisRequest &analysis = state->request;
+    if (analysis.continuous.has_value() != config_.continuous.has_value()) {
+        settle_rejected(*state, "continuous requests require a dedicated continuous host");
+        return future;
+    }
+    if (analysis.continuous &&
+        (!analysis.fuse || analysis.continuous->source_revision == 0 ||
+         analysis.frame.sequence == 0 || !std::isfinite(analysis.continuous->importance.priority) ||
+         analysis.render_marks || !analysis.enrollments.empty() || analysis.probe_templates ||
+         analysis.probe_geometry_templates)) {
+        settle_rejected(*state, "continuous background request identity/stages invalid");
+        return future;
+    }
     if (analysis.admission != VisualAnalysisAdmission::always &&
         analysis.admission != VisualAnalysisAdmission::when_changed) {
         settle_rejected(*state, "unknown visual analysis admission policy");

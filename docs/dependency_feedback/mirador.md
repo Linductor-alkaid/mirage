@@ -2,7 +2,7 @@
 
 > 状态：Active
 > 负责人：Mirage维护者；处理方：Mirador上游
-> 更新日期：2026-10-20
+> 更新日期：2026-10-22
 > 工作项：源头为 [M7-06](../plans/m7-visual-tools-and-input.md)；维护性收口见
 > [依赖复用整改计划](../plans/dependency-reuse-remediation.md)（REUSE-16）
 > 总入口：[依赖反馈](ledger.md)；维护规则：[工程规范9.4](../project/project-standards.md)
@@ -246,7 +246,7 @@ DEC-076 五秒预算内对 69 框密集场景稳定返回可消费的 partial �
 
 连续感知与任务注意策略的公开契约。
 
-状态：Proposed（公开契约诉求，非已确认算法缺陷）；负责人 Mirage 维护者，处理方
+状态：Accepted（上游部分交付与 Mirage Experimental 消费；完整覆盖/事件仍开放）；负责人 Mirage 维护者，处理方
 Mirador 上游；工作项 M9-07/13/18，方案见
 [DEC-109](../decisions/DEC-109-continuous-perception-attention-and-pet-coexistence.md)。
 上游已有讨论：[issue #41 补充](https://github.com/Linductor-alkaid/mirador/issues/41#issuecomment-6258623068)
@@ -254,6 +254,13 @@ Mirador 上游；工作项 M9-07/13/18，方案见
 [后续评论](https://github.com/Linductor-alkaid/mirador/issues/41#issuecomment-6285521869)，
 不代表上游已承诺 API。
 直接 PP-OCR 性能问题仍归 MIRADOR-20261018-001，两个交付层次独立推进。
+
+最新消费基线（2026-10-22）：Mirador master `23f7ed2`，上游 DEC-026 已 Accepted，
+M9-01/02/03 已交付。Mirage 消费同步关系构建、source epoch/策略与当前帧注意
+规划，保持 Experimental/opt-in；完整覆盖 accept 与时间事件仍待上游 M9-04/05。
+契约/命令/实际验证见[消费审计](../supply-chain/mirador-continuous-perception-20261022.md)。
+下述 cb45a102 调查和日期化诉求保留为历史依据，不再代表最新 pin 的能力集合；
+不将反馈整体标 Resolved，也不在 Mirage 复制未交付的通用视觉协调算法。
 
 核对版本 `cb45a10271c53d3b189bb33eef3f692d94feb562`，公开
 `perception_session.hpp`、`change_detection.hpp`、`fusion.hpp`、`object_tracker.hpp`、

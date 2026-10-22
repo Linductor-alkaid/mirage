@@ -1062,6 +1062,13 @@ mirage_add_test(continuous_capture_test
     TIMEOUT 60
     )
 
+mirage_add_test(continuous_perception_consumer_test
+    SOURCES integration/continuous_perception_consumer_test.cpp
+    LIBS Mirage::integration_mirador mirador::fusion Mirage::kairo_consumer
+    LABELS "integration;perception"
+    TIMEOUT 60
+    )
+
 # M8-07 (upstream DEC-025) host-layer budgeted OCR path: the VisualSessionHost
 # branch that routes `run_ocr` requests carrying `ocr_budget` through the
 # configured `budgeted_ocr_backend`. Pins the request field mapping observed at

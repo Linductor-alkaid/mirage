@@ -28,6 +28,19 @@ M9-06/07/08 按 [DEC-109](../decisions/DEC-109-continuous-perception-attention-a
 
 ## 现状与迁移边界
 
+### 2026-10-22：关系与规划消费预算
+
+Mirador `23f7ed2` 的 Experimental 关系/规划消费复用现有 worker，默认新增
+coordinator 512 KiB/16 条条件、单份 relation view 512 KiB/256 实体/1,024 关系、
+单份 attention plan 64 KiB，配置仅可收紧，见
+[消费契约](continuous-visual-analysis.md)。这些是新增状态/结果的局部预算，原有
+缓存、快照与消费者保留代数继续单列，不能据此宣称全产品存量门禁完成。
+
+已结算请求在唤醒 future 消费者前释放源帧/attention payload，避免 mailbox
+历史版本继续占用采集的两代像素；worker 唤醒接入在途能力取消，覆盖 Executor
+优先关闭。当前识别后的规划不等于当前 OCR 已按 ROI 减少，也不表示静态退避
+或真实资源收益已经验收。负责人 Mirage 维护者，由 M9-11/12 在生产接线后补测。
+
 ### 2026-10-22：采集基础层局部预算
 
 M9-06/07 opt-in `ContinuousCaptureHost` 的预算已在

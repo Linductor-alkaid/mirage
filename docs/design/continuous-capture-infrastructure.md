@@ -83,3 +83,8 @@ M9-12 执行；不能用 fake 时间或容量算术声明性能收益。
 
 本轮实际命令、166 项专项检查、sanitizer/Release 与 Debug 全量结果，以及
 TSAN 启动限制见[验证记录](../compatibility/continuous-capture-infrastructure-20261022.md)。
+
+2026-10-22 后续串联：共享帧进入同源 VisualSessionHost 的 Experimental 关系/
+规划路径，64 代采集到分析周转验证两代像素预算。结算后请求立即释放源帧，避免
+邮箱历史槽占住旧像素；新的消费范围与实际测试见
+[消费设计](continuous-visual-analysis.md)及[pin 审计](../supply-chain/mirador-continuous-perception-20261022.md)。

@@ -12,6 +12,7 @@
 #include <kairo/blocking_io.hpp>
 #include <kairo/executor.hpp>
 
+#include <mirador/continuous_perception.hpp>
 #include <mirador/detector_backend.hpp>
 #include <mirador/frame.hpp>
 #include <mirador/fusion.hpp>
@@ -100,7 +101,38 @@ struct VisualGeometryStage {
 /// capture form; violations reject the request at admission.
 enum class VisualAnalysisAdmission { always, when_changed };
 
+/// M9-05/07/18: Experimental Mirador consumption, one background-only host.
+/// Budgets may only be tightened. Does not enable production consumers.
+struct VisualContinuousConfig {
+    std::int64_t max_coordination_bytes = 512 * 1024;
+    std::int64_t max_relation_bytes = 512 * 1024;
+    std::int64_t max_plan_bytes = 64 * 1024;
+    std::int32_t max_entities = 256;
+    std::int32_t max_relations = 1024;
+    std::int32_t max_focus_conditions = 16;
+};
+
+struct VisualContinuousRequest {
+    /// Trusted source instance/geometry/authority revision, NOT a demand epoch.
+    /// Positive and monotonic; advance before a source or sampling geometry reset.
+    std::uint64_t source_revision = 0;
+    mirador::AttentionPolicy attention;
+    mirador::ImportancePolicy importance;
+};
+
+struct VisualContinuousResult {
+    std::uint64_t source_revision = 0, source_epoch = 0;
+    mirador::RelationView relations;
+    /// Advisory work for subsequent consumption; derived AFTER current fusion.
+    /// coverage remains incomplete. Never authorizes current-frame ROI reuse/input.
+    mirador::AttentionPlan attention;
+    std::int64_t coordination_owned_bytes = 0, relation_owned_bytes = 0, plan_owned_bytes = 0;
+};
+
 struct VisualAnalysisRequest {
+    /// Required exactly when the host is configured for continuous background
+    /// analysis. Fusion then produces kOriented, with no marks/action references.
+    std::optional<VisualContinuousRequest> continuous;
     /// Capture to analyze (from `to_mirador_frame`); `source_id` must equal
     /// the host's.
     mirador::Frame frame;
@@ -130,10 +162,10 @@ struct VisualAnalysisRequest {
     VisualGeometryStage geometry;
     /// Fuse the produced OCR / detection / template / geometry evidence into
     /// a SemanticSnapshot published by the session. Fusion target space is
-    /// fixed to kDisplay (DEC-016 decision 3); `display_transform`
+    /// kDisplay by default (DEC-016 decision 3); `display_transform`
     /// (kOriented -> kDisplay) is then mandatory, even when numerically
-    /// identity. Evidence is declared in each capability request's
-    /// `output_space`; mirador recovers it.
+    /// identity. An opt-in continuous host uses kOriented. Evidence is declared in each capability
+    /// request's `output_space`; mirador recovers it.
     bool fuse = false;
     std::optional<mirador::Transform2D> display_transform;
     /// Analysis deadline on the steady clock; nullopt disables it. Expiry
@@ -191,6 +223,8 @@ struct VisualAnalysisOutcome {
 /// Result payload of one settled analysis request. Only the fields of the
 /// requested capabilities are meaningful.
 struct VisualAnalysisResult {
+    /// Present only for completed opt-in continuous fusion; no payload on skip.
+    std::optional<VisualContinuousResult> continuous;
     VisualAnalysisOutcome outcome;
     /// Change decision of this frame (when `analyze_change` ran); the first
     /// submission of a session reports kGlobal / kFirstFrame.
@@ -226,8 +260,8 @@ struct VisualAnalysisResult {
     /// output order, bounds in the frame's oriented pixel space (when the
     /// geometry stage ran).
     std::vector<mirador::GeometricRegionProposal> geometry_proposals;
-    /// Published fusion snapshot in kDisplay space (when `fuse` ran); the
-    /// pointee is immutable.
+    /// Fusion snapshot: kDisplay by default, kOriented on continuous hosts.
+    /// The pointee is immutable; only completed outcomes are current evidence.
     std::shared_ptr<const mirador::SemanticSnapshot> snapshot;
     /// Budget occupancy read on the worker after execution (plan item
     /// `M3-04`): the session's caches and the template index are all inside
@@ -241,6 +275,7 @@ struct VisualAnalysisResult {
         std::size_t template_index_entries = 0;
         /// Additional background baseline, outside the session cache budgets; <=4096.
         std::int64_t background_signature_bytes = 0;
+        std::int64_t continuous_coordination_bytes = 0;
     };
     CacheStats cache_stats;
     desktop::ImageFrame marked_frame;
@@ -249,6 +284,10 @@ struct VisualAnalysisResult {
 
 /// Configuration of one visual session host (DEC-016 decision 4).
 struct VisualSessionConfig {
+    /// M9-05/07/18: consume Experimental relation/attention APIs on this same
+    /// worker. A separate source host outputs image-space background observations;
+    /// legacy hosts retain display-space behavior. No template or marks paths.
+    std::optional<VisualContinuousConfig> continuous;
     /// mirador cache budgets; non-positive values fail `start()` through
     /// `PerceptionSession::create` (mirador rejects them, never clamps).
     std::int64_t frame_cache_bytes = std::int64_t{4} * 1024 * 1024;
