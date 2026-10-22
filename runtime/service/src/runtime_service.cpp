@@ -201,6 +201,12 @@ void settle_dialog_turn(const std::shared_ptr<detail::ServiceCore> &core,
         event.error =
             completion.cancelled ? std::string{"dialog turn was cancelled"} : completion.error;
         event.has_error = true;
+        // MIRA-20261022-001 / DEC-112: the structured category rides the
+        // settlement so consumers never parse summary text.
+        if (completion.output_limit_truncated) {
+            event.error_kind = "output_limit";
+            event.has_error_kind = true;
+        }
     }
     {
         std::lock_guard lock(core->dialogs.mutex);
@@ -248,6 +254,7 @@ void settle_dialog_turn(const std::shared_ptr<detail::ServiceCore> &core,
                     log.context_usage_sequence = record.sequence;
                 }
                 record.error = event.error;
+                record.error_kind = event.error_kind;
                 event.status = status;
                 event.user_text = record.user_text;
                 event.replaces_turn_id = record.replaces_turn_id;
@@ -2827,6 +2834,8 @@ struct RuntimeService::Impl {
                 entry.has_reply = record.status == "ok";
                 entry.error = record.error;
                 entry.has_error = record.status == "failed";
+                entry.error_kind = record.error_kind;
+                entry.has_error_kind = record.status == "failed" && !record.error_kind.empty();
                 entry.sequence = record.sequence;
                 entry.recorded_at_ms = record.recorded_at_ms;
                 entry.context_usage = record.context_usage;

@@ -612,6 +612,13 @@ struct DialogTurnEntry {
     /// status is "failed".
     std::string error;
     bool has_error = false;
+    /// encode-when-set: stable failure category, present exactly when status
+    /// is "failed" (MIRA-20261022-001 / DEC-112). Closed vocabulary:
+    /// "output_limit" marks a turn settled because the model hit its output
+    /// token limit (harness: bounded continuation budget exhausted; dialog:
+    /// single request cut off). Absent marks an unclassified failure.
+    std::string error_kind;
+    bool has_error_kind = false;
     /// The turn's position in the session's dialog sequence, self-incrementing.
     std::uint64_t sequence = 0;
     std::int64_t recorded_at_ms = 0;
@@ -1026,6 +1033,12 @@ struct ChatTurnUpdatedEvent {
     /// encode-when-set: present exactly when status is "failed".
     std::string error;
     bool has_error = false;
+    /// encode-when-set: stable failure category, present exactly when status
+    /// is "failed" (MIRA-20261022-001 / DEC-112); "output_limit" marks a
+    /// model output-token-limit settlement. Absent marks an unclassified
+    /// failure.
+    std::string error_kind;
+    bool has_error_kind = false;
     std::uint64_t sequence = 0;
     std::optional<ContextUsage> context_usage;
     std::string replaces_turn_id = {};
