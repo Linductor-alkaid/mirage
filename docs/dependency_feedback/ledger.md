@@ -9,6 +9,13 @@
 
 ## 分依赖台账
 
+2026-10-22：截断观测收口新增 [MIRA-20261022-001](mira.md#mira-20261022-001)
+（Open）：pinned `ConversationLoopResult` 与 `ConversationSettled` 事件不携带输出
+截断结构化原因，harness 耗尽 settle 只能文本匹配 `safe_summary`，事件订阅方完全
+无法感知截断。Mirage 同步在自有边界交付 [DEC-112](../decisions/DEC-112-output-limit-failure-category.md)
+消费面：`DialogCompletion` 结构化标记、IPC 对话轮 `error_kind` 封闭词表
+（"output_limit"）与 dialog 截断正文保留；文本锚点为临时方案，上游字段落地后移除。
+
 2026-10-22：[MIRADOR-20261019-001](mirador.md#mirador-20261019-001) 转 Accepted
 （部分交付与消费）：Mirador `23f7ed2` 已交付 Experimental 契约、关系视图与注意
 规划；完整覆盖采纳与时间事件仍待上游 M9-04/05。pin 和验证见
@@ -72,7 +79,7 @@ DEC-088 能力 4 新增 [MIRA-20261015-001](mira.md#mira-20261015-001)：部分�
 
 | 依赖 | 详细台账 | 已确认问题 | 说明 |
 | --- | --- | --- | --- |
-| Mira | [Mira台账](mira.md) | 既有状态见详细台账；Open 5 项：MIRA-20260922-001（MinGW 构建）、MIRA-20261008-002（-Wuseless-cast）、MIRA-20261012-002（ProviderCircuit cooldown）、MIRA-20261013-001（`Result::value()` 防线）、MIRA-20261016-003（kairo 0.7.0 延期能力跟踪）；另有 MIRA-20261016-004（PNG 编码缝）与 20261016-001（前瞻 Proposed）；MIRA-20261016-002 为追记 Resolved | Runtime/模型/工具/workflow及随Mira交付的Executor；PR#86 已消费，三方言 fixture 与 MiniMax 截图工具在线 2/2 |
+| Mira | [Mira台账](mira.md) | 既有状态见详细台账；Open 6 项：MIRA-20260922-001（MinGW 构建）、MIRA-20261008-002（-Wuseless-cast）、MIRA-20261012-002（ProviderCircuit cooldown）、MIRA-20261013-001（`Result::value()` 防线）、MIRA-20261016-003（kairo 0.7.0 延期能力跟踪）、MIRA-20261022-001（截断终态结构化）；另有 MIRA-20261016-004（PNG 编码缝）与 20261016-001（前瞻 Proposed）；MIRA-20261016-002 为追记 Resolved | Runtime/模型/工具/workflow及随Mira交付的Executor；PR#86 已消费，三方言 fixture 与 MiniMax 截图工具在线 2/2 |
 | Mirador | [Mirador台账](mirador.md) | 既有 M7-06 三项 Resolved；20261016-001 Proposed、20261016-002 In Progress；20261018-001 Open、20261019-001 Proposed | PR#35 三项本地消费已收口；#41 的密集 OCR 性能及连续感知/注意契约分别跟踪，其他状态及平台/权重限制见详细台账 |
 
 executor经pinned Mira传递引入，编号使用`MIRA-YYYYMMDD-NNN`，不直接向Executor提交。
