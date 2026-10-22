@@ -1,5 +1,8 @@
 # DEC-086：D-Bus 激活型应用的确定性启动与机器证据解除围栏
 
+> 当前恢复规则：人工复核及永久围栏部分已由
+> [DEC-113](DEC-113-autonomous-action-recovery.md) 替代；其他能力与权限约束继续有效。
+
 > 状态：Accepted
 > 日期：2026-10-14
 > 负责人：Mirage 维护者
@@ -54,3 +57,11 @@ verified 或派发前干净拒绝），未知失败始终不合格。点击/窗�
 verify 确认运行 → 记录 verified、围栏解除、下一修改放行、settle 通过；运行证据
 缺失时维持 uncertain 封锁。命令与结果见
 [验收记录](../compatibility/dbus-activatable-launch-20261014.md)。
+
+## 2026-10-22：自主恢复规则替代
+
+[DEC-113](DEC-113-autonomous-action-recovery.md) 部分替代本文此前的人工复核、
+永久只读与全局执行围栏：已释放的不确定输入经当前观察和重规划恢复，独立
+ApplicationProvider 路径不依赖旧点击；历史失败保留，不改为成功。取消、
+接管、撤权和无法确认释放仍按具体状态阻止受影响路径。此前验证记录保留历史含义，
+不代表当前默认策略；当前实现及限制见 DEC-113 和对应验收记录。

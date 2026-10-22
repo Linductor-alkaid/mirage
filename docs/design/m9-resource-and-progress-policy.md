@@ -139,3 +139,11 @@ mailbox 历史槽中的已结算 policy 在 future 可见前释放。最后完�
 worker，不新增周期取图；text_only 不生成 PNG/artifact，退休旧图输入引用。
 文本 preview 仍受 8 MiB 限制，平台原始获取仍按 32 MiB 单列；不把这些局部上限
 当作全进程 RSS。契约及验证见[产品接线](native-continuous-perception-wiring.md)。
+
+## 2026-10-22：自主恢复更正
+
+动作执行故障的默认恢复策略改按 [DEC-113](../decisions/DEC-113-autonomous-action-recovery.md)：
+保留执行不确定事实，以当前观察建立恢复基线，允许 Agent 重新规划及独立应用路径，
+不把普通 input_lag 升级为人工检查。恢复与条件匹配分开，任务结论仍依赖用户目标
+的当前证据。连续输入故障按 episode 停用局部路径，权限/接管与释放守卫保持。
+M9-20 跟踪实现和平台验收，不表示连续后台采样或任意故障通道重建已经交付。

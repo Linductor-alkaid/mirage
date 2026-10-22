@@ -498,6 +498,19 @@ void shared_contracts(const std::string &mode) {
             call.arguments_digest = mira::canonical_json_digest(args);
             return registry.execute(call, owner);
         };
+        const auto consume_image = [&] {
+            mira::AgentLoopSpec spec;
+            spec.task_id = ctx.task;
+            spec.session_id = ctx.session;
+            spec.task_epoch = ctx.task_epoch;
+            const auto supplied = turn.supply(spec);
+            check(bool(supplied));
+            mira::ModelRequest request;
+            request.task_id = ctx.task;
+            request.task_epoch = ctx.task_epoch;
+            request.input = supplied.value();
+            check(bool(turn.validate_request(request, ctx)));
+        };
         if (mode == "initial_denied") {
             input_allowed = false;
             const auto a = invoke(
@@ -573,8 +586,8 @@ void shared_contracts(const std::string &mode) {
             env->release_failed = true;
         if (mode == "uncertain")
             env->uncertain_input = true;
-        if (mode == "lag" || mode == "approach_lag")
-            env->lag_phase = mode == "lag" ? "click" : "travel";
+        if (mode == "lag" || mode == "approach_lag" || mode == "lag_exhaustion")
+            env->lag_phase = mode == "approach_lag" ? "travel" : "click";
         if (mode == "takeover")
             tools.actions->takeover();
         if (mode == "stale")
@@ -667,6 +680,27 @@ void shared_contracts(const std::string &mode) {
                                  ? "desktop.session.scroll"
                                  : "desktop.session.click",
                              args, action_ctx);
+        if (mode == "lag_exhaustion") {
+            for (int failure = 0; failure < 3; ++failure) {
+                check(result && result.value().failed);
+                const auto observed =
+                    invoke("desktop.screen.capture", JsonValue::Object{{"source", "desktop"}}, ctx);
+                check(observed && !observed.value().failed);
+                const auto &current = observed.value().result;
+                check(current.find("input_actionable")->as_boolean().value_or(false) ==
+                      (failure < 2));
+                verification.note_observation();
+                consume_image();
+                args.set("image_scope", *current.find("image_scope"));
+                args.set("environment_epoch", *current.find("environment_epoch"));
+                result = invoke("desktop.session.click", args, ctx);
+            }
+            check(result && result.value().failed &&
+                  result.value().safe_error_summary.find("input_recovery_budget_exhausted") !=
+                      std::string::npos);
+            check(env->inputs == 3 && env->created == 1 && env->closed == 0);
+            return;
+        }
         if (mode == "lag" || mode == "approach_lag") {
             check(result && result.value().failed);
             check(result.value().safe_error_summary.find("input_lag") != std::string::npos);
@@ -675,54 +709,36 @@ void shared_contracts(const std::string &mode) {
             const auto receipt = mira::parse_json(result.value().safe_error_summary);
             check(bool(receipt));
             const auto action_id = *receipt.value().find("action_id")->as_string();
-            const auto verified = verification.recheck(action_id, ctx);
-            check(verified && *verified.value().find("input_diagnostic")->as_string() ==
-                                  (mode == "lag" ? "phase=click sample=0 late_ms=300"
-                                                 : "phase=travel sample=3 late_ms=300"));
+            // Do not repeat the uncertain input. Observe once and use its new scope.
             const auto before_capture = env->captures;
             const auto observed = invoke("desktop.screen.capture",
                                          JsonValue{JsonValue::Object{{"source", "desktop"}}}, ctx);
             check(observed && !observed.value().failed &&
                   observed.value().result.find("source_sequence")->as_integer().value() >
                       before_capture);
-            check(observed && !observed.value().failed);
-            check(!*observed.value().result.find("input_actionable")->as_boolean());
+            check(*observed.value().result.find("input_actionable")->as_boolean());
             check(env->created == 1 && env->closed == 0);
-            const auto read = invoke("desktop.vision.ocr",
-                                     JsonValue{JsonValue::Object{{"text_only", true}}}, ctx);
-            check(read && !read.value().failed);
-            check(!*read.value().result.find("input_actionable")->as_boolean());
             verification.note_observation();
-            check(!verification.settle() && !verification.admit_effect(ctx));
+            consume_image();
+            check(bool(verification.admit_effect(ctx)));
+            // An old image still cannot dispatch after recovery.
             const int before = env->inputs + env->moves;
-            const auto blocked = invoke("desktop.session.click", args, ctx);
-            check(blocked && blocked.value().failed && env->inputs + env->moves == before);
-            // Bypass the verifier decorator to exercise the Adapter's own
-            // fence, even after text_only retired all image references.
-            mira::BuiltinToolRegistry raw_registry;
-            turn.register_tool(raw_registry, {});
-            const auto raw_tools = raw_registry.exposed_tools();
-            const auto raw_click =
-                std::find_if(raw_tools.begin(), raw_tools.end(),
-                             [](const auto &t) { return t.wire_name == "desktop.session.click"; });
-            check(raw_click != raw_tools.end());
-            mira::ToolProposal call;
-            call.tool_id = raw_click->tool_id;
-            call.tool_version = raw_click->version;
-            call.wire_name = raw_click->wire_name;
-            call.has_side_effects = true;
-            call.operation_id = mira::OperationId::generate();
-            call.provider_call_id.value = "raw-fenced-input";
-            call.arguments = args;
-            // Policy fields belong only to the decorated harness schema.
-            auto raw_args = *call.arguments.as_object();
-            std::erase_if(raw_args, [](const auto &entry) { return entry.first == "verify_kind"; });
-            call.arguments = JsonValue{std::move(raw_args)};
-            call.arguments_digest = mira::canonical_json_digest(call.arguments);
-            const auto raw = raw_registry.execute(call, ctx);
-            check(raw && raw.value().failed &&
-                  raw.value().safe_error_summary.find("input_fenced") != std::string::npos);
-            check(env->inputs + env->moves == before);
+            const auto old = invoke("desktop.session.click", args, ctx);
+            check(old && old.value().failed && env->inputs + env->moves == before);
+            env->lag_phase.clear();
+            auto next = args;
+            next.set("image_scope", *observed.value().result.find("image_scope"));
+            next.set("environment_epoch", *observed.value().result.find("environment_epoch"));
+            const auto recovered = invoke("desktop.session.click", next, ctx);
+            check(recovered && !recovered.value().failed && env->inputs > 0);
+            verification.note_observation();
+            check(verification.settle());
+            const auto original = verification.recheck(action_id, ctx);
+            check(original &&
+                  *original.value().find("execution_status")->as_string() == "uncertain");
+            check(*original.value().find("input_diagnostic")->as_string() ==
+                  (mode == "lag" ? "phase=click sample=0 late_ms=300"
+                                 : "phase=travel sample=3 late_ms=300"));
             return;
         }
         if (mode == "unicode") {
@@ -2514,8 +2530,10 @@ void native_ocr_loop(kairo::Executor &executor, const std::string &mode) {
 // session. Assert the actual decorated registry prevents provider dispatch.
 class FencedEffectsScript final : public mira::IModelProvider {
   public:
-    FencedEffectsScript(mira::ModelProfile profile, bool failed)
-        : profile_(std::move(profile)), failed_(failed) {}
+    FencedEffectsScript(mira::ModelProfile profile, bool failed,
+                        std::shared_ptr<NativeEnvironment> env, bool observe_only)
+        : profile_(std::move(profile)), failed_(failed), env_(std::move(env)),
+          observe_only_(observe_only) {}
     const mira::ModelProfile &profile() const override { return profile_; }
     std::vector<mira::ModelRequest> requests;
     mira::Result<mira::ModelResponse> infer(const mira::ModelRequest &request,
@@ -2529,21 +2547,30 @@ class FencedEffectsScript final : public mira::IModelProvider {
         response.requested_model = profile_.model_selector;
         response.status = mira::ModelCompletionStatus::Completed;
         const std::vector<std::string> names =
-            failed_ ? std::vector<std::string>{"desktop.screen.capture",
-                                               "desktop.session.click",
-                                               "exec",
-                                               "write",
-                                               "edit",
-                                               "desktop.screen.capture",
-                                               "desktop.vision.ocr",
-                                               "desktop.vision.state"}
-                    : std::vector<std::string>{"desktop.screen.capture", "desktop.session.click",
-                                               "exec"};
+            observe_only_
+                ? std::vector<std::string>{"desktop.screen.capture", "desktop.session.click",
+                                           "desktop.screen.capture"}
+            : failed_ ? std::vector<std::string>{"desktop.screen.capture",
+                                                 "desktop.session.click",
+                                                 "exec",
+                                                 "exec",
+                                                 "exec",
+                                                 "write",
+                                                 "edit",
+                                                 "desktop.screen.capture",
+                                                 "desktop.vision.ocr",
+                                                 "desktop.vision.state",
+                                                 "exec",
+                                                 "desktop.screen.capture",
+                                                 "desktop.session.click",
+                                                 "desktop.screen.capture"}
+                      : std::vector<std::string>{"desktop.screen.capture", "desktop.session.click",
+                                                 "exec", "desktop.screen.capture"};
         const auto step = requests.size() - 1;
         if (step >= names.size()) {
             mira::MessageOutput message;
-            message.content.emplace_back(
-                mira::OutputTextPart{"Observation available; uncertain input needs review.", {}});
+            message.content.emplace_back(mira::OutputTextPart{
+                "Current observation supports the result; the old click remains uncertain.", {}});
             response.output.emplace_back(std::move(message));
             return response;
         }
@@ -2554,6 +2581,8 @@ class FencedEffectsScript final : public mira::IModelProvider {
             if (!step)
                 args.set("interaction", true);
         } else if (name == "desktop.session.click") {
+            if (step > 1)
+                env_->lag_phase.clear();
             const mira::ToolResultPart *capture = nullptr;
             for (const auto &item : request.input)
                 for (const auto &part : item.content)
@@ -2597,9 +2626,11 @@ class FencedEffectsScript final : public mira::IModelProvider {
   private:
     mira::ModelProfile profile_;
     bool failed_;
+    std::shared_ptr<NativeEnvironment> env_;
+    bool observe_only_;
 };
 
-void cross_tool_fence(kairo::Executor &executor, bool lag) {
+void cross_tool_fence(kairo::Executor &executor, bool lag, bool observe_only = false) {
     auto env = std::make_shared<NativeEnvironment>();
     env->provide_windows = true;
     env->activation_available = false;
@@ -2636,7 +2667,7 @@ void cross_tool_fence(kairo::Executor &executor, bool lag) {
     };
     std::shared_ptr<FencedEffectsScript> script;
     integration::ModelProviderOverride provider([&](const auto &profile) {
-        script = std::make_shared<FencedEffectsScript>(profile, lag);
+        script = std::make_shared<FencedEffectsScript>(profile, lag, env, observe_only);
         return script;
     });
     integration::ModelLayerConfig config;
@@ -2649,29 +2680,39 @@ void cross_tool_fence(kairo::Executor &executor, bool lag) {
                               "", "Open video, preserving uncertainty guards", context());
                       })
                       .get();
-    if (result.ok != !lag) {
+    if (!result.ok) {
         std::cerr << "cross_tool_fence lag=" << lag << " error=" << result.error
                   << " process_calls=" << env->process_calls
                   << " model_calls=" << script->requests.size() << "\n";
     }
-    check(result.ok == !lag);
-    check(env->process_calls == (lag ? 0 : 1));
+    check(result.ok);
+    check(env->process_calls == (observe_only ? 0 : 1));
     check(
         std::none_of(script->requests.front().tools.begin(), script->requests.front().tools.end(),
                      [](const auto &tool) { return tool.wire_name == "desktop_window_activate"; }));
     check(env->created == 1 && env->closed == 1);
-    if (lag) {
+    if (observe_only) {
+        check(script->requests.size() == 4 && env->inputs == 1 && env->moves == 1);
+        bool retained_uncertainty = false;
+        for (const auto &record : result.parts)
+            if (record.name == "desktop.session.click" && record.status == "failed")
+                retained_uncertainty =
+                    record.output.find("\"execution_status\":\"uncertain\"") != std::string::npos &&
+                    record.output.find("\"verified\":false") != std::string::npos;
+        check(retained_uncertainty);
+    } else if (lag) {
         check(ocr == 1 && queries == 1);
-        check(script->requests.size() == 9);
+        check(script->requests.size() == 15);
         int blocked = 0;
         for (const auto &part : result.parts) {
             if (part.name == "exec" || part.name == "write" || part.name == "edit") {
-                check(part.status == "failed");
-                check(part.output.find("human review") != std::string::npos);
-                ++blocked;
+                if (part.status == "failed") {
+                    check(part.output.find("reobserve current desktop state") != std::string::npos);
+                    ++blocked;
+                }
             }
         }
-        check(blocked == 3);
+        check(blocked == 5);
     }
     model.shutdown();
 }
@@ -3633,6 +3674,7 @@ int main() {
                                          "uncertain",
                                          "lag",
                                          "approach_lag",
+                                         "lag_exhaustion",
                                          "takeover",
                                          "stale",
                                          "initial_denied",
@@ -3659,6 +3701,7 @@ int main() {
             native_ocr_loop(executor, mode);
         cross_tool_fence(executor, false);
         cross_tool_fence(executor, true);
+        cross_tool_fence(executor, true, true);
         input_reuse_contention(executor);
         shared_long_press_contract();
         shared_loop(executor);

@@ -564,8 +564,8 @@ mira::Result<JsonValue> DesktopImageTurn::native_ocr(const JsonValue &args,
         {"regions", JsonValue{JsonValue::Array{}}}}};
     // DEC-081: OCR publishes the replacement interactive scope when its image
     // will be supplied to the model. Observation regions themselves stay non-actionable.
-    const bool input_actionable = !text_only && !native_input_fenced_ && native_input_enabled_ &&
-                                  supply_images_ && native_session_ &&
+    const bool input_actionable = !text_only && !native_input_recovery_.blocked() &&
+                                  native_input_enabled_ && supply_images_ && native_session_ &&
                                   native_session_->input_supported();
     result.set("input_actionable", input_actionable);
     if (input_actionable)
@@ -859,6 +859,9 @@ DesktopImageTurn::finish_native_publish(desktop::ImageFrame frame,
                                                                                        : "global";
         }
     }
+    // Only a strictly later source frame reopens the released input path.
+    // Text-only publication still retires all image-bound action references.
+    native_input_recovery_.observe(source_sequence);
     if (text_only_capture_) {
         // M9-06: keep only the authorized preview pixels. No encoding/store
         // artifact and no supplied-image lease can survive a text-only read.
@@ -904,10 +907,10 @@ DesktopImageTurn::finish_native_publish(desktop::ImageFrame frame,
     metadata_.set("desktop_coordinates_available", false);
     metadata_.set("observation_only", !(native_session_ && native_session_->input_supported()));
     if (native_input_enabled_) {
-        metadata_.set("input_actionable", !native_input_fenced_ && native_session_ &&
+        metadata_.set("input_actionable", !native_input_recovery_.blocked() && native_session_ &&
                                               native_session_->input_supported());
-        if (native_input_fenced_)
-            metadata_.set("input_blocked_reason", "input_lag_requires_human_review");
+        if (native_input_recovery_.blocked())
+            metadata_.set("input_blocked_reason", native_input_recovery_.reason());
         if (native_session_ && native_session_->input_supported())
             metadata_.set("image_scope", mira::OperationId::generate().to_string());
     }

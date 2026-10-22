@@ -99,3 +99,9 @@ callback；Portal fixture 覆盖既有授权、拒绝、取消与流契约，不
 配对性能、Windows、pet 像素共存和长时 soak 未验收。负责人 Mirage 维护者；
 补跑条件为更新后的产品重启、用户授权桌面、受控任务/设备和预登记质量门槛。
 本轮不重启正在运行的产品，不宣称上述门禁通过。
+
+## 同日策略更正
+
+维护者随后要求自主恢复，本文中“永久只读/人工复核及任务仍 failed”属于旧策略
+验证结果，保留作历史证据。当前策略由 [DEC-113](../decisions/DEC-113-autonomous-action-recovery.md)
+替代，见[新验收记录](autonomous-action-recovery-20261022.md)。

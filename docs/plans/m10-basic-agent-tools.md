@@ -443,3 +443,10 @@ exec 输出可能在字符中间触及字节预算，或本身包含非 UTF-8 �
 继续、任务身份/取消以及不确定后只读观察分别回归。验证证据在
 [恢复验证记录](../compatibility/native-action-recovery-20261022.md)。
 该修复不关闭 M10 的未验平台、权限及真实模型门禁。
+
+## 2026-10-22：M10-07 故障恢复更正
+
+[DEC-113](../decisions/DEC-113-autonomous-action-recovery.md) 替代同日永久跨工具围栏：
+已释放执行不确定时，exec/write/edit 等待当前桌面观察后可重新规划执行；基础副作用
+清除旧桌面结算检查点。共享撤权、释放无法确认与未知回执仍明确拒绝，不使用命令词
+白名单。验收见[自主恢复记录](../compatibility/autonomous-action-recovery-20261022.md)。

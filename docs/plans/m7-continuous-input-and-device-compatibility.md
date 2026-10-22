@@ -491,3 +491,12 @@ backend 与 Adapter 均拒绝后续输入；即时撤下输入许可，后续帧
 受控模型、注入慢通知及同流 OCR/state 回归见
 [恢复验证记录](../compatibility/native-action-recovery-20261022.md)。实际 compositor
 迟到根因、真实模型/手感及 Windows 保持开放，M7-25/26/31 不因本轮关闭。
+
+### 2026-10-23：M7-25/26 自主恢复与策略 v3
+
+依据 [DEC-113](../decisions/DEC-113-autonomous-action-recovery.md)，同日旧“只读保留但
+不能恢复”的结论由新观察/重规划闭环替代。执行失败不改写，固定条件和恢复状态分别
+表达；严格新源帧恢复已释放的 input_lag，第三次连续迟到停用局部路径。工具策略版本
+升至 v3，历史 v2 golden 保留，新夹具为 desktop_action_policy_v3.json。具体命令、
+回归和实机限制见[自主恢复验收](../compatibility/autonomous-action-recovery-20261022.md)，
+M7-25/26/31 与 M9-20 的未验平台/通道重建门禁不因本轮关闭。

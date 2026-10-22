@@ -170,9 +170,12 @@ mira::Result<Json> DesktopImageTurn::shared_input(const std::string &operation, 
         return rejected("owner_mismatch");
     if (cancel_.cancelled() || ctx.cancelled_or_expired(mira::Timestamp::now()))
         return rejected("cancelled");
-    if (native_input_fenced_)
-        return rejected("input_fenced", false, true, {}, {},
-                        "Human review required; only read-only observation remains available.");
+    if (native_input_recovery_.blocked())
+        return rejected(
+            native_input_recovery_.reason(), false, true, {}, {},
+            native_input_recovery_.awaiting_frame()
+                ? "Observe a newer frame, inspect current state, then replan."
+                : "This input route is unavailable; use observation or another authorized route.");
     if (!native_session_ || !native_session_->input_supported() || !native_input_frame_ ||
         !image_ || !supplied_image_)
         return rejected("interactive_image_required");
@@ -441,19 +444,21 @@ mira::Result<Json> DesktopImageTurn::shared_input(const std::string &operation, 
     const auto input_failure = [&](const desktop::InputOutcome &failed) {
         if (failed.side_effect_may_have_occurred) {
             if (failed.error.code == "input_lag" && failed.input_released) {
-                native_input_fenced_ = true;
+                native_input_recovery_.failed(failed, fresh.frame.source_sequence);
                 metadata_.set("input_actionable", false);
-                metadata_.set("input_blocked_reason", "input_lag_requires_human_review");
+                metadata_.set("input_blocked_reason", native_input_recovery_.reason());
                 native_newer_than_sequence_ = fresh.frame.source_sequence;
             } else {
                 native_session_.reset();
                 native_failed_ = true;
             }
         }
-        return rejected(
-            failed.error.code, failed.side_effect_may_have_occurred, failed.input_released, {}, {},
-            native_input_fenced_ ? "Human review required; sharing is observation-only." : "",
-            failed.error.message);
+        return rejected(failed.error.code, failed.side_effect_may_have_occurred,
+                        failed.input_released, {}, {},
+                        native_input_recovery_.blocked()
+                            ? "Observe current state and replan; do not replay the failed input."
+                            : "",
+                        failed.error.message);
     };
     try {
         bool moved = false;
@@ -501,6 +506,7 @@ mira::Result<Json> DesktopImageTurn::shared_input(const std::string &operation, 
     if (!out.ok) {
         return input_failure(out);
     }
+    native_input_recovery_.completed();
     // DEC-081: only a later source frame can verify this dispatched action.
     native_newer_than_sequence_ = fresh.frame.source_sequence;
     return Json{Json::Object{{"schema", 2},

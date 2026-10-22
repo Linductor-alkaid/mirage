@@ -3,6 +3,7 @@
 #include <chrono>
 #include <kairo/executor.hpp>
 #include <mirage/desktop/action_coordinator.hpp>
+#include <mirage/desktop/input_recovery.hpp>
 #include <mirage/desktop/input_session.hpp>
 #include <poll.h>
 #include <stdexcept>
@@ -11,6 +12,30 @@ int main() {
     using namespace mirage;
     using namespace platform::linux_backend;
     using Kind = desktop::SharedInputAction::Kind;
+    desktop::InputRecovery recovery;
+    const desktop::InputOutcome lag{false, false, {"input_lag", "fixture"}, true, true};
+    for (unsigned episode = 0; episode < 3; ++episode) {
+        recovery.failed(lag, 10 + episode);
+        MIRAGE_CHECK(recovery.blocked());
+        recovery.observe(10 + episode);
+        MIRAGE_CHECK(recovery.blocked());
+        recovery.observe(11 + episode);
+        MIRAGE_CHECK(recovery.blocked() == (episode == 2));
+    }
+    MIRAGE_CHECK(std::string(recovery.reason()) == "input_recovery_budget_exhausted");
+    desktop::InputRecovery reset;
+    for (unsigned episode = 0; episode < 8; ++episode) {
+        reset.failed(lag, episode + 1);
+        reset.observe(episode + 2);
+        MIRAGE_CHECK(!reset.blocked());
+        reset.completed(); // successful full input resets only this failure episode
+    }
+    for (const auto *code : {"input_release_failed", "portal_input_failed"}) {
+        desktop::InputRecovery unavailable;
+        unavailable.failed({false, false, {code, "fixture"}, true, false}, 1);
+        unavailable.observe(100);
+        MIRAGE_CHECK(unavailable.blocked() && !unavailable.awaiting_frame());
+    }
     kairo::Executor executor;
     kairo::ExecutorConfig config;
     config.min_threads = config.max_threads = 1;

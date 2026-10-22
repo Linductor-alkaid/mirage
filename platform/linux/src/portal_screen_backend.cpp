@@ -2,6 +2,7 @@
 #include "../../common/src/presentation_context.hpp"
 #include "portal_authorization.hpp"
 #include "portal_input.hpp"
+#include <mirage/desktop/input_recovery.hpp>
 
 #include <algorithm>
 #include <array>
@@ -803,10 +804,11 @@ class PortalObservation final : public desktop::DesktopCaptureSession {
                     false,
                     true};
         }
-        if (input_fenced_)
+        if (input_recovery_.blocked())
             return {false,
                     false,
-                    {"input_fenced", "Human review required; observation only"},
+                    {input_recovery_.reason(),
+                     "Observe current state or select another authorized route"},
                     false,
                     true};
         if (input_supported()) {
@@ -814,12 +816,14 @@ class PortalObservation final : public desktop::DesktopCaptureSession {
             auto out = shared_input(*state_.cast, action, limits, bounded, *state_.pointer);
             if (out.side_effect_may_have_occurred && !out.ok) {
                 if (out.error.code == "input_lag" && out.input_released) {
-                    input_fenced_ = true;
+                    input_recovery_.failed(out, state_.cast->observed_pointer_sequence);
                 } else {
                     failed_ = true;
                     state_.cast.reset();
                 }
             }
+            if (out.ok && action.kind != desktop::SharedInputAction::Kind::Move)
+                input_recovery_.completed();
             return out;
         }
 #endif
@@ -834,7 +838,13 @@ class PortalObservation final : public desktop::DesktopCaptureSession {
         if (failed_)
             return failure("portal_session_closed", "Sharing session ended; no reauthorization");
         const desktop::CancelToken bounded([&] { return cancel.cancelled() || revoked(); });
-        auto out = capture_portal(limits, bounded, &state_);
+        auto requested = limits;
+        if (input_recovery_.awaiting_frame())
+            requested.newer_than_sequence =
+                std::max(requested.newer_than_sequence, input_recovery_.watermark());
+        auto out = capture_portal(requested, bounded, &state_);
+        if (out.ok && !bounded.cancelled())
+            input_recovery_.observe(out.frame.source_sequence);
         if (revoked())
             out = failure("desktop_authorization_changed",
                           "Desktop authorization changed; start a new task");
@@ -868,7 +878,7 @@ class PortalObservation final : public desktop::DesktopCaptureSession {
     NativeObservation state_;
     std::uint64_t generation_ = 0;
     bool failed_ = false;
-    bool input_fenced_ = false;
+    desktop::InputRecovery input_recovery_;
 };
 } // namespace
 std::unique_ptr<desktop::DesktopCaptureSession>

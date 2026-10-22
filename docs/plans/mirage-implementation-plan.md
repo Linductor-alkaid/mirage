@@ -950,3 +950,9 @@ pet、OCR/YOLO 和资源打包），Release 定向回归 19/19、39.57 s，公�
 围栏、输入迟到诊断及只读观察收敛。验证与未验项见
 [恢复验证记录](../compatibility/native-action-recovery-20261022.md)，未关闭真实模型
 与未验平台门禁。
+
+2026-10-22：维护者要求纠正长期自主 Agent 的故障恢复方向。新增
+[DEC-113](../decisions/DEC-113-autonomous-action-recovery.md) 与 M9-20，替代普通执行
+不确定默认人工复核：保留失败、重新观察、独立路径和重规划；input_lag 等待新源帧
+后恢复，连续故障停用局部路径。计划/设计/安全及证据同步，M9 保持 In Progress，
+真实平台长任务和释放失败通道重建不由受控回归关闭。

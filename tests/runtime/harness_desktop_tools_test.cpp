@@ -2980,7 +2980,7 @@ void cross_effect_admission_scenario() {
                      (scenario == "complete" || scenario == "rejected"));
         if (scenario == "uncertain" || scenario == "release") {
             verify.note_observation();
-            MIRAGE_CHECK(!verify.admit_effect(ctx));
+            MIRAGE_CHECK(bool(verify.admit_effect(ctx)) == (scenario == "uncertain"));
         }
         auto foreign = ctx;
         foreign.task = mira::TaskId::generate();

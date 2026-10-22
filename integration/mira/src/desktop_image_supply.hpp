@@ -3,6 +3,7 @@
 #include <kairo/comm/mailbox.hpp>
 #include <mira/conversation_loop.hpp>
 #include <mira/model_dialect.hpp>
+#include <mirage/desktop/input_recovery.hpp>
 #include <mirage/integration/desktop_atom_toolset.hpp>
 #include <mutex>
 #include <optional>
@@ -143,7 +144,7 @@ class DesktopImageTurn {
     std::optional<desktop::ImageFrame> native_frame_;
     std::optional<desktop::ImageFrame> native_input_frame_;
     bool native_input_enabled_ = false;
-    bool native_input_fenced_ = false;
+    desktop::InputRecovery native_input_recovery_;
     bool text_only_capture_ = false;
     std::string continuous_source_key_;
     std::uint64_t continuous_authority_ = 0;

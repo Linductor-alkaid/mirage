@@ -1220,3 +1220,9 @@ DEC-095/110 当日修订及 DEC-056/081/091。验证见
 [恢复记录](../compatibility/native-action-recovery-20261022.md)：Debug 全量
 110/110，三 sanitizer 各 10/10，native-release 16/16；同名守卫后五配置
 各 4/4。真实模型/M9 文本与 compositor 验收保持开放，不从旧会话推断通过。
+
+## 2026-10-22：M7-25/26 自主恢复更正
+
+按 [DEC-113](../decisions/DEC-113-autonomous-action-recovery.md) 与 M9-20 消费现有
+Continuous 循环及观察反馈，撤销普通执行不确定默认人工检查的策略。历史执行结果
+与恢复状态分开，保持目标/引用/权限/释放守卫；真实平台验收仍由 M7-31/M9-12 留证。

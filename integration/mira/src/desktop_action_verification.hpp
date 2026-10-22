@@ -11,7 +11,7 @@ class DesktopActionVerification {
                               mirage::desktop::CancelToken cancel);
     static bool mutation(const std::string &name);
     static bool observation(const std::string &name);
-    /// Harness policy v2: explicit, bounded condition dependencies; major
+    /// Harness policy v3: explicit, bounded condition dependencies; major
     /// tool version isolates these semantics from historical receipts.
     static void configure_policy(mira::BuiltinToolSpec &);
     /// DEC-056 v2: record a successful desktop observation after input, using
@@ -19,6 +19,7 @@ class DesktopActionVerification {
     /// bounded checkpoint without capturing. Ordinary read-only tools are
     /// not observations; callers use observation(name) to classify them.
     void note_observation();
+    void note_external_effect();
     mira::Result<mira::JsonValue> execute(const std::string &, const mira::JsonValue &,
                                           const mira::OperationContext &,
                                           const mira::BuiltinToolHandler &);
@@ -42,7 +43,9 @@ class DesktopActionVerification {
     mira::Result<void> admit_effect(const mira::OperationContext &) const;
 
   private:
-    mira::Result<void> admit_action(const mira::OperationContext &) const;
+    mira::Result<void> admit_action(const mira::OperationContext &,
+                                    bool independent_application = false) const;
+    void refresh_recovery_fence();
     struct Record {
         std::string id, action, window, kind, title, role, name, text, application_id;
         // DEC-067 private host constraints; ordinary model tool schemas do not expose these.
@@ -59,6 +62,7 @@ class DesktopActionVerification {
         std::chrono::steady_clock::time_point observed_at{};
         std::vector<std::string> dependencies;
         bool dispatched = false, uncertain = false, input_released = false;
+        bool recovery_observed = false, recovery_replanned = false;
         mira::Sha256Digest condition_digest;
         // Historical recovery facts only; never current dispatch authority.
         // Digest excludes volatile image scope/epoch; no input plaintext copied.
@@ -91,7 +95,7 @@ class DesktopActionVerification {
     // M9-03 active-window capacity (DEC-090): `records_` keeps the recent
     // action window; settled records (verified, completed without requested
     // conditions, or a clean rejection) archive instead of refusing new
-    // actions. Unmet conditions and uncertain effects never archive. `archived_` still
+    // actions. Unmet conditions and unrecovered uncertain effects never archive. `archived_` still
     // resolves receipts for request validation and UI projection; its oldest
     // entries drop only well past the point where the compacted canonical
     // history has stopped replaying them.

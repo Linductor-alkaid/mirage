@@ -28,9 +28,9 @@ std::optional<DesktopEvidence> desktop_evidence(const Part &part) {
     const auto *policy = v->find("policy_version");
     const auto *released = v->find("input_released");
     const bool execution_only = view.status == "not_requested" && policy &&
-                                policy->as_integer() == 2 && condition.empty() &&
-                                field("execution_status", 32) == "completed" && released &&
-                                released->as_boolean().value_or(false);
+                                (policy->as_integer() == 2 || policy->as_integer() == 3) &&
+                                condition.empty() && field("execution_status", 32) == "completed" &&
+                                released && released->as_boolean().value_or(false);
     const bool shared = (action == "desktop.session.click" || action == "desktop.session.key" ||
                          action == "desktop.session.type_text" ||
                          action == "desktop.session.scroll" || action == "desktop.session.drag") &&
