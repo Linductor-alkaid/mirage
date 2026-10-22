@@ -69,6 +69,10 @@ class WindowProvider {
 
     WindowQueryOutcome front_window() { return front_window(CancelToken{}); }
 
+    /// Whether this provider can activate windows. Enumeration-only backends
+    /// override this so adapters do not advertise an unavailable action.
+    virtual bool activation_supported() const { return true; }
+
     /// Brings the window with the given id to the front and focuses it.
     /// Unknown ids fail with "not_found" before any side effect.
     virtual WindowActionOutcome activate(const std::string &window_id,

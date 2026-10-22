@@ -47,3 +47,15 @@ OCR 刷新后返回实际新的 image_scope 与 input_actionable，观察区域�
 时可请求 shared_frame_observed 并使用回执的新图/新 scope，无需再绕一次模型取图。
 新帧仍不证明业务完成。OCR 的 text_only 入口退休旧图引用，后续输入必须重新 capture；
 无帧 state 查询不构成当前观察，见[产品接线](../design/native-continuous-perception-wiring.md)。
+
+## 2026-10-22：原生窗口与观察能力边界
+
+窗口枚举与语义快照必须使用同一个 WindowProvider；没有 X11 时先创建 AT-SPI
+窗口 provider，再传给 Accessibility Backend，避免已枚举的窗口不可解析。
+WindowProvider 新增加法 activation_supported（兼容默认 true）；AT-SPI 返回
+false，Adapter 不注册 desktop.window.activate，并向模型明确能力边界。
+该 C++ virtual 加法要求自研消费者与 Backend 同源重编译，不承诺旧二进制 ABI。
+
+AT-SPI v1 仍以标题映射语义树。窗口枚举中出现同标题的多个 ID 时，快照返回
+unsupported_window，不任取首个窗口；稳定平台对象身份与完整跨应用映射仍属于
+M7-18 后续验收范围。本增量不把同名窗口合并为一个对象。

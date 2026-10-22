@@ -257,6 +257,12 @@ DesktopEnvironment
 
 `ApplicationProvider` 负责应用发现、启动、关闭以及运行状态；`WindowProvider` 负责窗口枚举、前台窗口、焦点、位置和尺寸；`AccessibilityProvider` 提供当前应用的结构化 UI 信息；`ScreenProvider` 提供显示器、窗口和 ROI 图像；`InputProvider` 提供键盘、鼠标以及文本输入；`FilesystemProvider` 和 `ProcessProvider` 提供桌面 Agent 对本机工作环境的直接访问。
 
+窗口枚举与激活分别判断能力：WindowProvider.activation_supported() 的兼容默认
+为 true，纯 Wayland 的 AT-SPI provider 返回 false；Workflow 与 Harness 均不为
+该 provider 注册激活工具。Accessibility Backend 复用同一个窗口 provider，
+保证枚举的 ID 可映射到语义快照。此能力不绕过运行时焦点/权限检查，接口变更
+须同源重编译；边界和验证见 [DEC-081](../decisions/DEC-081-native-cua-capability-and-observation-continuity.md)。
+
 这些 Provider 形成统一的环境接口，上层行为不直接包含平台实现信息。
 
 基础 Agent 四工具的后续扩展见 [M10 开发计划](../plans/m10-basic-agent-tools.md)、

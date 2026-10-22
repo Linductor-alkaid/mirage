@@ -50,7 +50,8 @@ std::unique_ptr<mirage::desktop::TrayCarrier> open_tray_carrier();
 /// Opt-in X11/XWayland surface of the Linux backend (M2-02, DEC-015). When
 /// enabled, an explicit display selects X11; an empty display auto-selects
 /// the session. Native Wayland exposes Portal Screen observation and task-owned
-/// interaction (DEC-077), with global Window / Input / Clipboard unavailable. Other sessions use
+/// interaction (DEC-077), with global Input / Clipboard unavailable. AT-SPI
+/// may enumerate windows, but does not support activation. Other sessions use
 /// $DISPLAY and expose X11 providers when the connection succeeds.
 struct X11Options {
     bool enabled = false;

@@ -75,6 +75,45 @@ int main() {
         MIRAGE_CHECK(!native_windows->list_windows({}, native_cancel).ok);
         MIRAGE_CHECK(native_windows->front_window().found);
         MIRAGE_CHECK(!native_windows->activate("atspi:FakeEditor/FakeWindow — main").ok);
+        MIRAGE_CHECK(!native_windows->activation_supported());
+        // Title-only v1 mapping must refuse duplicate observations rather
+        // than returning the first window's tree for a second window id.
+        class DuplicateWindows final : public mirage::desktop::WindowProvider {
+          public:
+            std::vector<mirage::desktop::WindowInfo> windows;
+            mirage::desktop::WindowListOutcome
+            list_windows(const mirage::desktop::WindowListLimits &, const CancelToken &) override {
+                return {true, windows, {}};
+            }
+            mirage::desktop::WindowQueryOutcome front_window(const CancelToken &) override {
+                return {};
+            }
+            mirage::desktop::WindowActionOutcome activate(const std::string &,
+                                                          const CancelToken &) override {
+                return {};
+            }
+        } duplicate_windows;
+        duplicate_windows.windows = {native_list.windows.front(), native_list.windows.front()};
+        duplicate_windows.windows.back().id += "#1";
+        auto duplicate_backend =
+            mirage::platform::linux_backend::AtspiBackend::open(&duplicate_windows);
+        for (const auto &window : duplicate_windows.windows) {
+            const auto duplicate = duplicate_backend->semantic_snapshot(window.id, {}, {});
+            MIRAGE_CHECK(!duplicate.ok && duplicate.error.code == "unsupported_window");
+            MIRAGE_CHECK(duplicate.snapshot.nodes.empty());
+        }
+        // Use the environment constructor, rather than manually joining the
+        // providers: this catches the pure Wayland nullptr wiring regression.
+        {
+            LinuxDesktopEnvironment native_env({}, {.enabled = false, .display = {}},
+                                               {.enabled = true});
+            MIRAGE_CHECK(native_env.window() && native_env.accessibility());
+            const auto windows = native_env.window()->list_windows();
+            MIRAGE_CHECK(windows.ok && windows.windows.size() == 2);
+            const auto snapshot =
+                native_env.accessibility()->semantic_snapshot(windows.windows.front().id, {}, {});
+            MIRAGE_CHECK(snapshot.ok && !snapshot.snapshot.nodes.empty());
+        }
 
         // A real X window whose title matches the accessible window makes
         // the window-id -> title -> accessibility-tree mapping observable.

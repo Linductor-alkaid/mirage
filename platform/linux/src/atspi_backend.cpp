@@ -484,7 +484,7 @@ SnapshotOutcome AtspiBackend::semantic_snapshot(const std::string &window_id,
         return outcome;
     }
     // Map the opaque window id to a title via the environment's window
-    // surface (honest v1 mapping: accessibility window name == X title).
+    // surface (honest v1 mapping: accessibility window name == provider title).
     std::string title;
     if (impl_->windows != nullptr) {
         WindowListLimits unlimited;
@@ -495,6 +495,12 @@ SnapshotOutcome AtspiBackend::semantic_snapshot(const std::string &window_id,
                 title = window.title;
                 break;
             }
+        }
+        if (!title.empty() &&
+            std::count_if(listed.windows.begin(), listed.windows.end(),
+                          [&](const auto &window) { return window.title == title; }) > 1) {
+            outcome.error = error("unsupported_window", "window title mapping is ambiguous");
+            return outcome;
         }
     }
     if (title.empty()) {
@@ -796,6 +802,8 @@ class AtspiWindowProvider final : public mirage::desktop::WindowProvider {
         outcome.ok = true; // no focused window is a result, not an error
         return outcome;
     }
+
+    bool activation_supported() const override { return false; }
 
     mirage::desktop::WindowActionOutcome activate(const std::string &,
                                                   const CancelToken &cancel) override {

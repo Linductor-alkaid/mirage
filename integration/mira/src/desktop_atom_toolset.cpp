@@ -1293,7 +1293,8 @@ DesktopAtomToolset::build(mirage::desktop::DesktopEnvironment *environment, Atom
     if (auto *provider = environment->window()) {
         register_atom(window_list(*provider));
         register_atom(window_front(*provider));
-        register_atom(window_activate(gate, *provider, feed, {}, {}, actions));
+        if (provider->activation_supported())
+            register_atom(window_activate(gate, *provider, feed, {}, {}, actions));
         window_provider = provider;
     }
     if (auto *provider = environment->application()) {
@@ -1435,7 +1436,8 @@ void DesktopAtomToolset::register_harness_tools(mira::BuiltinToolRegistry &regis
     if (auto *accessibility = desktop.environment->accessibility())
         add(accessibility_semantic_snapshot(*accessibility, desktop.overlay, cancel, true), true);
     if (window && desktop.actions && allow_mutations && (desktop.gate || desktop.authorize)) {
-        add(scoped_mutation("desktop.window.activate", desktop, observation, cancel));
+        if (window->activation_supported())
+            add(scoped_mutation("desktop.window.activate", desktop, observation, cancel));
         if (auto *input = desktop.environment->input();
             input && input->complete_actions_supported()) {
             add(scoped_mutation("desktop.input.type_text", desktop, observation, cancel));
