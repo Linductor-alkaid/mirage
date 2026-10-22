@@ -110,6 +110,7 @@ struct VisualContinuousConfig {
     std::int32_t max_entities = 256;
     std::int32_t max_relations = 1024;
     std::int32_t max_focus_conditions = 16;
+    std::int32_t max_events = 256;
 };
 
 struct VisualContinuousRequest {
@@ -118,15 +119,27 @@ struct VisualContinuousRequest {
     std::uint64_t source_revision = 0;
     mirador::AttentionPolicy attention;
     mirador::ImportancePolicy importance;
+    /// Zero: advisory cycle, no adoption. Nonzero: trusted capability/model/
+    /// parameter identity for completed full-frame evidence. Requires at least
+    /// one OCR/detector stage, all enabled stages kRefresh without ROI, and no
+    /// budgeted OCR or geometry. Advance identity when that stack changes.
+    std::uint64_t full_frame_evidence_digest = 0;
 };
 
 struct VisualContinuousResult {
     std::uint64_t source_revision = 0, source_epoch = 0;
     mirador::RelationView relations;
-    /// Advisory work for subsequent consumption; derived AFTER current fusion.
-    /// coverage remains incomplete. Never authorizes current-frame ROI reuse/input.
-    mirador::AttentionPlan attention;
+    /// Derived AFTER current fusion. Coverage describes snapshot regions only;
+    /// it does not establish full-screen coverage or authorize input actions.
+    mirador::WorkPlan cycle;
+    std::optional<mirador::WorkAcceptReport> accepted;
+    mirador::TemporalSemanticState temporal;
+    std::vector<mirador::FocusStateResolution> focus;
+    mirador::EventDrain events;
+    /// plan bytes include token strings; state output is bounded by the same
+    /// entity/focus/event caps and coordinator string budget, separately counted.
     std::int64_t coordination_owned_bytes = 0, relation_owned_bytes = 0, plan_owned_bytes = 0;
+    std::int64_t state_owned_bytes = 0;
 };
 
 struct VisualAnalysisRequest {

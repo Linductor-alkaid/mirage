@@ -30,9 +30,10 @@ M9-06/07/08 按 [DEC-109](../decisions/DEC-109-continuous-perception-attention-a
 
 ### 2026-10-22：关系与规划消费预算
 
-Mirador `23f7ed2` 的 Experimental 关系/规划消费复用现有 worker，默认新增
-coordinator 512 KiB/16 条条件、单份 relation view 512 KiB/256 实体/1,024 关系、
-单份 attention plan 64 KiB，配置仅可收紧，见
+Mirador `2a9f483` 的 Experimental 连续感知消费复用现有 worker，默认新增
+coordinator 512 KiB/256 实体/256 事件/16 条条件、单份 relation view 512 KiB/256 实体/1,024 关系、
+单份 token 化 WorkPlan 64 KiB（含 source 字符串），时间/焦点/drain 输出按相同
+数量与协调器字符串预算有界，单列 state_owned_bytes，配置仅可收紧，见
 [消费契约](continuous-visual-analysis.md)。这些是新增状态/结果的局部预算，原有
 缓存、快照与消费者保留代数继续单列，不能据此宣称全产品存量门禁完成。
 

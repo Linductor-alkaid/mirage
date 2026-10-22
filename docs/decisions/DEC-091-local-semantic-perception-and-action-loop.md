@@ -69,10 +69,11 @@ owner，复用现有 kairo blocking worker；共享帧用 LatestMailbox 合并�
 [连续帧采集基础层](../design/continuous-capture-infrastructure.md)。该局部实现
 不代表 DEC-109 全部协议冻结，也不改变现有产品采集/pet 默认值。
 
-同日后续：从 Mirador `23f7ed2` 消费 Experimental 关系视图与注意规划，独立
-oriented 宿主使用当前帧快照，不改变原 display 观察的坐标/动作契约；新增来源
-代际与预算见[消费设计](../design/continuous-visual-analysis.md)。完整前置 ROI、
-覆盖采纳及事件仍按 M9-07/18 与上游后续交付推进，不在 Mirage 重写算法。
+同日后续：从 Mirador `2a9f483` 消费 Experimental 关系、token/覆盖采纳与
+时间状态/事件，独立 oriented 宿主使用当前帧快照；对显式全帧刷新证据批量采纳，
+不将缓存/部分结果视为新完成。来源、预算和结算边界见
+[消费设计](../design/continuous-visual-analysis.md)。前置 ROI、无帧查询与生产模型
+供给仍按 M9-07/18 推进，不在 Mirage 重写覆盖或去抖算法。
 
 - 连续帧是输入源，不要求每一帧都复制、编码、识别、融合和发送。优先消费平台
   可用的 damage/dirty-region 信息，再用 Mirador 变化检测确认相关区域；平台

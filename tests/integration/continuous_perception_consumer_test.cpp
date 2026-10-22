@@ -94,6 +94,193 @@ VisualAnalysisResult get(std::future<VisualAnalysisResult> future) {
     return ready ? future.get() : VisualAnalysisResult{};
 }
 
+VisualAnalysisRequest refreshed(const std::string &source, std::uint64_t sequence,
+                                std::uint64_t revision = 1, std::uint64_t digest = 42) {
+    auto request = request_for(source, sequence, revision);
+    request.ocr.cache_policy = mirador::CachePolicy::kRefresh;
+    request.continuous->full_frame_evidence_digest = digest;
+    request.continuous->attention.conditions[0] = {};
+    request.continuous->attention.conditions[0].roi = {0, 0, 8, 8};
+    return request;
+}
+
+void completed_evidence_confirms_and_reset_terminates() {
+    Owner owner;
+    FakeOcrBackend ocr;
+    VisualSessionHost host(owner.executor, "confirmed", config_for(ocr));
+    std::string error;
+    MIRAGE_CHECK(host.start(error));
+    auto first = get(host.submit(refreshed("confirmed", 1)));
+    MIRAGE_CHECK(first.outcome.kind == Kind::kCompleted && first.continuous);
+    if (!first.continuous)
+        return;
+    const auto &fill = *first.continuous;
+    MIRAGE_CHECK(fill.accepted && fill.accepted->committed && fill.accepted->adopted_count == 1);
+    MIRAGE_CHECK(fill.cycle.work.size() == 1);
+    MIRAGE_CHECK(fill.cycle.work[0].token.request_digest == 42);
+    MIRAGE_CHECK(fill.cycle.work[0].token.frame_sequence == 1);
+    MIRAGE_CHECK(fill.temporal.entities.size() == 1);
+    MIRAGE_CHECK(fill.temporal.confirmed_frame == 0);
+    MIRAGE_CHECK(fill.events.events.empty());
+    MIRAGE_CHECK(!fill.focus[0].resolved);
+
+    auto second = get(host.submit(refreshed("confirmed", 2)));
+    MIRAGE_CHECK(second.outcome.kind == Kind::kCompleted && second.continuous);
+    if (!second.continuous)
+        return;
+    const auto &confirmed = *second.continuous;
+    MIRAGE_CHECK(confirmed.cycle.work.empty() && !confirmed.cycle.reuse.empty());
+    MIRAGE_CHECK(confirmed.cycle.coverage == mirador::CoverageState::kComplete);
+    MIRAGE_CHECK(confirmed.accepted && confirmed.accepted->adopted_count == 0);
+    MIRAGE_CHECK(confirmed.temporal.confirmed_frame == 2);
+    MIRAGE_CHECK(confirmed.focus[0].resolved);
+    MIRAGE_CHECK(confirmed.temporal.pending_events == confirmed.events.events.size());
+    MIRAGE_CHECK(confirmed.events.events.size() == 1);
+    MIRAGE_CHECK(confirmed.events.events[0].semantic == mirador::EventSemantic::kBegin);
+    MIRAGE_CHECK(mirador::semantic_event_consistent(confirmed.events.events[0]));
+    MIRAGE_CHECK(confirmed.state_owned_bytes > 0);
+    MIRAGE_CHECK(confirmed.coordination_owned_bytes <= 512 * 1024);
+    MIRAGE_CHECK(ocr.calls() == 2); // Reuse in the ledger does not yet schedule OCR.
+
+    const auto third = get(host.submit(refreshed("confirmed", 3)));
+    MIRAGE_CHECK(third.continuous && third.continuous->events.events.empty());
+    const auto reset = get(host.submit(refreshed("confirmed", 1, 2)));
+    MIRAGE_CHECK(reset.continuous && reset.continuous->cycle.resync_required);
+    if (!reset.continuous)
+        return;
+    MIRAGE_CHECK(reset.continuous->source_epoch == 2);
+    MIRAGE_CHECK(reset.continuous->events.events.size() == 1);
+    const auto &end = reset.continuous->events.events[0];
+    MIRAGE_CHECK(end.semantic == mirador::EventSemantic::kEnd);
+    MIRAGE_CHECK(end.change_kind == mirador::SemanticChangeKind::kSourceReset);
+    MIRAGE_CHECK(end.window.source_epoch == 1);
+    MIRAGE_CHECK(end.event_sequence > confirmed.events.events[0].event_sequence);
+    MIRAGE_CHECK(reset.continuous->temporal.confirmed_frame == 0);
+    const auto next = get(host.submit(refreshed("confirmed", 2, 2)));
+    MIRAGE_CHECK(next.continuous && next.continuous->events.events.size() == 1);
+    MIRAGE_CHECK(next.continuous && next.continuous->events.events[0].window.source_epoch == 2);
+}
+
+void adoption_admission_and_identity_are_explicit() {
+    Owner owner;
+    FakeOcrBackend ocr;
+    VisualSessionHost host(owner.executor, "proof", config_for(ocr));
+    std::string error;
+    MIRAGE_CHECK(host.start(error));
+    for (int mode = 0; mode < 7; ++mode) {
+        auto request = refreshed("proof", 1);
+        if (mode == 0)
+            request.ocr.cache_policy = mirador::CachePolicy::kReadWrite;
+        if (mode == 1)
+            request.ocr.roi = mirador::RectF{0, 0, 4, 4};
+        if (mode == 2)
+            request.ocr_budget = VisualAnalysisRequest::OcrBudget{};
+        if (mode == 3)
+            request.run_ocr = false;
+        if (mode == 4)
+            request.geometry.run = true;
+        if (mode == 5)
+            request.run_detector = true;
+        if (mode == 6) {
+            request.run_detector = true;
+            request.detector.cache_policy = mirador::CachePolicy::kRefresh;
+            request.detector.roi = mirador::RectF{0, 0, 4, 4};
+        }
+        MIRAGE_CHECK(get(host.submit(std::move(request))).outcome.kind == Kind::kRejected);
+    }
+    MIRAGE_CHECK(ocr.calls() == 0);
+    const auto advisory = get(host.submit(request_for("proof", 1)));
+    MIRAGE_CHECK(advisory.continuous && !advisory.continuous->accepted);
+    MIRAGE_CHECK(advisory.continuous && advisory.continuous->temporal.confirmed_frame == 0);
+    const auto fill = get(host.submit(refreshed("proof", 2)));
+    MIRAGE_CHECK(fill.continuous && fill.continuous->accepted->adopted_count == 1);
+    MIRAGE_CHECK(fill.continuous && fill.continuous->cycle.replaced_inflight == 1);
+    const auto changed = get(host.submit(refreshed("proof", 3, 1, 43)));
+    MIRAGE_CHECK(changed.continuous && changed.continuous->accepted->adopted_count == 1);
+    MIRAGE_CHECK(changed.continuous && !changed.continuous->cycle.invalidations.empty());
+    if (changed.continuous && !changed.continuous->cycle.invalidations.empty())
+        MIRAGE_CHECK(changed.continuous->cycle.invalidations[0].reason ==
+                     mirador::WorkInvalidationReason::kIdentityChanged);
+    const auto old_frame = get(host.submit(refreshed("proof", 2)));
+    MIRAGE_CHECK(old_frame.outcome.kind == Kind::kRejected && !old_frame.continuous);
+    const auto next = get(host.submit(refreshed("proof", 4, 1, 43)));
+    MIRAGE_CHECK(next.continuous && next.continuous->events.events.empty());
+}
+
+void notification_filter_and_overflow_are_visible() {
+    for (const bool notify : {false, true}) {
+        Owner owner;
+        FakeOcrConfig fake;
+        mirador::TextRegion left, right;
+        left.bounds = {0, 0, 4, 8};
+        left.utf8_text = "left";
+        left.confidence = 0.9F;
+        right.bounds = {4, 0, 4, 8};
+        right.utf8_text = "right";
+        right.confidence = 0.9F;
+        fake.regions = {left, right};
+        FakeOcrBackend ocr(fake);
+        auto config = config_for(ocr);
+        config.continuous->max_events = 1;
+        VisualSessionHost host(owner.executor, "events", config);
+        std::string error;
+        MIRAGE_CHECK(host.start(error));
+        for (std::uint64_t sequence = 1; sequence <= 3; ++sequence) {
+            auto request = refreshed("events", sequence);
+            request.continuous->importance.notify_enabled = notify;
+            const auto result = get(host.submit(std::move(request)));
+            MIRAGE_CHECK(result.outcome.kind == Kind::kCompleted && result.continuous);
+            if (!result.continuous)
+                continue;
+            const auto &facts = *result.continuous;
+            MIRAGE_CHECK(facts.temporal.entities.size() == 2);
+            if (sequence == 2) {
+                MIRAGE_CHECK(facts.temporal.confirmed_frame == 2);
+                MIRAGE_CHECK(facts.focus[0].resolved && facts.focus[0].stable_ids.size() == 2);
+                MIRAGE_CHECK(facts.events.events.size() == (notify ? 1 : 0));
+                MIRAGE_CHECK(facts.events.dropped_total == (notify ? 1 : 0));
+                MIRAGE_CHECK(facts.temporal.dropped_events == facts.events.dropped_total);
+                MIRAGE_CHECK(facts.cycle.resync_required == notify);
+            }
+            if (sequence == 3) {
+                MIRAGE_CHECK(facts.events.events.empty());
+                MIRAGE_CHECK(!facts.cycle.resync_required);
+            }
+        }
+    }
+}
+
+void exact_pixels_invalidate_even_when_change_gate_is_quiet() {
+    Owner owner;
+    FakeOcrBackend ocr;
+    VisualSessionHost host(owner.executor, "drift", config_for(ocr));
+    std::string error;
+    MIRAGE_CHECK(host.start(error));
+    MIRAGE_CHECK(get(host.submit(refreshed("drift", 1))).outcome.kind == Kind::kCompleted);
+    MIRAGE_CHECK(get(host.submit(refreshed("drift", 2))).outcome.kind == Kind::kCompleted);
+    auto shared = std::make_shared<SharedCaptureFrame>();
+    shared->image = pixels().frame;
+    shared->image.pixels[0] += 1;
+    shared->source_id = "drift";
+    shared->sequence = 3;
+    shared->received_at = std::chrono::steady_clock::now();
+    auto request = refreshed("drift", 3);
+    request.frame = to_mirador_frame(shared).take_value();
+    const auto result = get(host.submit(std::move(request)));
+    MIRAGE_CHECK(result.outcome.kind == Kind::kCompleted && result.continuous);
+    if (!result.continuous)
+        return;
+    MIRAGE_CHECK(result.admission_change &&
+                 result.admission_change->classification == mirador::ChangeClassification::kNone);
+    MIRAGE_CHECK(result.continuous->cycle.reuse.empty());
+    MIRAGE_CHECK(result.continuous->accepted->adopted_count == 1);
+    MIRAGE_CHECK(result.continuous->cycle.invalidations.size() == 1);
+    if (!result.continuous->cycle.invalidations.empty())
+        MIRAGE_CHECK(result.continuous->cycle.invalidations[0].reason ==
+                     mirador::WorkInvalidationReason::kContentMismatch);
+    MIRAGE_CHECK(ocr.calls() == 3);
+}
+
 void current_snapshot_relations_and_policy_changes() {
     Owner owner;
     FakeOcrBackend ocr;
@@ -124,10 +311,10 @@ void current_snapshot_relations_and_policy_changes() {
     MIRAGE_CHECK(facts.relations.entities.size() == 1);
     MIRAGE_CHECK(facts.relations.coverage == mirador::CoverageState::kIncomplete);
     MIRAGE_CHECK(facts.relations.entities[0].freshness == mirador::Freshness::kUnvalidated);
-    MIRAGE_CHECK(facts.attention.coverage == mirador::CoverageState::kIncomplete);
-    MIRAGE_CHECK(facts.attention.work.size() == 1);
-    MIRAGE_CHECK(facts.attention.resolutions[0].resolved);
-    MIRAGE_CHECK(facts.attention.policy_revision == 1);
+    MIRAGE_CHECK(facts.cycle.attention.coverage == mirador::CoverageState::kIncomplete);
+    MIRAGE_CHECK(facts.cycle.attention.work.size() == 1);
+    MIRAGE_CHECK(facts.cycle.attention.resolutions[0].resolved);
+    MIRAGE_CHECK(facts.cycle.attention.policy_revision == 1);
     MIRAGE_CHECK(facts.coordination_owned_bytes <= 512 * 1024);
     MIRAGE_CHECK(facts.relation_owned_bytes <= 512 * 1024);
     MIRAGE_CHECK(facts.plan_owned_bytes <= 64 * 1024);
@@ -145,16 +332,16 @@ void current_snapshot_relations_and_policy_changes() {
     condition.roi = mirador::RectF{1, 1, 2, 2};
     const auto changed = get(host.submit(changed_policy));
     MIRAGE_CHECK(changed.outcome.kind == Kind::kCompleted);
-    MIRAGE_CHECK(changed.continuous && changed.continuous->attention.policy_revision == 2);
+    MIRAGE_CHECK(changed.continuous && changed.continuous->cycle.attention.policy_revision == 2);
     MIRAGE_CHECK(changed.continuous &&
-                 changed.continuous->attention.work[0].roi == (mirador::RectF{1, 1, 2, 2}));
+                 changed.continuous->cycle.attention.work[0].roi == (mirador::RectF{1, 1, 2, 2}));
 
     changed_policy.frame.sequence = 4;
     changed_policy.continuous->importance.priority = 7;
     const auto priority = get(host.submit(std::move(changed_policy)));
     MIRAGE_CHECK(priority.outcome.kind == Kind::kCompleted);
-    MIRAGE_CHECK(priority.continuous && priority.continuous->attention.policy_revision == 2);
-    MIRAGE_CHECK(priority.continuous && priority.continuous->attention.work[0].priority == 7);
+    MIRAGE_CHECK(priority.continuous && priority.continuous->cycle.attention.policy_revision == 2);
+    MIRAGE_CHECK(priority.continuous && priority.continuous->cycle.attention.work[0].priority == 7);
     MIRAGE_CHECK(priority.snapshot &&
                  priority.snapshot->regions[0].confidence == first.snapshot->regions[0].confidence);
 
@@ -185,15 +372,15 @@ void unresolved_focus_needs_explicit_bootstrap() {
     request.continuous->attention.conditions[0].text_equals = "unseen text";
     const auto unresolved = get(host.submit(request));
     MIRAGE_CHECK(unresolved.outcome.kind == Kind::kCompleted);
-    MIRAGE_CHECK(unresolved.continuous && unresolved.continuous->attention.work.empty());
+    MIRAGE_CHECK(unresolved.continuous && unresolved.continuous->cycle.attention.work.empty());
     MIRAGE_CHECK(unresolved.continuous &&
-                 !unresolved.continuous->attention.resolutions[0].resolved);
+                 !unresolved.continuous->cycle.attention.resolutions[0].resolved);
     request.frame.sequence = 2;
     request.continuous->importance.allow_bootstrap_full_frame = true;
     const auto bootstrap = get(host.submit(std::move(request)));
     MIRAGE_CHECK(bootstrap.outcome.kind == Kind::kCompleted);
-    MIRAGE_CHECK(bootstrap.continuous && bootstrap.continuous->attention.work.size() == 1);
-    MIRAGE_CHECK(bootstrap.continuous && bootstrap.continuous->attention.work[0].kind ==
+    MIRAGE_CHECK(bootstrap.continuous && bootstrap.continuous->cycle.attention.work.size() == 1);
+    MIRAGE_CHECK(bootstrap.continuous && bootstrap.continuous->cycle.attention.work[0].kind ==
                                              mirador::PlannedWorkKind::kBootstrap);
 }
 
@@ -263,7 +450,7 @@ void cancellation_deadline_exception_and_shutdown_settle() {
         VisualSessionHost host(owner.executor, "lifecycle", config_for(ocr));
         std::string error;
         MIRAGE_CHECK(host.start(error));
-        auto request = request_for("lifecycle", 1);
+        auto request = refreshed("lifecycle", 1);
         desktop::CancelToken cancel;
         request.external_cancel = cancel;
         if (mode == 1)
@@ -283,8 +470,10 @@ void cancellation_deadline_exception_and_shutdown_settle() {
         MIRAGE_CHECK(!result.snapshot && !result.continuous);
         if (mode == 0 || mode == 1) {
             ocr.release = true;
-            MIRAGE_CHECK(get(host.submit(request_for("lifecycle", 2))).outcome.kind ==
-                         Kind::kCompleted);
+            const auto next = get(host.submit(refreshed("lifecycle", 2)));
+            MIRAGE_CHECK(next.outcome.kind == Kind::kCompleted);
+            MIRAGE_CHECK(next.continuous && next.continuous->temporal.confirmed_frame == 0);
+            MIRAGE_CHECK(next.continuous && next.continuous->events.events.empty());
         }
     }
 }
@@ -376,6 +565,10 @@ void shared_capture_analysis_churn_does_not_pin_settled_requests() {
 } // namespace
 
 int main() {
+    completed_evidence_confirms_and_reset_terminates();
+    adoption_admission_and_identity_are_explicit();
+    notification_filter_and_overflow_are_visible();
+    exact_pixels_invalidate_even_when_change_gate_is_quiet();
     std::fprintf(stderr, "[continuous consumer] current snapshot and policy\n");
     current_snapshot_relations_and_policy_changes();
     std::fprintf(stderr, "[continuous consumer] unresolved focus\n");

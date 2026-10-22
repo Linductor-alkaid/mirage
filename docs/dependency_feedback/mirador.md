@@ -255,9 +255,10 @@ Mirador 上游；工作项 M9-07/13/18，方案见
 不代表上游已承诺 API。
 直接 PP-OCR 性能问题仍归 MIRADOR-20261018-001，两个交付层次独立推进。
 
-最新消费基线（2026-10-22）：Mirador master `23f7ed2`，上游 DEC-026 已 Accepted，
-M9-01/02/03 已交付。Mirage 消费同步关系构建、source epoch/策略与当前帧注意
-规划，保持 Experimental/opt-in；完整覆盖 accept 与时间事件仍待上游 M9-04/05。
+最新消费基线（2026-10-22 后续）：Mirador master `2a9f483`，上游 DEC-026 已
+Accepted，M9-01～05 已交付。Mirage 在 opt-in worker 消费 plan_cycle/accept_work、
+时间/焦点查询和事件 drain，仅对显式完整刷新采纳；前置 ROI 调度、无帧查询、
+产品任务注意/模型供给、校准和端到端资源验收仍开放，保持 Experimental。
 契约/命令/实际验证见[消费审计](../supply-chain/mirador-continuous-perception-20261022.md)。
 下述 cb45a102 调查和日期化诉求保留为历史依据，不再代表最新 pin 的能力集合；
 不将反馈整体标 Resolved，也不在 Mirage 复制未交付的通用视觉协调算法。

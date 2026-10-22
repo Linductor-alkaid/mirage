@@ -7,10 +7,10 @@
 
 ## 1. 项目概述
 
-2026-10-22 后续：M9-05/07/18 消费 Mirador master `23f7ed2` 已交付的 Experimental
-关系视图与注意规划，复用视觉 worker，对共享帧的当前 oriented 融合快照执行。
-来源/策略版本隔离比较基线，完整覆盖采纳、时间事件和模型供给仍待交付；原有
-display 观察与动作契约保持原行为，见[消费设计](continuous-visual-analysis.md)。
+2026-10-22 后续：M9-05/07/18 消费 Mirador master `2a9f483` 的 Experimental
+关系、token/覆盖采纳与时间状态/事件，复用视觉 worker，对共享帧的当前 oriented
+融合快照执行。显式全帧刷新才允许采纳；前置 ROI、无帧焦点查询和模型供给仍
+待交付。原 display 观察与动作契约保持原行为，见[消费设计](continuous-visual-analysis.md)。
 
 2026-10-22 实施增量：M9-06/07 新增可显式启用的连续采集基础层，外部 owner
 注入授权 capture 函数和 kairo Executor，需求 timer 唤醒串行 blocking worker，
