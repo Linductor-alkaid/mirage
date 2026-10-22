@@ -122,6 +122,14 @@ struct DialogCompletion {
     bool failed = false;
     bool cancelled = false;
     std::string error;
+    /// MIRA-20261022-001 (interim): the turn failed because the model hit its
+    /// output token limit — the pinned loop spent its bounded continuation
+    /// budget (harness) or the single dialog request settled
+    /// Incomplete(MaxOutputTokens). The runtime service projects this onto the
+    /// structured `error_kind` of the chat turn face; drop the interim
+    /// safe-summary text anchor once upstream exposes the terminal reason
+    /// structurally.
+    bool output_limit_truncated = false;
     std::string reply_text;
     std::uint64_t model_steps = 0;
     std::uint64_t tool_calls = 0;

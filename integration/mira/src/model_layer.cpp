@@ -862,10 +862,23 @@ DialogCompletion ModelLayer::complete_dialog_turn(
     case mira::ModelCompletionStatus::Cancelled:
         completion.cancelled = true;
         return finish();
+    case mira::ModelCompletionStatus::Incomplete:
+        if (response.incomplete_reason != mira::IncompleteReason::MaxOutputTokens) {
+            completion.failed = true;
+            completion.error = "model layer did not complete the turn (status " +
+                               std::to_string(static_cast<int>(response.status)) + ")";
+            return finish();
+        }
+        // MIRA-20261022-001: pure dialog has no continuation budget, so the
+        // cutoff settles failed with the structured category; the partial body
+        // stays user-visible evidence (DEC-104).
+        completion.failed = true;
+        completion.output_limit_truncated = true;
+        completion.error = "the reply was cut off by the model output token limit";
+        break;
     case mira::ModelCompletionStatus::Refused:
     case mira::ModelCompletionStatus::ContentFiltered:
     case mira::ModelCompletionStatus::Failed:
-    case mira::ModelCompletionStatus::Incomplete:
     case mira::ModelCompletionStatus::Unknown:
         completion.failed = true;
         completion.error = "model layer did not complete the turn (status " +
@@ -886,19 +899,29 @@ DialogCompletion ModelLayer::complete_dialog_turn(
                     reply += text->text;
                 } else if (auto *refusal = std::get_if<mira::OutputRefusalPart>(&part)) {
                     completion.failed = true;
+                    // The refusal owns the settle reason; the truncation
+                    // category must not survive it.
+                    completion.output_limit_truncated = false;
                     completion.error = "model refused the request: " + refusal->safe_summary;
                     return finish();
                 }
             }
         } else if (auto *model_refusal = std::get_if<mira::RefusalOutput>(&item)) {
             completion.failed = true;
+            completion.output_limit_truncated = false;
             completion.error = "model refused the request: " + model_refusal->safe_summary;
             return finish();
         }
     }
     if (reply.empty()) {
-        completion.failed = true;
-        completion.error = "model returned no reply text";
+        if (!completion.output_limit_truncated) {
+            completion.failed = true;
+            completion.error = "model returned no reply text";
+        }
+        return finish();
+    }
+    if (completion.output_limit_truncated) {
+        completion.reply_text = std::move(reply);
         return finish();
     }
     capture_context_usage(completion, response, impl_->config, capture.last_input_estimate);
@@ -1495,6 +1518,15 @@ DialogCompletion ModelLayer::complete_harness_turn(
     completion.ok = !completion.cancelled && value.outcome == mira::ConversationOutcome::Answered;
     completion.failed = !completion.ok && !completion.cancelled;
     completion.error = value.safe_summary;
+    // MIRA-20261022-001 (interim): the pinned loop settles continuation
+    // exhaustion through the safe_summary text only; the ledger entry asks
+    // upstream for a structured terminal reason. Match the pinned summary
+    // inside this adapter boundary and drop the text anchor once the field
+    // lands.
+    const bool output_limit_settle =
+        value.outcome == mira::ConversationOutcome::Failed && value.output_continuations > 0 &&
+        value.safe_summary.find("output-limit continuation budget exhausted") !=
+            std::string::npos;
     // M9-03: the product counters are uint64 end to end. `total_turns` is the
     // true cumulative model-step count; the retained `turns` window is
     // bounded and no longer equals it in Continuous mode.
@@ -1560,6 +1592,10 @@ DialogCompletion ModelLayer::complete_harness_turn(
             capture_context_usage(completion, response, impl_->config, capture.last_input_estimate);
         }
     }
+    // Later overrides (supply failure, verification rejection, cancel) own the
+    // final settle reason, so the category only survives a genuine
+    // output-limit failure.
+    completion.output_limit_truncated = output_limit_settle && completion.failed;
     return finish();
 }
 
