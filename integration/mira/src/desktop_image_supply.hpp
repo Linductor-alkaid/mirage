@@ -143,6 +143,7 @@ class DesktopImageTurn {
     std::optional<desktop::ImageFrame> native_frame_;
     std::optional<desktop::ImageFrame> native_input_frame_;
     bool native_input_enabled_ = false;
+    bool native_input_fenced_ = false;
     bool text_only_capture_ = false;
     std::string continuous_source_key_;
     std::uint64_t continuous_authority_ = 0;

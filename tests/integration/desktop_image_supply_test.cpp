@@ -87,8 +87,36 @@ integration::DesktopToolContext desktop() {
 }
 
 class NativeEnvironment final : public mirage::desktop::DesktopEnvironment,
-                                public mirage::desktop::ScreenProvider {
+                                public mirage::desktop::ScreenProvider,
+                                public mirage::desktop::ProcessProvider,
+                                public mirage::desktop::FilesystemProvider {
   public:
+    int process_calls = 0;
+    mirage::desktop::ProcessProvider *process() override { return this; }
+    bool supports_working_directory() const override { return true; }
+    mirage::desktop::ProcessOutcome execute(const std::string &,
+                                            const mirage::desktop::ProcessLimits &,
+                                            const mirage::desktop::CancelToken &) override {
+        ++process_calls;
+        return mirage::testing::FakeDesktopEnvironment::default_process_outcome();
+    }
+    mirage::desktop::ProcessOutcome
+    execute_request(const mirage::desktop::ProcessRequest &request,
+                    const mirage::desktop::ProcessLimits &limits,
+                    const mirage::desktop::CancelToken &cancel) override {
+        return execute(request.command, limits, cancel);
+    }
+    // Write/edit are deliberately sentinel providers: a fenced call must not
+    // even reach their observation/commit checks.
+    mirage::desktop::FilesystemProvider *filesystem() override { return this; }
+    mirage::desktop::FilesystemCapabilities capabilities() const override {
+        return {true, true, true};
+    }
+    mirage::desktop::FileReadOutcome read_text_file(const std::filesystem::path &,
+                                                    const mirage::desktop::FileReadLimits &,
+                                                    const mirage::desktop::CancelToken &) override {
+        return {};
+    }
     int created = 0, captures = 0, closed = 0, inputs = 0, moves = 0;
     bool long_press_available = true;
     bool interactive = false, pixels_changed = false, release_failed = false,
@@ -97,6 +125,7 @@ class NativeEnvironment final : public mirage::desktop::DesktopEnvironment,
     // Automatic approach refuses when same-stream cursor metadata is unavailable.
     bool glide_origin_unknown = false, arrival_changed = false;
     std::string cursor_fault;
+    std::string lag_phase;
     // M7-16 / DEC-083: `pixels_changed` paints a position-dependent structural
     // pattern (a replaced subject whose frame fingerprint and block diffs both
     // move), while `drift` only shifts brightness uniformly (the subject stays
@@ -119,7 +148,7 @@ class NativeEnvironment final : public mirage::desktop::DesktopEnvironment,
     // M7-18: optional window-provider facade (the AT-SPI fallback stand-in)
     // and a configurable session frame, so region sources have room to crop.
     std::vector<mirage::desktop::WindowInfo> native_windows;
-    bool provide_windows = false;
+    bool provide_windows = false, activation_available = true;
     int frame_width = 4, frame_height = 2;
     std::function<std::vector<std::uint8_t>()> session_pixels;
     // Screen coordinates the last dispatched session input carried.
@@ -164,6 +193,7 @@ class NativeEnvironment final : public mirage::desktop::DesktopEnvironment,
             outcome.ok = true;
             return outcome;
         }
+        bool activation_supported() const override { return env_.activation_available; }
         NativeEnvironment &env_;
     };
     NativeWindow window_provider{*this};
@@ -210,6 +240,12 @@ class NativeEnvironment final : public mirage::desktop::DesktopEnvironment,
                                             const mirage::desktop::CancelToken &cancel) override {
             if (action.kind == mirage::desktop::SharedInputAction::Kind::Move) {
                 ++env.moves;
+                if (env.lag_phase == "travel")
+                    return {false,
+                            false,
+                            {"input_lag", "phase=travel sample=3 late_ms=300"},
+                            true,
+                            true};
                 if (env.glide_origin_unknown)
                     return {false,
                             false,
@@ -221,6 +257,9 @@ class NativeEnvironment final : public mirage::desktop::DesktopEnvironment,
                 return {true, false, {}, true, true};
             }
             ++env.inputs;
+            if (env.lag_phase == "click")
+                return {
+                    false, false, {"input_lag", "phase=click sample=0 late_ms=300"}, true, true};
             env.last_action_x = action.x;
             env.last_action_y = action.y;
             env.last_click_count = action.click_count;
@@ -534,6 +573,8 @@ void shared_contracts(const std::string &mode) {
             env->release_failed = true;
         if (mode == "uncertain")
             env->uncertain_input = true;
+        if (mode == "lag" || mode == "approach_lag")
+            env->lag_phase = mode == "lag" ? "click" : "travel";
         if (mode == "takeover")
             tools.actions->takeover();
         if (mode == "stale")
@@ -626,6 +667,64 @@ void shared_contracts(const std::string &mode) {
                                  ? "desktop.session.scroll"
                                  : "desktop.session.click",
                              args, action_ctx);
+        if (mode == "lag" || mode == "approach_lag") {
+            check(result && result.value().failed);
+            check(result.value().safe_error_summary.find("input_lag") != std::string::npos);
+            check(env->closed == 0 && !verification.settle());
+            check(!verification.admit_effect(ctx));
+            const auto receipt = mira::parse_json(result.value().safe_error_summary);
+            check(bool(receipt));
+            const auto action_id = *receipt.value().find("action_id")->as_string();
+            const auto verified = verification.recheck(action_id, ctx);
+            check(verified && *verified.value().find("input_diagnostic")->as_string() ==
+                                  (mode == "lag" ? "phase=click sample=0 late_ms=300"
+                                                 : "phase=travel sample=3 late_ms=300"));
+            const auto before_capture = env->captures;
+            const auto observed = invoke("desktop.screen.capture",
+                                         JsonValue{JsonValue::Object{{"source", "desktop"}}}, ctx);
+            check(observed && !observed.value().failed &&
+                  observed.value().result.find("source_sequence")->as_integer().value() >
+                      before_capture);
+            check(observed && !observed.value().failed);
+            check(!*observed.value().result.find("input_actionable")->as_boolean());
+            check(env->created == 1 && env->closed == 0);
+            const auto read = invoke("desktop.vision.ocr",
+                                     JsonValue{JsonValue::Object{{"text_only", true}}}, ctx);
+            check(read && !read.value().failed);
+            check(!*read.value().result.find("input_actionable")->as_boolean());
+            verification.note_observation();
+            check(!verification.settle() && !verification.admit_effect(ctx));
+            const int before = env->inputs + env->moves;
+            const auto blocked = invoke("desktop.session.click", args, ctx);
+            check(blocked && blocked.value().failed && env->inputs + env->moves == before);
+            // Bypass the verifier decorator to exercise the Adapter's own
+            // fence, even after text_only retired all image references.
+            mira::BuiltinToolRegistry raw_registry;
+            turn.register_tool(raw_registry, {});
+            const auto raw_tools = raw_registry.exposed_tools();
+            const auto raw_click =
+                std::find_if(raw_tools.begin(), raw_tools.end(),
+                             [](const auto &t) { return t.wire_name == "desktop.session.click"; });
+            check(raw_click != raw_tools.end());
+            mira::ToolProposal call;
+            call.tool_id = raw_click->tool_id;
+            call.tool_version = raw_click->version;
+            call.wire_name = raw_click->wire_name;
+            call.has_side_effects = true;
+            call.operation_id = mira::OperationId::generate();
+            call.provider_call_id.value = "raw-fenced-input";
+            call.arguments = args;
+            // Policy fields belong only to the decorated harness schema.
+            auto raw_args = *call.arguments.as_object();
+            std::erase_if(raw_args, [](const auto &entry) { return entry.first == "verify_kind"; });
+            call.arguments = JsonValue{std::move(raw_args)};
+            call.arguments_digest = mira::canonical_json_digest(call.arguments);
+            const auto raw = raw_registry.execute(call, ctx);
+            check(raw && raw.value().failed &&
+                  raw.value().safe_error_summary.find("input_fenced") != std::string::npos);
+            check(env->inputs + env->moves == before);
+            return;
+        }
         if (mode == "unicode") {
             check(result && result.value().failed &&
                   result.value().safe_error_summary.find("text_transport_unavailable") !=
@@ -2411,6 +2510,172 @@ void native_ocr_loop(kairo::Executor &executor, const std::string &mode) {
     model.shutdown();
 }
 
+// A provider deliberately tries the same cross-tool recovery as the real
+// session. Assert the actual decorated registry prevents provider dispatch.
+class FencedEffectsScript final : public mira::IModelProvider {
+  public:
+    FencedEffectsScript(mira::ModelProfile profile, bool failed)
+        : profile_(std::move(profile)), failed_(failed) {}
+    const mira::ModelProfile &profile() const override { return profile_; }
+    std::vector<mira::ModelRequest> requests;
+    mira::Result<mira::ModelResponse> infer(const mira::ModelRequest &request,
+                                            const mira::OperationContext &,
+                                            const mira::ProviderInferOptions &) override {
+        requests.push_back(request);
+        mira::ModelResponse response;
+        response.request_id = request.request_id;
+        response.operation_id = request.operation_id;
+        response.profile_id = profile_.id;
+        response.requested_model = profile_.model_selector;
+        response.status = mira::ModelCompletionStatus::Completed;
+        const std::vector<std::string> names =
+            failed_ ? std::vector<std::string>{"desktop.screen.capture",
+                                               "desktop.session.click",
+                                               "exec",
+                                               "write",
+                                               "edit",
+                                               "desktop.screen.capture",
+                                               "desktop.vision.ocr",
+                                               "desktop.vision.state"}
+                    : std::vector<std::string>{"desktop.screen.capture", "desktop.session.click",
+                                               "exec"};
+        const auto step = requests.size() - 1;
+        if (step >= names.size()) {
+            mira::MessageOutput message;
+            message.content.emplace_back(
+                mira::OutputTextPart{"Observation available; uncertain input needs review.", {}});
+            response.output.emplace_back(std::move(message));
+            return response;
+        }
+        const auto name = names[step];
+        JsonValue args{JsonValue::Object{}};
+        if (name == "desktop.screen.capture") {
+            args.set("source", "desktop");
+            if (!step)
+                args.set("interaction", true);
+        } else if (name == "desktop.session.click") {
+            const mira::ToolResultPart *capture = nullptr;
+            for (const auto &item : request.input)
+                for (const auto &part : item.content)
+                    if (const auto *result = std::get_if<mira::ToolResultPart>(&part);
+                        result && !result->failed && result->result.find("image_scope"))
+                        capture = result;
+            check(capture != nullptr);
+            args.set("image_scope", *capture->result.find("image_scope"));
+            args.set("environment_epoch", *capture->result.find("environment_epoch"));
+            args.set("x", 0);
+            args.set("y", 0);
+            args.set("width", 1);
+            args.set("height", 1);
+            args.set("verify_kind", "shared_frame_observed");
+        } else if (name == "exec") {
+            args.set("command", "xdg-open https://fixture.invalid/video");
+        } else if (name == "write") {
+            args.set("path", "/tmp/fixture.txt");
+            args.set("content", "fixture");
+        } else if (name == "edit") {
+            args.set("path", "/tmp/fixture.txt");
+            args.set("old_string", "before");
+            args.set("new_string", "after");
+        } else if (name == "desktop.vision.ocr")
+            args.set("text_only", true);
+        const auto tool =
+            std::find_if(request.tools.begin(), request.tools.end(), [&](const auto &t) {
+                return t.wire_name == mirage::testing::fixture_tool_name(name);
+            });
+        check(tool != request.tools.end());
+        mira::ToolCallOutput call;
+        call.tool_id = tool->tool_id;
+        call.provider_name = tool->wire_name;
+        call.provider_call_id.value = "fence-" + std::to_string(step);
+        call.arguments = std::move(args);
+        call.arguments_digest = mira::digest_string(mira::to_json_string(call.arguments));
+        response.output.emplace_back(std::move(call));
+        return response;
+    }
+
+  private:
+    mira::ModelProfile profile_;
+    bool failed_;
+};
+
+void cross_tool_fence(kairo::Executor &executor, bool lag) {
+    auto env = std::make_shared<NativeEnvironment>();
+    env->provide_windows = true;
+    env->activation_available = false;
+    env->interactive = true;
+    if (lag)
+        env->lag_phase = "click";
+    auto tools = desktop();
+    tools.environment = env;
+    tools.gate = [](const auto &, const auto &, const auto &cancel) { return !cancel(); };
+    tools.basic_tools.enabled = tools.basic_tools.exec_enabled = true;
+    tools.basic_tools.workspace = "/tmp";
+    int ocr = 0, queries = 0;
+    std::string source_key;
+    tools.ocr_image = [](const auto &, const auto &, const auto &) {
+        return integration::ImageOcrOutcome{};
+    };
+    tools.ocr_image_contextual = [&](const auto &, const auto &key, const auto &, const auto &) {
+        ++ocr;
+        source_key = key;
+        integration::ImageOcrOutcome out;
+        out.ok = true;
+        out.continuous = integration::ImageContinuousState{};
+        out.continuous->ok = true;
+        out.continuous->source_revision = 1;
+        return out;
+    };
+    tools.query_image_state = [&](const auto &key, const auto &, const auto &) {
+        ++queries;
+        check(key == source_key);
+        integration::ImageContinuousState out;
+        out.ok = true;
+        out.source_revision = 1;
+        return out;
+    };
+    std::shared_ptr<FencedEffectsScript> script;
+    integration::ModelProviderOverride provider([&](const auto &profile) {
+        script = std::make_shared<FencedEffectsScript>(profile, lag);
+        return script;
+    });
+    integration::ModelLayerConfig config;
+    config.enabled = config.supports_images = true;
+    config.model_selector = "fence-fixture";
+    integration::ModelLayer model(executor, config, &provider, tools);
+    auto result = executor
+                      .submit_auto([&] {
+                          return model.complete_harness_turn(
+                              "", "Open video, preserving uncertainty guards", context());
+                      })
+                      .get();
+    if (result.ok != !lag) {
+        std::cerr << "cross_tool_fence lag=" << lag << " error=" << result.error
+                  << " process_calls=" << env->process_calls
+                  << " model_calls=" << script->requests.size() << "\n";
+    }
+    check(result.ok == !lag);
+    check(env->process_calls == (lag ? 0 : 1));
+    check(
+        std::none_of(script->requests.front().tools.begin(), script->requests.front().tools.end(),
+                     [](const auto &tool) { return tool.wire_name == "desktop_window_activate"; }));
+    check(env->created == 1 && env->closed == 1);
+    if (lag) {
+        check(ocr == 1 && queries == 1);
+        check(script->requests.size() == 9);
+        int blocked = 0;
+        for (const auto &part : result.parts) {
+            if (part.name == "exec" || part.name == "write" || part.name == "edit") {
+                check(part.status == "failed");
+                check(part.output.find("human review") != std::string::npos);
+                ++blocked;
+            }
+        }
+        check(blocked == 3);
+    }
+    model.shutdown();
+}
+
 void native_loop(kairo::Executor &executor, const std::string &mode) {
     auto env = std::make_shared<NativeEnvironment>();
     auto tools = desktop();
@@ -3366,6 +3631,8 @@ int main() {
                                          "denied",
                                          "release",
                                          "uncertain",
+                                         "lag",
+                                         "approach_lag",
                                          "takeover",
                                          "stale",
                                          "initial_denied",
@@ -3390,6 +3657,8 @@ int main() {
               "takeover", "nan", "bounds", "regions", "text_budget", "output_budget",
               "escaped_budget", "candidate_prefix", "invalid_args", "model_throw", "text_first"})
             native_ocr_loop(executor, mode);
+        cross_tool_fence(executor, false);
+        cross_tool_fence(executor, true);
         input_reuse_contention(executor);
         shared_long_press_contract();
         shared_loop(executor);

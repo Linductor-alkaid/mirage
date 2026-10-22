@@ -1750,9 +1750,9 @@ void dialog_output_limit_scenario() {
                     return layer.complete_dialog_turn({}, "output limit probe", context, "", false);
                 })
                 .get();
-        std::fprintf(stderr,
-                     "dialog output-limit [%s]: ok=%d failed=%d truncated=%d error=%s\n", label,
-                     result.ok, result.failed, result.output_limit_truncated, result.error.c_str());
+        std::fprintf(stderr, "dialog output-limit [%s]: ok=%d failed=%d truncated=%d error=%s\n",
+                     label, result.ok, result.failed, result.output_limit_truncated,
+                     result.error.c_str());
         layer.shutdown();
         owner.shutdown(true);
         return result;
@@ -2942,6 +2942,70 @@ void episode_reset_scenario() {
     owner.shutdown(true);
 }
 
+// Admission of non-desktop effects shares the execution-uncertainty fence,
+// without turning a missing business condition into a global stop.
+void cross_effect_admission_scenario() {
+    integration::DesktopToolContext tools;
+    tools.environment = environment();
+    tools.actions = std::make_shared<mirage::desktop::ActionCoordinator>();
+    auto ctx = mira::make_control_context();
+    ctx.task = mira::TaskId::generate();
+    ctx.session = mira::SessionId::generate();
+    ctx.task_epoch = 1;
+    for (const auto *mode : {"complete", "rejected", "uncertain", "release"}) {
+        const std::string scenario = mode;
+        mirage::desktop::CancelToken cancel;
+        integration::detail::DesktopActionVerification verify(tools, ctx, cancel);
+        MIRAGE_CHECK(verify.admit_effect(ctx));
+        const mira::BuiltinToolHandler handler =
+            [&](const auto &, const auto &) -> mira::Result<mira::JsonValue> {
+            if (scenario == "rejected" || scenario == "uncertain") {
+                mira::Error error;
+                error.code = mira::ErrorCode::PlatformError;
+                error.safe_message = mira::to_json_string(mira::JsonValue{mira::JsonValue::Object{
+                    {"error_code", "fixture"},
+                    {"side_effect_may_have_occurred", scenario == "uncertain"},
+                    {"input_released", true}}});
+                return error;
+            }
+            return mira::JsonValue{
+                mira::JsonValue::Object{{"status", "dispatched"},
+                                        {"input_released", scenario != "release"},
+                                        {"verified", false}}};
+        };
+        (void)verify.execute("desktop.window.activate",
+                             mira::JsonValue{mira::JsonValue::Object{{"window_id", "w1"}}}, ctx,
+                             handler);
+        MIRAGE_CHECK(bool(verify.admit_effect(ctx)) ==
+                     (scenario == "complete" || scenario == "rejected"));
+        if (scenario == "uncertain" || scenario == "release") {
+            verify.note_observation();
+            MIRAGE_CHECK(!verify.admit_effect(ctx));
+        }
+        auto foreign = ctx;
+        foreign.task = mira::TaskId::generate();
+        MIRAGE_CHECK(!verify.admit_effect(foreign));
+        cancel.request_cancel();
+        MIRAGE_CHECK(!verify.admit_effect(ctx));
+    }
+    tools.actions->takeover();
+    integration::detail::DesktopActionVerification fresh(tools, ctx, {});
+    MIRAGE_CHECK(!fresh.admit_effect(ctx));
+    MIRAGE_CHECK(tools.actions->resume());
+    MIRAGE_CHECK(fresh.admit_effect(ctx));
+    auto expired = ctx;
+    expired.deadline = std::chrono::steady_clock::now() - 1s;
+    MIRAGE_CHECK(!fresh.admit_effect(expired));
+    {
+        auto lease = tools.actions->try_begin({});
+        MIRAGE_CHECK(bool(lease));
+        lease.release_failed();
+    }
+    integration::detail::DesktopActionVerification after_release_failure(tools, ctx, {});
+    MIRAGE_CHECK(!after_release_failure.admit_effect(ctx));
+    MIRAGE_CHECK(!tools.actions->resume());
+}
+
 // M9-03 acceptance: the desktop action record window archives settled records
 // instead of refusing the 33rd action. (a) 40 pre-dispatch rejections — each
 // settled on arrival — never hit the retired hard "desktop action budget
@@ -3063,6 +3127,7 @@ int main() {
     continuous_large_receipt_scenario();
     episode_reset_scenario();
     action_archive_scenario();
+    cross_effect_admission_scenario();
     output_continuation_scenario();
     dialog_output_limit_scenario();
     preflight_budget_scenario();

@@ -564,8 +564,9 @@ mira::Result<JsonValue> DesktopImageTurn::native_ocr(const JsonValue &args,
         {"regions", JsonValue{JsonValue::Array{}}}}};
     // DEC-081: OCR publishes the replacement interactive scope when its image
     // will be supplied to the model. Observation regions themselves stay non-actionable.
-    const bool input_actionable = !text_only && native_input_enabled_ && supply_images_ &&
-                                  native_session_ && native_session_->input_supported();
+    const bool input_actionable = !text_only && !native_input_fenced_ && native_input_enabled_ &&
+                                  supply_images_ && native_session_ &&
+                                  native_session_->input_supported();
     result.set("input_actionable", input_actionable);
     if (input_actionable)
         result.set("image_scope", *metadata_.find("image_scope"));
@@ -903,7 +904,10 @@ DesktopImageTurn::finish_native_publish(desktop::ImageFrame frame,
     metadata_.set("desktop_coordinates_available", false);
     metadata_.set("observation_only", !(native_session_ && native_session_->input_supported()));
     if (native_input_enabled_) {
-        metadata_.set("input_actionable", native_session_ && native_session_->input_supported());
+        metadata_.set("input_actionable", !native_input_fenced_ && native_session_ &&
+                                              native_session_->input_supported());
+        if (native_input_fenced_)
+            metadata_.set("input_blocked_reason", "input_lag_requires_human_review");
         if (native_session_ && native_session_->input_supported())
             metadata_.set("image_scope", mira::OperationId::generate().to_string());
     }

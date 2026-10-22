@@ -10,13 +10,18 @@ namespace mirage::platform::linux_backend {
 /// No thread, queue, timer owner, callbacks after return, or private scheduler.
 /// The caller supplies cancellation/authority/deadline checks; cleanup never waits.
 template <class Ready>
-bool pace_input_until(std::chrono::steady_clock::time_point target, Ready &&ready) {
+bool pace_input_until(std::chrono::steady_clock::time_point target, Ready &&ready,
+                      std::chrono::milliseconds *lateness = nullptr) {
     for (;;) {
         if (!ready())
             return false;
         const auto now = std::chrono::steady_clock::now();
-        if (now >= target)
+        if (now >= target) {
+            if (lateness)
+                *lateness = std::max(
+                    *lateness, std::chrono::duration_cast<std::chrono::milliseconds>(now - target));
             return now <= target + std::chrono::milliseconds{250};
+        }
         const auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(target - now);
         (void)::poll(nullptr, 0,
                      static_cast<int>(std::clamp<std::int64_t>(remaining.count(), 1, 4)));

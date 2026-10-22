@@ -100,7 +100,7 @@ JsonValue DesktopActionVerification::summary(const Record &r) const {
     JsonValue::Array dependencies;
     for (const auto &id : r.dependencies)
         dependencies.emplace_back(id);
-    return JsonValue{JsonValue::Object{
+    auto result = JsonValue{JsonValue::Object{
         {"action_id", r.id},
         {"action", r.action},
         {"window_id", r.window},
@@ -142,6 +142,9 @@ JsonValue DesktopActionVerification::summary(const Record &r) const {
         {"model_revision", r.model_revision},
         {"ocr_backend_calls", static_cast<std::int64_t>(r.backend_calls)},
         {"environment_epoch", static_cast<std::int64_t>(r.epoch)}}};
+    if (!r.failure_diagnostic.empty())
+        result.set("input_diagnostic", r.failure_diagnostic);
+    return result;
 }
 
 bool DesktopActionVerification::observe_text(
@@ -630,16 +633,20 @@ void DesktopActionVerification::note_observation() {
         observation_after_rejection_ = true;
 }
 
-mira::Result<mira::JsonValue>
-DesktopActionVerification::execute(const std::string &name, const JsonValue &args,
-                                   const mira::OperationContext &ctx,
-                                   const mira::BuiltinToolHandler &handler) {
-    // Any new mutation attempt supersedes "the model observed after the
-    // trailing rejection"; the appended record owns the evidence question.
-    observation_after_rejection_ = false;
-    observation_at_ = {};
-    request_feedback_valid_ = false;
-    const auto request_conditions = std::exchange(request_conditions_, {});
+mira::Result<void>
+DesktopActionVerification::admit_effect(const mira::OperationContext &ctx) const {
+    if (auto admitted = admit_action(ctx); !admitted)
+        return admitted.error();
+    // Basic effects have no desktop provider receipt. Check retained global
+    // authority here, without bypassing the action path's canonical rejection.
+    if (desktop_.actions && !desktop_.actions->authority_epoch())
+        return error(mira::ErrorCode::InvalidArgument,
+                     "desktop authority withdrawn; human review required");
+    return {};
+}
+
+mira::Result<void>
+DesktopActionVerification::admit_action(const mira::OperationContext &ctx) const {
     if (ctx.task != owner_.task || ctx.session != owner_.session ||
         ctx.task_epoch != owner_.task_epoch)
         return error(mira::ErrorCode::InvalidArgument, "desktop verification owner mismatch");
@@ -651,6 +658,21 @@ DesktopActionVerification::execute(const std::string &name, const JsonValue &arg
     if (canonical_failure_ || fenced_)
         return error(mira::ErrorCode::InvalidArgument,
                      "verify the previous action; uncertain effects require human review");
+    return {};
+}
+
+mira::Result<mira::JsonValue>
+DesktopActionVerification::execute(const std::string &name, const JsonValue &args,
+                                   const mira::OperationContext &ctx,
+                                   const mira::BuiltinToolHandler &handler) {
+    // Any new mutation attempt supersedes "the model observed after the
+    // trailing rejection"; the appended record owns the evidence question.
+    observation_after_rejection_ = false;
+    observation_at_ = {};
+    request_feedback_valid_ = false;
+    const auto request_conditions = std::exchange(request_conditions_, {});
+    if (auto admitted = admit_action(ctx); !admitted)
+        return admitted.error();
     // M9-03: a Continuous run must not refuse its 33rd action. Settled
     // records (verified, or a clean rejection without dispatched effects)
     // archive out oldest-first; the cap only stays hard while every kept
@@ -892,6 +914,11 @@ DesktopActionVerification::execute(const std::string &name, const JsonValue &arg
         conversation::truncate_text(code, 64);
         r.reason = code.empty() ? "action_failed" : "action_failed: " + code;
         r.failure_code = code.empty() ? "provider_error" : code;
+        if (code == "input_lag" || code == "input_timeout" || code == "input_release_failed" ||
+            code == "portal_input_failed") {
+            r.failure_diagnostic = parsed ? field(parsed.value(), "message") : "";
+            conversation::truncate_text(r.failure_diagnostic, 224);
+        }
         r.failure_field = parsed ? field(parsed.value(), "field") : "";
         r.recovery_hint = parsed ? field(parsed.value(), "hint") : "";
         conversation::truncate_text(r.failure_code, 64);

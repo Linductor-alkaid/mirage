@@ -1210,3 +1210,13 @@ PID 关联。[Provider 验证](../compatibility/native-provider-discovery-202610
 
 同轮 M7-17 补齐按像素预算缩放的边界，M7-19 修正回执带图的条件提示；与原生
 文本/M9 接线一并验证，见[接线证据](../compatibility/native-observation-and-continuous-wiring-20261022.md)。
+
+## 2026-10-22：最新会话恢复修复（本轮增量已验证）
+
+M7-18/25/26、M10-07、M9-05/18：修复纯 Wayland 窗口到语义树的 provider
+接线；按真实窗口能力注册激活工具；补齐不确定动作对基础副作用工具的围栏；
+增加 Portal 输入迟到诊断并保留已释放的迟到失败后的只读观察。依据为
+DEC-095/110 当日修订及 DEC-056/081/091。验证见
+[恢复记录](../compatibility/native-action-recovery-20261022.md)：Debug 全量
+110/110，三 sanitizer 各 10/10，native-release 16/16；同名守卫后五配置
+各 4/4。真实模型/M9 文本与 compositor 验收保持开放，不从旧会话推断通过。

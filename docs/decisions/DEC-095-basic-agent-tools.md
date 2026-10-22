@@ -129,3 +129,15 @@ Desktop UTF-8 校验及 Mira JSON 公开 API。
 
 过程记录仍遵循 DEC-049。修复与证据见
 [任务事件退出维护记录](../plans/maintenance-ui-exit-20261019.md)。
+
+## 2026-10-22：不确定动作后的跨工具围栏
+
+维护者授权修复最新会话的 exec 绕行。M10-07 与 M7-25/26 的同一任务内，
+执行结果不确定、输入未释放或规范动作证据损坏时，禁止新的 exec/write/edit；
+不解析命令文本判断是否只读，也不允许用 shell/文件改写绕开桌面动作围栏。
+read、桌面只读观察、action.verify 与紧急释放仍可用。普通业务条件未满足不自动
+升级为全局围栏；纯参数拒绝且无副作用不阻止基础工具。此为 Mirage 宿主策略，
+通过 pinned Mira 的既有 tool handler/decorator 承载，无需修改依赖。
+
+任务的新 verifier 也须检查共享 ActionCoordinator 的 authority：接管或释放失败
+留下的撤权状态不能因换轮而允许新的 exec/write/edit。普通在途 busy 不等于撤权。

@@ -50,3 +50,15 @@ PP-OCR/native agent 回归；窗口/应用另有当前宿主的只读探针。�
 实际计数、二进制摘要和未验收项见
 [验证记录](../compatibility/native-observation-and-continuous-wiring-20261022.md)。
 背景采集需求/生命周期未接到交互 session，不能把这个按需消费者当作连续后台监控。
+
+## 2026-10-22：动作迟到后的观察消费者
+
+M7-26 在 input_lag 且 input_released=true 时保留同一授权流的观察，输入在
+Platform Backend 与任务 Adapter 中被围栏。capture/OCR 的 input_actionable=false；
+text_only OCR 和 vision.state 仍按原来源键、任务/权限、期限与 advisory 约束运行。
+它们不能结算不确定动作、恢复输入或重新授权。其他输入失败/撤权仍关闭流。
+M10-07 的 exec/write/edit 也遵守动作围栏，read 和观察/核验继续可用。
+
+此收敛沿用同一串行 Executor 调用和既有 Mirador worker，不开启后台采样。
+真实模型的下一次 text_only/state 成功记录仍需产品重启后的授权会话验收；
+受控管线测试只证明接线与守卫，不证明真实桌面的识别质量或延迟。

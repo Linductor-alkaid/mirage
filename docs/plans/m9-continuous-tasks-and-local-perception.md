@@ -594,3 +594,12 @@ Runtime 接入 task/authority/ROI 来源键、OCR 2.1.0 的 text_only 和 state 
 自动回归与未验收范围见[本轮证据](../compatibility/native-observation-and-continuous-wiring-20261022.md)。
 后台采样、静态退避、焦点策略、增量订阅/gap 恢复和目标平台资源验收继续开放，
 不关闭 M9 整项。
+
+### 2026-10-22：M9-05/18 观察通路恢复回归
+
+结合 M7-18/26、M10-07 修复，迟到且已释放的输入不再销毁同一授权观察流；
+text_only OCR/state 保持只读且不能消除动作围栏。受控模型脚本验证在尝试
+exec/write/edit 被拒绝后仍可观察、OCR 与查询状态。按需消费者与源/权限
+守卫沿用[接线设计](../design/native-continuous-perception-wiring.md)；
+证据见[恢复验证记录](../compatibility/native-action-recovery-20261022.md)。
+真实模型、后台采样、资源和 compositor 门禁继续开放。

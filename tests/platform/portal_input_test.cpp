@@ -356,6 +356,27 @@ int main() {
         events.clear();
         result = dispatch_portal_input(context, action, {}, {});
         MIRAGE_CHECK(result.ok && result.input_released);
+        // A slow Portal acknowledgement crosses the unchanged 250 ms guard.
+        // No press is sent after travel falls behind; diagnostics retain the cause.
+        events.clear();
+        context.notify = [&](const auto &event) {
+            events.push_back(event);
+            if (events.size() == 1)
+                (void)::poll(nullptr, 0, 350);
+            return true;
+        };
+        result = dispatch_portal_input(context, action, {}, {});
+        MIRAGE_CHECK(!result.ok && result.error.code == "input_lag");
+        MIRAGE_CHECK(result.side_effect_may_have_occurred && result.input_released);
+        MIRAGE_CHECK(events.size() == 1 && events.front().kind == PortalInputEvent::Kind::Motion);
+        MIRAGE_CHECK(result.error.message.find("phase=travel") != std::string::npos);
+        MIRAGE_CHECK(result.error.message.find("notify_max_ms=") != std::string::npos);
+        MIRAGE_CHECK(result.error.message.size() < 224);
+        context.notify = [&](const auto &event) {
+            events.push_back(event);
+            return true;
+        };
+
         // Glide is a Click-only feature: Drag and Scroll refuse it.
         action.kind = Kind::Drag;
         action.destination_x = 1200;

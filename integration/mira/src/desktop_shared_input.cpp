@@ -170,6 +170,9 @@ mira::Result<Json> DesktopImageTurn::shared_input(const std::string &operation, 
         return rejected("owner_mismatch");
     if (cancel_.cancelled() || ctx.cancelled_or_expired(mira::Timestamp::now()))
         return rejected("cancelled");
+    if (native_input_fenced_)
+        return rejected("input_fenced", false, true, {}, {},
+                        "Human review required; only read-only observation remains available.");
     if (!native_session_ || !native_session_->input_supported() || !native_input_frame_ ||
         !image_ || !supplied_image_)
         return rejected("interactive_image_required");
@@ -435,6 +438,23 @@ mira::Result<Json> DesktopImageTurn::shared_input(const std::string &operation, 
     limits.timeout = std::min(action_cap, std::chrono::duration_cast<std::chrono::milliseconds>(
                                               execution_end - std::chrono::steady_clock::now()));
     desktop::InputOutcome out;
+    const auto input_failure = [&](const desktop::InputOutcome &failed) {
+        if (failed.side_effect_may_have_occurred) {
+            if (failed.error.code == "input_lag" && failed.input_released) {
+                native_input_fenced_ = true;
+                metadata_.set("input_actionable", false);
+                metadata_.set("input_blocked_reason", "input_lag_requires_human_review");
+                native_newer_than_sequence_ = fresh.frame.source_sequence;
+            } else {
+                native_session_.reset();
+                native_failed_ = true;
+            }
+        }
+        return rejected(
+            failed.error.code, failed.side_effect_may_have_occurred, failed.input_released, {}, {},
+            native_input_fenced_ ? "Human review required; sharing is observation-only." : "",
+            failed.error.message);
+    };
     try {
         bool moved = false;
         if (pointer_action) {
@@ -449,8 +469,7 @@ mira::Result<Json> DesktopImageTurn::shared_input(const std::string &operation, 
             if (!travel.input_released)
                 lease.release_failed();
             if (!travel.ok)
-                return rejected(travel.error.code, travel.side_effect_may_have_occurred,
-                                travel.input_released);
+                return input_failure(travel);
             moved = travel.side_effect_may_have_occurred;
             if (moved) {
                 const auto arrived = measure_phase(timings_ ? &timings_->capture : nullptr, [&] {
@@ -480,13 +499,7 @@ mira::Result<Json> DesktopImageTurn::shared_input(const std::string &operation, 
     if (!out.input_released)
         lease.release_failed();
     if (!out.ok) {
-        if (out.side_effect_may_have_occurred) {
-            native_session_.reset();
-            native_failed_ = true;
-        }
-        auto failure =
-            rejected(out.error.code, out.side_effect_may_have_occurred, out.input_released);
-        return failure;
+        return input_failure(out);
     }
     // DEC-081: only a later source frame can verify this dispatched action.
     native_newer_than_sequence_ = fresh.frame.source_sequence;

@@ -944,3 +944,9 @@ pet、OCR/YOLO 和资源打包），Release 定向回归 19/19、39.57 s，公�
 零违规，launcher --version 正常。命令和产物哈希见
 [后续验证记录](../compatibility/controlled-window-switcher-20261021.md#2026-10-21native-release-更新与提交前验证)。
 本次未启动/重启产品；M7-27 的其他平台与真实环境门禁继续开放。
+
+2026-10-22：M7-18/25/26、M10-07 与 M9-05/18 推进最新会话恢复修复：
+纯 Wayland 语义 provider 接线、激活能力诚实暴露、不确定动作的 exec/write/edit
+围栏、输入迟到诊断及只读观察收敛。验证与未验项见
+[恢复验证记录](../compatibility/native-action-recovery-20261022.md)，未关闭真实模型
+与未验平台门禁。

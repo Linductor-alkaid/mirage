@@ -1024,6 +1024,10 @@ DialogCompletion ModelLayer::complete_harness_turn(
                     return blocked_error;
                 }
                 try {
+                    if (name == "exec" || name == "write" || name == "edit") {
+                        if (auto admitted = verification.admit_effect(ctx); !admitted)
+                            return admitted.error();
+                    }
                     // The dispatch lease ends before postcondition capture/OCR.
                     auto dispatch = detail::exclude_pet_during(name, handler,
                                                                desktop_context.exclude_pet, cancel);
@@ -1331,6 +1335,18 @@ DialogCompletion ModelLayer::complete_harness_turn(
         "commands or tools. Do not bypass denied permissions or retry uncertain dispatches. "
         "Only report unavailable when no exposed authorized route can reach the goal; explain "
         "the remaining limitation once.\n";
+    if (turn_desktop.environment && turn_desktop.environment->window() &&
+        !turn_desktop.environment->window()->activation_supported()) {
+        spec.goal += "\nHost capability facts: window enumeration is available, but this provider "
+                     "cannot activate windows. Do not claim direct window activation support. "
+                     "Use an authorized image-bound input route when available.\n";
+    }
+    spec.goal += "\nAfter uncertain execution or an input release failure, stop all new effects, "
+                 "including exec/write/edit. Do not use shell commands as an alternative to a "
+                 "fenced desktop action. Read-only observation and action.verify remain allowed. "
+                 "input_lag denotes host input pacing failure, not proof of a system disconnect. "
+                 "If input is released, the host may retain observation-only sharing; a fresh "
+                 "frame does not resolve uncertain effects or authorize more input.\n";
     if (native_ocr) {
         spec.goal +=
             "\nHost capability facts for this turn: desktop.vision.ocr reads fresh native "

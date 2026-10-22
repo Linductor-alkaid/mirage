@@ -1,0 +1,270 @@
+{
+  "schema": 1,
+  "date": "2026-10-22",
+  "base_commit": "8df44985e2900ca684b9a3a308e19954fa6c3728",
+  "source_state": "combined development increment from base_commit; tests ran before commits with the same C++ source",
+  "platform": "Linux 7.0.0-38-generic x86_64 GNU/Linux",
+  "compiler": "c++ (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0",
+  "cmake": "cmake version 3.28.3",
+  "mira_pin": "a29374aaf05b956cbd5ceeafc65bba4c6172675e",
+  "mirador_pin": "2a9f4830f4727498ed4cbad568a1d3ec357ece7e",
+  "tests": {
+    "debug": {
+      "passed": 110,
+      "failed": 0,
+      "seconds": 341.06,
+      "log": "/tmp/mirage-recovery-debug-final-test.log"
+    },
+    "asan": {
+      "passed": 10,
+      "failed": 0,
+      "seconds": 224.15,
+      "log": "/tmp/mirage-recovery-asan-final-test.log"
+    },
+    "ubsan": {
+      "passed": 10,
+      "failed": 0,
+      "seconds": 214.68,
+      "log": "/tmp/mirage-recovery-ubsan-final-test.log"
+    },
+    "tsan": {
+      "passed": 10,
+      "failed": 0,
+      "seconds": 416.18,
+      "log": "/tmp/mirage-recovery-tsan-final-test.log"
+    },
+    "release": {
+      "passed": 16,
+      "failed": 0,
+      "seconds": 117.7,
+      "log": "/tmp/mirage-recovery-release-final-test.log"
+    }
+  },
+  "atspi_ambiguity_followup": {
+    "debug": {
+      "passed": 4,
+      "failed": 0,
+      "log": "/tmp/mirage-recovery-atspi-debug-test.log"
+    },
+    "asan": {
+      "passed": 4,
+      "failed": 0,
+      "log": "/tmp/mirage-recovery-atspi-asan-test.log"
+    },
+    "ubsan": {
+      "passed": 4,
+      "failed": 0,
+      "log": "/tmp/mirage-recovery-atspi-ubsan-test.log"
+    },
+    "tsan": {
+      "passed": 4,
+      "failed": 0,
+      "log": "/tmp/mirage-recovery-atspi-tsan-test.log"
+    },
+    "native-release": {
+      "passed": 4,
+      "failed": 0,
+      "log": "/tmp/mirage-recovery-atspi-native-release-test.log"
+    }
+  },
+  "counts_include_ctest_state_fixtures": true,
+  "commands": {
+    "debug": [
+      [
+        "cmake",
+        "--build",
+        "--preset",
+        "debug",
+        "-j",
+        "4"
+      ],
+      [
+        "ctest",
+        "--preset",
+        "debug",
+        "--output-on-failure"
+      ]
+    ],
+    "asan": {
+      "build": [
+        "cmake",
+        "--build",
+        "--preset",
+        "asan",
+        "-j",
+        "3",
+        "--target",
+        "atspi_backend_test",
+        "portal_input_test",
+        "desktop_image_supply_test",
+        "harness_desktop_tools_test",
+        "desktop_atom_toolset_test",
+        "portal_screen_test",
+        "provider_contract_test",
+        "visual_marks_test"
+      ],
+      "test": [
+        "ctest",
+        "--preset",
+        "asan",
+        "-R",
+        "^(atspi_backend_test|portal_input_test|desktop_image_supply_test|harness_desktop_tools_test|desktop_atom_toolset_test|portal_screen_fixture|provider_contract_test|visual_marks_test)$",
+        "--output-on-failure"
+      ],
+      "env": {}
+    },
+    "ubsan": {
+      "build": [
+        "cmake",
+        "--build",
+        "--preset",
+        "ubsan",
+        "-j",
+        "3",
+        "--target",
+        "atspi_backend_test",
+        "portal_input_test",
+        "desktop_image_supply_test",
+        "harness_desktop_tools_test",
+        "desktop_atom_toolset_test",
+        "portal_screen_test",
+        "provider_contract_test",
+        "visual_marks_test"
+      ],
+      "test": [
+        "ctest",
+        "--preset",
+        "ubsan",
+        "-R",
+        "^(atspi_backend_test|portal_input_test|desktop_image_supply_test|harness_desktop_tools_test|desktop_atom_toolset_test|portal_screen_fixture|provider_contract_test|visual_marks_test)$",
+        "--output-on-failure"
+      ],
+      "env": {
+        "UBSAN_OPTIONS": "halt_on_error=1:print_stacktrace=1"
+      }
+    },
+    "tsan": {
+      "build": [
+        "cmake",
+        "--build",
+        "--preset",
+        "tsan",
+        "-j",
+        "3",
+        "--target",
+        "atspi_backend_test",
+        "portal_input_test",
+        "desktop_image_supply_test",
+        "harness_desktop_tools_test",
+        "desktop_atom_toolset_test",
+        "portal_screen_test",
+        "provider_contract_test",
+        "visual_marks_test"
+      ],
+      "test": [
+        "setarch",
+        "x86_64",
+        "-R",
+        "ctest",
+        "--preset",
+        "tsan",
+        "-R",
+        "^(atspi_backend_test|portal_input_test|desktop_image_supply_test|harness_desktop_tools_test|desktop_atom_toolset_test|portal_screen_fixture|provider_contract_test|visual_marks_test)$",
+        "--output-on-failure"
+      ],
+      "env": {}
+    },
+    "native-release": {
+      "build": [
+        "cmake",
+        "--build",
+        "--preset",
+        "native-release",
+        "-j",
+        "3",
+        "--target",
+        "mirage-native-product",
+        "atspi_backend_test",
+        "portal_input_test",
+        "desktop_image_supply_test",
+        "harness_desktop_tools_test",
+        "desktop_atom_toolset_test",
+        "portal_screen_test",
+        "provider_contract_test",
+        "ppocr_pipeline_test",
+        "native_agent_integration_test",
+        "continuous_perception_consumer_test",
+        "visual_session_budgeted_test",
+        "visual_observation_e2e_test",
+        "basic_agent_toolset_test",
+        "visual_marks_test"
+      ],
+      "test": [
+        "ctest",
+        "--preset",
+        "native-release",
+        "-R",
+        "^(atspi_backend_test|portal_input_test|desktop_image_supply_test|harness_desktop_tools_test|desktop_atom_toolset_test|portal_screen_fixture|provider_contract_test|ppocr_pipeline_test|native_agent_integration_test|continuous_perception_consumer_test|visual_session_budgeted_test|visual_observation_e2e_test|basic_agent_toolset_test|visual_marks_test)$",
+        "--output-on-failure"
+      ]
+    }
+  },
+  "native_release_binaries": [
+    {
+      "name": "mirage",
+      "path": "/home/linductor/mirage/build/native-release/apps/mirage",
+      "sha256": "526ac2dc659fcba14d59e629e7a8a93c7998f954a32e3aa47f84f19004ebe75c",
+      "dynamic_dependencies_ok": true
+    },
+    {
+      "name": "mirage-service",
+      "path": "/home/linductor/mirage/build/native-release/apps/mirage-service",
+      "sha256": "00555e3af8530126ca42031177451c3df984660c02f90b7274b0b46ffa8c44a6",
+      "dynamic_dependencies_ok": true
+    },
+    {
+      "name": "mirage-tray",
+      "path": "/home/linductor/mirage/build/native-release/apps/tray/mirage-tray",
+      "sha256": "8e2562a6807d54c1397e0e95878467de6acacc76d11ee8d74887400ae7bdb14a",
+      "dynamic_dependencies_ok": true
+    },
+    {
+      "name": "mirage-native",
+      "path": "/home/linductor/mirage/build/native-release/apps/native/mirage-native",
+      "sha256": "1f616769ecd230594a387c6ce3fcef7847ae40f781635997b594cc553f006548",
+      "dynamic_dependencies_ok": true
+    },
+    {
+      "name": "mira_pet",
+      "path": "/home/linductor/mirage/build/native-release/apps/pet/mira_pet",
+      "sha256": "a15cd378865d1e9dcd29128688da4f91361ec0511bcffea9f9920dfc847b4daa",
+      "dynamic_dependencies_ok": true
+    }
+  ],
+  "host_probe": {
+    "summary": "enumeration_ok=1 windows=7 activation_supported=0 snapshot_ok=1 attempts=3 nodes=463",
+    "snap_firefox_atspi_apparmor_warning": true,
+    "scope": "read-only enumeration and one bounded accessible tree; no browser interaction or full control-tree claim"
+  },
+  "static_checks": {
+    "boundary_headers": 65,
+    "boundary_violations": 0,
+    "recorded_dec096_seams": 2,
+    "changed_cpp_files": 18,
+    "changed_regions_formatted": true,
+    "whole_repo_format": "blocked by pre-existing output-limit formatting in model_layer.cpp and protocol.cpp",
+    "markdown_files": 14,
+    "markdown_local_links": 577,
+    "broken_links": 0
+  },
+  "not_validated": [
+    "real_model_session",
+    "real_compositor_input_lag_root_cause_and_stream_recovery",
+    "snap_firefox_full_accessibility_tree",
+    "windows",
+    "low_end_paired_performance",
+    "pet_pixel_coexistence",
+    "long_soak"
+  ],
+  "window_provider_commit": "9e9b6b08eee73555a65176c9072acf8840d3daba"
+}

@@ -110,6 +110,12 @@ mirage-service \
 被杀死（如 `kill -9`），目标文件只可能是完整的旧内容或完整的新内容，残留只
 允许是 `.mirage-tmp-*.tmp` 临时文件，重启后可安全删除。
 
+桌面动作返回执行不确定或释放失败时，不可改用 exec/write/edit 继续派发
+副作用。这三种工具由宿主统一拒绝，不按 shell 命令内容区分“只读”。read、
+只读截图/OCR/state 与 action.verify 仍可用，但不能解除既有动作围栏。
+接管/释放失败留下的共享 authority 撤回同样跨轮有效；普通业务条件不足
+不等于执行不确定。见 [DEC-095](../decisions/DEC-095-basic-agent-tools.md)。
+
 ## 安全边界
 
 `exec` 以宿主用户全部权限在 workspace 内运行命令，**没有沙箱**：只在可信

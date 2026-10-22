@@ -37,8 +37,12 @@ class DesktopActionVerification {
     void project(std::vector<conversation::Part> &) const;
     bool empty() const { return records_.empty() && archived_.empty(); }
     bool ocr_failed() const { return ocr_failed_; }
+    /// Shared admission for effects outside desktop action receipts. Never
+    /// treats shell success or file changes as desktop verification evidence.
+    mira::Result<void> admit_effect(const mira::OperationContext &) const;
 
   private:
+    mira::Result<void> admit_action(const mira::OperationContext &) const;
     struct Record {
         std::string id, action, window, kind, title, role, name, text, application_id;
         // DEC-067 private host constraints; ordinary model tool schemas do not expose these.
@@ -59,6 +63,7 @@ class DesktopActionVerification {
         // Historical recovery facts only; never current dispatch authority.
         // Digest excludes volatile image scope/epoch; no input plaintext copied.
         std::string attempt_identity, failure_code, failure_field, recovery_hint;
+        std::string failure_diagnostic;
     };
     void observe(Record &, const mira::OperationContext &);
     static std::string failure_receipt(const Record &, std::string message,

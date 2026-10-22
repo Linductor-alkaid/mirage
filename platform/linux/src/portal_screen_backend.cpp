@@ -550,7 +550,8 @@ desktop::InputOutcome shared_input(CastSession &s, const desktop::SharedInputAct
         pointer.x = input.pointer_x;
         pointer.y = input.pointer_y;
     }
-    if (!out.ok && out.side_effect_may_have_occurred)
+    if (!out.ok && out.side_effect_may_have_occurred &&
+        !(out.error.code == "input_lag" && out.input_released))
         s.closed = true;
     return out;
 }
@@ -802,12 +803,22 @@ class PortalObservation final : public desktop::DesktopCaptureSession {
                     false,
                     true};
         }
+        if (input_fenced_)
+            return {false,
+                    false,
+                    {"input_fenced", "Human review required; observation only"},
+                    false,
+                    true};
         if (input_supported()) {
             const desktop::CancelToken bounded([&] { return cancel.cancelled() || revoked(); });
             auto out = shared_input(*state_.cast, action, limits, bounded, *state_.pointer);
             if (out.side_effect_may_have_occurred && !out.ok) {
-                failed_ = true;
-                state_.cast.reset();
+                if (out.error.code == "input_lag" && out.input_released) {
+                    input_fenced_ = true;
+                } else {
+                    failed_ = true;
+                    state_.cast.reset();
+                }
             }
             return out;
         }
@@ -857,6 +868,7 @@ class PortalObservation final : public desktop::DesktopCaptureSession {
     NativeObservation state_;
     std::uint64_t generation_ = 0;
     bool failed_ = false;
+    bool input_fenced_ = false;
 };
 } // namespace
 std::unique_ptr<desktop::DesktopCaptureSession>
