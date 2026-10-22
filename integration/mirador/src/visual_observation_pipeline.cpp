@@ -394,6 +394,10 @@ EnvironmentVisualRefresh VisualObservationPipeline::refresh_impl(
     case VisualAnalysisOutcome::Kind::kRejected:
         refresh.analysis_error = {"invalid_state", result.outcome.message};
         break;
+    case VisualAnalysisOutcome::Kind::kQueried:
+        refresh.analysis_error = {"invalid_state",
+                                  "state query is not a current visual observation"};
+        break;
     }
     return refresh;
 }

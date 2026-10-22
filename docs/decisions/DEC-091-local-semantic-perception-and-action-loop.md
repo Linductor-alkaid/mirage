@@ -73,8 +73,8 @@ owner，复用现有 kairo blocking worker；共享帧用 LatestMailbox 合并�
 时间状态/事件，独立 oriented 宿主使用当前帧快照；对显式全帧/空间 ROI 完整刷新证据批量采纳，
 不将缓存/部分结果视为新完成。来源、预算和结算边界见
 [消费设计](../design/continuous-visual-analysis.md)。ROI-only 选区已前置；对象/文本
-前置定位、无帧查询与生产模型
-供给仍按 M9-07/18 推进，不在 Mirage 重写覆盖或去抖算法。
+前置定位与生产模型供给仍按 M9-07/18 推进；无帧焦点/状态查询已通过同一 worker
+消费上游公开接口，不在 Mirage 重写覆盖或去抖算法。
 
 - 连续帧是输入源，不要求每一帧都复制、编码、识别、融合和发送。优先消费平台
   可用的 damage/dirty-region 信息，再用 Mirador 变化检测确认相关区域；平台

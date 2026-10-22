@@ -9,6 +9,7 @@
 #include <kairo/executor.hpp>
 #include <mirador/transform.hpp>
 
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <limits>
@@ -289,6 +290,188 @@ void combined_plan_budget_is_checked_before_adoption() {
     MIRAGE_CHECK(result.outcome.code == mirador::ErrorCode::kBudgetExceeded);
     MIRAGE_CHECK(result.spatial && result.spatial->ocr_completed == 1);
     MIRAGE_CHECK(!result.snapshot && !result.continuous);
+}
+
+VisualContinuousQuery query_for(std::uint64_t source_revision = 1) {
+    VisualContinuousQuery query;
+    query.expected_source_revision = source_revision;
+    return query;
+}
+
+void frame_free_queries_switch_focus_without_observation() {
+    Owner owner;
+    FakeOcrBackend ocr;
+    VisualSessionHost host(owner.executor, "query", config_for(ocr));
+    std::string error;
+    MIRAGE_CHECK(host.start(error));
+    MIRAGE_CHECK(get(host.query_continuous(query_for())).outcome.kind == Kind::kRejected);
+    MIRAGE_CHECK(get(host.submit(refreshed("query", 1))).outcome.kind == Kind::kCompleted);
+    MIRAGE_CHECK(get(host.submit(refreshed("query", 2))).outcome.kind == Kind::kCompleted);
+    auto query = query_for();
+    query.attention = mirador::AttentionPolicy{};
+    mirador::AttentionCondition text;
+    text.text_equals = "mirage-fake";
+    query.attention->conditions.push_back(text);
+    const auto result = get(host.query_continuous(query));
+    MIRAGE_CHECK(result.outcome.kind == Kind::kQueried && result.queried);
+    MIRAGE_CHECK(!result.snapshot && !result.continuous && !result.spatial);
+    if (!result.queried)
+        return;
+    const auto &view = *result.queried;
+    MIRAGE_CHECK(view.source_revision == 1 && view.source_epoch == 1 && view.policy_revision == 2);
+    MIRAGE_CHECK(view.last_analyzed_frame == 2 && view.analysis_age.has_value());
+    MIRAGE_CHECK(view.temporal.confirmed_frame == 2 && view.temporal.latest_observed_frame == 2);
+    MIRAGE_CHECK(view.focus.size() == 1 && view.focus[0].resolved);
+    MIRAGE_CHECK(!view.events);
+    MIRAGE_CHECK(view.coordination_owned_bytes <= 512 * 1024 && view.state_owned_bytes > 0);
+    MIRAGE_CHECK(ocr.calls() == 2);
+    const auto peek = get(host.query_continuous(query_for()));
+    MIRAGE_CHECK(peek.queried && peek.queried->analysis_age >= view.analysis_age);
+    MIRAGE_CHECK(peek.queried && peek.queried->temporal == view.temporal);
+    query.attention->conditions[0].text_equals = "unseen";
+    const auto missing = get(host.query_continuous(query));
+    MIRAGE_CHECK(missing.queried && missing.queried->policy_revision == 3);
+    MIRAGE_CHECK(missing.queried && !missing.queried->focus[0].resolved);
+    MIRAGE_CHECK(missing.queried && missing.queried->last_analyzed_frame == 2);
+    MIRAGE_CHECK(ocr.calls() == 2);
+    // Read-only peeks do not invalidate the background signature; a changed
+    // policy does. The owner copies the new policy into subsequent frame work.
+    auto next = request_for("query", 3);
+    next.continuous->attention = *query.attention;
+    MIRAGE_CHECK(get(host.submit(next)).outcome.kind == Kind::kCompleted);
+    MIRAGE_CHECK(get(host.query_continuous(query_for())).outcome.kind == Kind::kQueried);
+    next.frame.sequence = 4;
+    MIRAGE_CHECK(get(host.submit(next)).outcome.kind == Kind::kSkippedUnchanged);
+    const auto after_skip = get(host.query_continuous(query_for()));
+    MIRAGE_CHECK(after_skip.queried && after_skip.queried->last_analyzed_frame == 3);
+}
+
+void query_rejection_cancellation_and_drain_preserve_provenance() {
+    Owner owner;
+    MeasuredOcr ocr;
+    VisualSessionHost host(owner.executor, "query-drain", config_for(ocr));
+    std::string error;
+    MIRAGE_CHECK(host.start(error));
+    MIRAGE_CHECK(get(host.submit(refreshed("query-drain", 1))).outcome.kind == Kind::kCompleted);
+    MIRAGE_CHECK(get(host.submit(refreshed("query-drain", 2))).outcome.kind == Kind::kCompleted);
+    for (int mode = 0; mode < 7; ++mode) {
+        auto query = query_for();
+        query.attention = mirador::AttentionPolicy{};
+        mirador::AttentionCondition text;
+        text.text_equals = "other";
+        query.attention->conditions.push_back(text);
+        if (mode == 0)
+            query.expected_source_revision = 2;
+        if (mode == 1)
+            query.external_cancel.request_cancel();
+        if (mode == 2)
+            query.deadline = std::chrono::steady_clock::now() - 1ms;
+        if (mode == 3)
+            query.attention->conditions.resize(17, text);
+        if (mode == 4)
+            query.attention->conditions[0] = {};
+        if (mode == 5)
+            query.attention->conditions.reserve(8192);
+        if (mode == 6)
+            query.attention->conditions[0].text_equals.reserve(600 * 1024);
+        const auto result = get(host.query_continuous(std::move(query)));
+        MIRAGE_CHECK(result.outcome.kind == (mode == 0   ? Kind::kRejected
+                                             : mode == 1 ? Kind::kCancelled
+                                             : mode == 2 ? Kind::kTimedOut
+                                                         : Kind::kFailed));
+        MIRAGE_CHECK(!result.queried && !result.continuous && !result.snapshot);
+        const auto intact = get(host.query_continuous(query_for()));
+        MIRAGE_CHECK(intact.queried && intact.queried->policy_revision == 1);
+    }
+    ocr.fail_at = 3;
+    MIRAGE_CHECK(get(host.submit(refreshed("query-drain", 1, 2))).outcome.kind == Kind::kFailed);
+    MIRAGE_CHECK(get(host.query_continuous(query_for())).outcome.kind == Kind::kRejected);
+    const auto peek = get(host.query_continuous(query_for(2)));
+    MIRAGE_CHECK(peek.queried && peek.queried->source_epoch == 2);
+    MIRAGE_CHECK(peek.queried && !peek.queried->analysis_age &&
+                 peek.queried->last_analyzed_frame == 0);
+    MIRAGE_CHECK(peek.queried && peek.queried->temporal.pending_events == 1);
+    MIRAGE_CHECK(peek.queried && !peek.queried->events);
+    auto query = query_for(2);
+    query.drain_events = true;
+    const auto drained = get(host.query_continuous(query));
+    MIRAGE_CHECK(drained.queried && drained.queried->events);
+    if (drained.queried && drained.queried->events) {
+        const auto &events = drained.queried->events->events;
+        MIRAGE_CHECK(events.size() == 1);
+        if (!events.empty()) {
+            MIRAGE_CHECK(events[0].window.source_epoch == 1);
+            MIRAGE_CHECK(events[0].change_kind == mirador::SemanticChangeKind::kSourceReset);
+        }
+    }
+    const auto empty = get(host.query_continuous(query));
+    MIRAGE_CHECK(empty.queried && empty.queried->events->events.empty());
+    MIRAGE_CHECK(ocr.calls == 3);
+    host.stop();
+    MIRAGE_CHECK(get(host.query_continuous(query)).outcome.kind == Kind::kRejected);
+    VisualSessionHost legacy(owner.executor, "query-legacy");
+    MIRAGE_CHECK(legacy.start(error));
+    MIRAGE_CHECK(get(legacy.query_continuous(query_for())).outcome.kind == Kind::kRejected);
+}
+
+void concurrent_commands_and_stop_settle_every_future() {
+    for (const int stop_mode : {0, 1, 2}) {
+        Owner owner;
+        FakeOcrBackend ocr;
+        VisualSessionHost host(owner.executor, "query-race", config_for(ocr));
+        std::string error;
+        MIRAGE_CHECK(host.start(error));
+        MIRAGE_CHECK(get(host.submit(refreshed("query-race", 1))).outcome.kind == Kind::kCompleted);
+        // Build payloads on the fixture owner: the test assertion counter is not
+        // thread-safe. Each producer owns a disjoint prebuilt request/future row.
+        std::array<std::vector<VisualAnalysisRequest>, 3> requests;
+        std::array<std::vector<std::future<VisualAnalysisResult>>, 3> futures;
+        for (std::size_t row = 0; row < requests.size(); ++row)
+            for (std::uint64_t i = 0; i < 32; ++i)
+                requests[row].push_back(refreshed("query-race", 2 + i * 3 + row));
+        struct Producers {
+            std::atomic_bool go{false};
+            std::vector<std::thread> threads;
+            void join() {
+                go = true;
+                for (auto &thread : threads)
+                    if (thread.joinable())
+                        thread.join();
+            }
+            ~Producers() { join(); }
+        };
+        std::atomic_int submitted{0};
+        Producers producers;
+        for (std::size_t row = 0; row < requests.size(); ++row) {
+            producers.threads.emplace_back([&, row] {
+                while (!producers.go)
+                    std::this_thread::sleep_for(1ms);
+                for (std::size_t i = 0; i < requests[row].size(); ++i) {
+                    futures[row].push_back(i % 2 == 0 ? host.submit(std::move(requests[row][i]))
+                                                      : host.query_continuous(query_for()));
+                    ++submitted;
+                    std::this_thread::sleep_for(1ms);
+                }
+            });
+        }
+        producers.go = true;
+        MIRAGE_CHECK(wait_until([&] { return submitted.load() >= 8; }));
+        if (stop_mode == 1)
+            host.stop();
+        if (stop_mode == 2)
+            owner.executor.shutdown(true);
+        producers.join();
+        for (auto &row : futures) {
+            MIRAGE_CHECK(row.size() == 32);
+            for (auto &future : row) {
+                const auto result = get(std::move(future));
+                MIRAGE_CHECK(result.outcome.kind == Kind::kCompleted ||
+                             result.outcome.kind == Kind::kQueried ||
+                             result.outcome.kind == Kind::kCancelled ||
+                             result.outcome.kind == Kind::kRejected);
+            }
+        }
+    }
 }
 
 void completed_evidence_confirms_and_reset_terminates() {
@@ -628,6 +811,32 @@ class InterruptibleOcr final : public mirador::OcrBackend {
     }
 };
 
+void query_cancels_inflight_analysis_without_inventing_completion() {
+    Owner owner;
+    InterruptibleOcr ocr;
+    VisualSessionHost host(owner.executor, "query-interrupt", config_for(ocr));
+    std::string error;
+    MIRAGE_CHECK(host.start(error));
+    auto analysis = host.submit(refreshed("query-interrupt", 1));
+    MIRAGE_CHECK(wait_until([&] { return ocr.entered.load(); }));
+    auto queried = host.query_continuous(query_for());
+    MIRAGE_CHECK(get(std::move(analysis)).outcome.kind == Kind::kCancelled);
+    const auto initial = get(std::move(queried));
+    MIRAGE_CHECK(initial.outcome.kind == Kind::kQueried && initial.queried);
+    MIRAGE_CHECK(initial.queried && initial.queried->last_analyzed_frame == 0);
+    MIRAGE_CHECK(initial.queried && !initial.queried->analysis_age);
+    MIRAGE_CHECK(initial.queried && initial.queried->temporal.confirmed_frame == 0);
+    MIRAGE_CHECK(!initial.snapshot && !initial.continuous);
+    ocr.release = true;
+    MIRAGE_CHECK(get(host.submit(refreshed("query-interrupt", 2))).outcome.kind ==
+                 Kind::kCompleted);
+    const auto after = get(host.query_continuous(query_for()));
+    MIRAGE_CHECK(after.queried && after.queried->last_analyzed_frame == 2);
+    MIRAGE_CHECK(after.queried && after.queried->temporal.confirmed_frame == 0);
+    owner.executor.shutdown(true);
+    MIRAGE_CHECK(get(host.query_continuous(query_for())).outcome.kind == Kind::kRejected);
+}
+
 void cancellation_deadline_exception_and_shutdown_settle() {
     for (int variant = 0; variant < 10; ++variant) {
         const auto mode = variant % 5;
@@ -754,6 +963,10 @@ void shared_capture_analysis_churn_does_not_pin_settled_requests() {
 } // namespace
 
 int main() {
+    frame_free_queries_switch_focus_without_observation();
+    query_rejection_cancellation_and_drain_preserve_provenance();
+    concurrent_commands_and_stop_settle_every_future();
+    query_cancels_inflight_analysis_without_inventing_completion();
     spatial_work_reduces_backend_input_and_preserves_coordinates();
     spatial_validation_and_budgets_precede_backend_calls();
     failed_roi_batch_does_not_advance_confirmation();

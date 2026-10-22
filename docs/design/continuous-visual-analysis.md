@@ -75,14 +75,14 @@ FocusStateResolution 及 EventDrain。上游在有效观测中推进两帧确认
 max_events 和协调器字节预算有界；dropped_total/dropped_events、resync_required、
 replaced_inflight、reuse.validated_frame 直接回显，不隐去 gap。时间状态的
 pending_events 是 drain 前值，返回 events 已从协调器移除，消费者必须消费该 future。
-焦点查询当前随分析结果返回，尚无独立的无帧 worker 命令或生产订阅协议。
+焦点查询可随分析返回，也可通过下述无帧 worker 命令读取；生产订阅协议仍开放。
 
 采纳前最后一次协作取消检查为本轮提交边界；进入成功采纳/查询/drain 后同步结算
 成功，不再因随后到达的取消丢弃已 drain 事件。plan/预算/accept 失败时不 drain；
 此前已确认或 reset 生成的事件留在上游有界队列，供后续成功结果提取，溢出显式。
 原始像素在 future 就绪前释放。shutdown 沿用既有 worker 生命周期，无新 owner。
 
-对象/文本焦点前置选择、静态精确验证快路径、无帧焦点切换、native/IPC 消费、模型按需供给
+对象/文本焦点前置选择、静态精确验证快路径、native/IPC 消费、模型按需供给
 和通知 gap 恢复仍由 M9-07/18 推进。当前覆盖/事件仅用于本地事实，不授权输入。
 
 ## 验收
@@ -143,3 +143,46 @@ condition.roi = {20, 30, 200, 80}; // 源 oriented 整数像素；源几何变�
 request.continuous->attention.conditions.push_back(condition);
 auto result = host.submit(std::move(request)).get(); // owner 消费 future；不在 worker 自等待
 ```
+
+
+## 无帧查询与焦点切换（M9-18，本轮实施）
+
+query_continuous 接收 expected_source_revision（非零）、可选 attention、
+drain_events（默认 false）、取消 token 和期限。在与分析相同的 worker 上执行，
+只允许匹配已建立的 source revision；未知/旧源拒绝且不修改策略。没有 frame，
+不调用 backend，不推进观测/确认帧序号，不产生当前 snapshot/WorkPlan。
+
+成功终态是 kQueried，只有 queried 字段：来源/epoch/policy revision、上游
+TemporalSemanticState、FocusStateResolution、可选 EventDrain、最后完成分析帧
+及其 steady-clock 年龄。年龄不等同于每个实体的 freshness；后者照 upstream 回显。
+源重建时清空完成时间，失败/skip/query 不更新；没有成功分析时年龄为 unknown。
+
+策略更新先校验预算，提交前检查取消/期限；成功提交后同步查询/可选 drain 并结算，
+不以迟到取消丢弃事件。更改策略会使后台比较签名失效，但不伪造新的观测；后续帧
+仍由 owner 携带该策略。查询沿用一个在途+一个最新待处理命令的语义，会取消/替换
+旧分析或查询；owner 应等待查询 future 后恢复帧供给，不宣称无限查询下帧公平性。
+
+共享命令发布与 queued 指针在同一锁内排序，避免并发提交的 queued/mailbox 次序
+相反造成 future 无法结算。host.stop/Executor wakeup 在同一边界关闭接纳；迟到
+提交显式拒绝。mailbox 只承载有界命令，采用非等待 try_publish；版本槽不足显式拒绝且不取消原命令。
+输入 policy 的 vector/string capacity 总量按 max_coordination_bytes 检查，最多
+16 条条件；成功/拒绝结算均在 future 可见前释放 policy，未新增调度设施。
+worker 每轮只读一次 latest，持续发布不能使停止检查饥饿；Executor wakeup 同时
+取消待处理与在途命令，覆盖停止检查与 pickup 之间的窗口。
+
+
+查询的最小用法（已有 source_revision，owner 暂停新的分析提交直至 future 结算）：
+
+```cpp
+VisualContinuousQuery query;
+query.expected_source_revision = source_revision;
+query.attention = desired_policy; // nullopt 只读；后续分析请求也须携带该策略
+query.deadline = std::chrono::steady_clock::now() + std::chrono::seconds(1);
+auto result = host.query_continuous(std::move(query)).get();
+if (result.outcome.kind == VisualAnalysisOutcome::Kind::kQueried) {
+    const auto& known = *result.queried; // 使用每个实体的 freshness；年龄不构成新帧证明
+}
+```
+
+[无帧查询验证](../compatibility/continuous-state-query-20261022.md)覆盖无识别读取、
+策略/源隔离、drain 来源、资源拒绝与混合生产者关闭竞争。

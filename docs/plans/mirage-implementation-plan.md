@@ -13,8 +13,8 @@
 2026-10-22 后续：Mirador 再更新至 master `2a9f483`，消费其 M9-04 token/覆盖
 采纳和 M9-05 时间状态/事件。独立背景宿主对显式全帧/空间 ROI 完整刷新证据采纳，返回
 覆盖失效、确认状态、焦点与有界事件；M9-05/07/18 继续 In Progress。规划仍在
-当前识别之后；新增 ROI-only 的前置空间选区和有界能力执行。对象/文本前置定位、
-无帧焦点查询与 native/模型供给保持开放。见
+当前识别之后；新增 ROI-only 的前置空间选区、有界能力执行及无帧状态/焦点查询
+宿主接口。对象/文本前置定位与 native/模型供给保持开放。见
 [消费契约](../design/continuous-visual-analysis.md)及[pin 审计](../supply-chain/mirador-continuous-perception-20261022.md)。
 
 2026-10-22：按 DEC-091/109 推进 M9-06/07 的 opt-in 连续采集基础层：kairo worker/

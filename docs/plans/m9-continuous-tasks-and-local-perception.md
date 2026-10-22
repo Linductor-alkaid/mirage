@@ -223,8 +223,8 @@ MiniCPM-o 4.5 仅参考视觉 token 压缩与时分复用机制，不纳入模�
   局部依赖，后台感知不默认同时运行 OCR/YOLO/tracker 全套。
   2026-10-22：消费 Mirador `2a9f483` 的 Experimental 关系、token/覆盖采纳与
   时间状态/有界事件，在现有 worker 的当前 oriented 融合快照执行；只有显式完整
-  刷新证据可采纳。空间 ROI-only 调度已前置；对象/文本前置定位、独立无帧焦点
-  查询与产品任务策略/供给仍开放，
+  刷新证据可采纳。空间 ROI-only 调度已前置，无帧焦点查询已接入同一 worker；
+  对象/文本前置定位与产品任务策略/供给仍开放，
   契约见[连续视觉消费](../design/continuous-visual-analysis.md)。
 - [ ] `M9-19` **Proposed**（依赖 05/07/09；与 17/18 协同）：按目标及依赖区域重验输入，
   解耦整屏像素变化与全局 authority epoch；分别实现模型通知与输入门控。
@@ -565,3 +565,19 @@ plan_cycle/accept，局部失败不推进确认。显式刷新不受近似静态
 消费专项 894 检查零失败。测试的两块 2×2 ROI 在 8×8 帧上每帧送 OCR 8 源像素，
 不换算为实际模型/CPU 净收益。变更代码格式与公开边界通过，仓库全量格式仍受既有
 model_layer.cpp:1528 影响；具体命令和补跑条件见上述证据，M9-07/18 不关闭。
+
+
+2026-10-22（无帧焦点查询后续）：基线 `34bf01a`；Mirador master 重试 fetch 后
+仍为 `2a9f483`，pin 不变。新增 query_continuous，在既有 latest-wins worker
+直接调用上游时间/焦点查询，可选更新 attention 或显式 drain。独立 kQueried/
+queried 结果回显来源、策略、最后完成分析序号与年龄，不伪造当前快照或推进确认。
+默认 peek 不取走事件；失败源重建后的 old-epoch end 可以显式 drain，来源保留。
+并发发布与 queued 归属在同一锁内排序，try_publish 拒绝、关闭接纳与取消均显式；
+worker 单次 latest 读取保留停止检查，Executor 先关闭时待处理命令也取得取消信号。
+M9-18 继续 In Progress，产品供给/订阅/gap 恢复仍开放；完整证据见
+[本轮验证](../compatibility/continuous-state-query-20261022.md)。
+
+本轮验证：Debug 最终全量 110/110（303.49 s），ASAN/UBSAN/TSAN/native-release
+定向各 7/7；消费专项 1,908 checks 零失败，288 次受控混合命令均结算。变更 C++
+格式/公开边界及文档检查通过；全量格式门禁仍受原 model_layer.cpp:1528 影响，
+未修改该文件，负责人和补跑条件见上述证据。真实平台/模型净收益不作已验收声明。

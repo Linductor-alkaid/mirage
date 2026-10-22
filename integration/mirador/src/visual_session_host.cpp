@@ -28,8 +28,10 @@ namespace {
 struct RequestState {
     explicit RequestState(VisualAnalysisRequest analysis_request)
         : request(std::move(analysis_request)) {}
+    explicit RequestState(VisualContinuousQuery query_request) : query(std::move(query_request)) {}
 
     VisualAnalysisRequest request;
+    std::optional<VisualContinuousQuery> query;
     desktop::CancelToken cancel; ///< latest-wins / stop cancellation channel
     std::promise<VisualAnalysisResult> done;
 };
@@ -41,6 +43,7 @@ void settle(RequestState &state, VisualAnalysisResult result) {
     // cannot pin all generations of ContinuousCaptureHost's pixel budget.
     state.request.frame = {};
     state.request.continuous.reset();
+    state.query.reset();
     try {
         state.done.set_value(std::move(result));
     } catch (...) {
@@ -169,6 +172,8 @@ struct detail::VisualSessionCore {
     std::optional<mirador::ImportancePolicy> importance;
     std::uint64_t evidence_digest = 0;
     bool spatial_mode = false;
+    std::uint64_t last_analyzed_frame = 0;
+    std::optional<std::chrono::steady_clock::time_point> last_analyzed_at;
     struct BackgroundBaseline {
         mirador::ChangeSignature signature;
         std::uint64_t sequence = 0, policy_revision = 0;
@@ -178,6 +183,7 @@ struct detail::VisualSessionCore {
     bool assets_enrolled = false; // Only touched by this source worker.
 
     std::mutex mutex;
+    bool accepting = true; // Protected by mutex, including transport publication.
     /// Wakes the worker for a published request, a stop, or the bounded
     /// idle slice; the executor's stop path calls wakeup() through the
     /// worker. The worker never holds this mutex while a request runs.
@@ -193,9 +199,49 @@ struct detail::VisualSessionCore {
 
 namespace {
 
+void publish_request(detail::VisualSessionCore &core, const std::shared_ptr<RequestState> &state) {
+    std::shared_ptr<RequestState> superseded;
+    bool accepted = false;
+    {
+        std::lock_guard lock(core.mutex);
+        // Keep the transport order and queued identity identical across producers.
+        // A failed bounded publication leaves the previous command untouched.
+        if (core.accepting && core.mailbox.try_publish(state)) {
+            superseded = std::move(core.queued);
+            if (core.in_flight)
+                core.in_flight->cancel.request_cancel();
+            core.queued = state;
+            accepted = true;
+        }
+    }
+    if (!accepted) {
+        settle_rejected(*state, "visual command admission closed or mailbox publication rejected");
+        return;
+    }
+    core.cv.notify_all();
+    if (superseded)
+        settle_cancelled(*superseded, "superseded by a newer visual command");
+}
+
 std::uint64_t evidence_digest(const VisualContinuousRequest &input) {
     return input.spatial_evidence_digest != 0 ? input.spatial_evidence_digest
                                               : input.full_frame_evidence_digest;
+}
+
+bool query_policy_fits(const mirador::AttentionPolicy &policy,
+                       const VisualContinuousConfig &limits) {
+    auto remaining = static_cast<std::size_t>(limits.max_coordination_bytes);
+    if (policy.conditions.capacity() > remaining / sizeof(mirador::AttentionCondition))
+        return false;
+    remaining -= policy.conditions.capacity() * sizeof(mirador::AttentionCondition);
+    for (const auto &condition : policy.conditions) {
+        for (const auto *text : {&condition.text_equals, &condition.label_equals}) {
+            if (text->capacity() + 1 > remaining)
+                return false;
+            remaining -= text->capacity() + 1;
+        }
+    }
+    return true;
 }
 /// No algorithm is reproduced here: apply owner configuration, scope the old
 /// session's caches/IDs to their source revision, and let Mirador plan/relate.
@@ -220,6 +266,10 @@ mirador::Result<bool> prepare_continuous(detail::VisualSessionCore &core,
             return session.status();
         core.session = session.take_value();
         (void)coordinator.notify_source_reset();
+    }
+    if (new_source) {
+        core.last_analyzed_frame = 0;
+        core.last_analyzed_at.reset();
     }
     const bool invalidate = new_source || previous_policy != coordinator.policy_revision() ||
                             !core.importance || *core.importance != input.importance ||
@@ -257,18 +307,90 @@ std::optional<std::int64_t> plan_owned_bytes(const mirador::WorkPlan &plan, std:
     return bytes;
 }
 
-std::int64_t state_owned_bytes(const VisualContinuousResult &output) {
-    std::size_t bytes = output.temporal.entities.capacity() * sizeof(mirador::TemporalEntityState) +
-                        output.focus.capacity() * sizeof(mirador::FocusStateResolution) +
-                        output.events.events.capacity() * sizeof(mirador::SemanticEvent);
-    for (const auto &focus : output.focus)
+std::int64_t state_owned_bytes(const mirador::TemporalSemanticState &temporal,
+                               const std::vector<mirador::FocusStateResolution> &focus_states,
+                               const mirador::EventDrain *events,
+                               const mirador::WorkAcceptReport *accepted = nullptr) {
+    std::size_t bytes = temporal.entities.capacity() * sizeof(mirador::TemporalEntityState) +
+                        focus_states.capacity() * sizeof(mirador::FocusStateResolution);
+    for (const auto &focus : focus_states)
         bytes += focus.stable_ids.capacity() * sizeof(std::uint64_t);
-    for (const auto &event : output.events.events)
-        bytes += event.window.source_id.capacity() + 1;
-    if (output.accepted)
-        bytes += output.accepted->item_rejections.capacity() *
+    if (events) {
+        bytes += events->events.capacity() * sizeof(mirador::SemanticEvent);
+        for (const auto &event : events->events)
+            bytes += event.window.source_id.capacity() + 1;
+    }
+    if (accepted)
+        bytes += accepted->item_rejections.capacity() *
                  sizeof(std::optional<mirador::WorkRejectionReason>);
     return static_cast<std::int64_t>(bytes);
+}
+
+void execute_query(detail::VisualSessionCore &core, RequestState &state) {
+    const auto &query = *state.query;
+    const auto interrupted = [&] {
+        if (state.cancel.cancelled() || query.external_cancel.cancelled()) {
+            settle_cancelled(state, "visual state query cancelled before commit");
+            return true;
+        }
+        if (query.deadline && std::chrono::steady_clock::now() >= *query.deadline) {
+            settle_failed(state,
+                          {mirador::ErrorCode::kTimeout, "visual state query deadline expired"});
+            return true;
+        }
+        return false;
+    };
+    if (interrupted())
+        return;
+    if (core.source_revision == 0 || query.expected_source_revision != core.source_revision) {
+        settle_rejected(state, "visual state query source revision is not current");
+        return;
+    }
+    if (query.attention) {
+        if (query.attention->conditions.size() >
+            static_cast<std::size_t>(core.config.continuous->max_focus_conditions)) {
+            settle_failed(state, {mirador::ErrorCode::kBudgetExceeded,
+                                  "query attention condition cap exceeded"});
+            return;
+        }
+        if (auto valid = mirador::validate_attention_policy(*query.attention); !valid) {
+            settle_failed(state, valid.status());
+            return;
+        }
+    }
+    if (interrupted())
+        return;
+    if (query.attention) {
+        const auto previous = core.coordinator->policy_revision();
+        auto applied = core.coordinator->set_attention_policy(*query.attention);
+        if (!applied) {
+            settle_failed(state, applied.status());
+            return;
+        }
+        if (previous != core.coordinator->policy_revision())
+            core.background_baseline.reset();
+    }
+    // Bounded synchronous commit: queries do not advance observations. Once a
+    // policy has applied / a drain can happen, late cancellation cannot discard it.
+    VisualContinuousQueryView view;
+    view.source_revision = core.source_revision;
+    view.source_epoch = core.coordinator->source_epoch();
+    view.policy_revision = core.coordinator->policy_revision();
+    view.last_analyzed_frame = core.last_analyzed_frame;
+    if (core.last_analyzed_at)
+        view.analysis_age = std::chrono::steady_clock::now() - *core.last_analyzed_at;
+    view.temporal = core.coordinator->query_temporal_state();
+    view.focus = core.coordinator->query_focus_states();
+    if (query.drain_events)
+        view.events = core.coordinator->drain_events().take_value();
+    view.coordination_owned_bytes = core.coordinator->coordination_owned_bytes();
+    view.state_owned_bytes =
+        state_owned_bytes(view.temporal, view.focus, view.events ? &*view.events : nullptr);
+    VisualAnalysisResult result;
+    result.outcome.kind = VisualAnalysisOutcome::Kind::kQueried;
+    result.cache_stats.continuous_coordination_bytes = view.coordination_owned_bytes;
+    result.queried = std::move(view);
+    settle(state, std::move(result));
 }
 
 mirador::Result<VisualAnalysisResult::SpatialExecution>
@@ -329,6 +451,10 @@ plan_spatial(detail::VisualSessionCore &core, const VisualAnalysisRequest &reque
 /// polls the request's execution context, so a cancellation or deadline
 /// lands at the next stage boundary as an explicit status.
 void execute(detail::VisualSessionCore &core, RequestState &state) {
+    if (state.query) {
+        execute_query(core, state);
+        return;
+    }
     const VisualAnalysisRequest &request = state.request;
     // The DEC-016 mapping: internal latest-wins token, the caller's external
     // token (a default token never cancels), and the steady-clock deadline.
@@ -993,7 +1119,8 @@ void execute(detail::VisualSessionCore &core, RequestState &state) {
         output.plan_owned_bytes = *plan_bytes + preliminary_bytes;
         output.relations = relations.take_value();
         output.cycle = plan.take_value();
-        output.state_owned_bytes = state_owned_bytes(output);
+        output.state_owned_bytes = state_owned_bytes(output.temporal, output.focus, &output.events,
+                                                     output.accepted ? &*output.accepted : nullptr);
         continuous_result = std::move(output);
     }
 
@@ -1027,6 +1154,10 @@ void execute(detail::VisualSessionCore &core, RequestState &state) {
         result.cache_stats.background_signature_bytes =
             core.background_baseline->signature.thumbnail.byte_size();
     result.outcome.kind = VisualAnalysisOutcome::Kind::kCompleted;
+    if (core.coordinator) {
+        core.last_analyzed_frame = request.frame.sequence;
+        core.last_analyzed_at = std::chrono::steady_clock::now();
+    }
     result.continuous = std::move(continuous_result);
     settle(state, std::move(result));
 }
@@ -1056,12 +1187,11 @@ class VisualSessionWorker final : public kairo::IBlockingIoWorker {
                     return;
                 }
             }
-            // Drain to the newest published request; intermediate slots were
-            // settled by the submissions that overwrote them.
+            // One bounded latest read per iteration. A concurrent newer publish
+            // is picked up by the next predicate check; never spin-drain while
+            // producers keep publishing (stop must remain observable).
             std::shared_ptr<RequestState> request;
-            while (core_->mailbox.try_load_newer_than(seen, request, seen)) {
-            }
-            if (!request) {
+            if (!core_->mailbox.try_load_newer_than(seen, request, seen) || !request) {
                 continue;
             }
             {
@@ -1090,11 +1220,16 @@ class VisualSessionWorker final : public kairo::IBlockingIoWorker {
 
     void wakeup() noexcept override {
         std::lock_guard lock(core_->mutex);
+        core_->accepting = false;
         // Executor shutdown can precede the host's supported stop order.
         // Wake must also interrupt the currently executing capability, whose
         // context otherwise only sees host/external cancellation.
         if (core_->in_flight)
             core_->in_flight->cancel.request_cancel();
+        // A worker can be between its stop check and queued-command pickup.
+        // Cover that window even when there is no in-flight pointer yet.
+        if (core_->queued)
+            core_->queued->cancel.request_cancel();
         core_->cv.notify_all();
     }
 
@@ -1357,22 +1492,39 @@ std::future<VisualAnalysisResult> VisualSessionHost::submit(VisualAnalysisReques
         return future;
     }
 
-    std::shared_ptr<RequestState> superseded;
-    {
-        std::lock_guard lock(core_->mutex);
-        superseded = std::move(core_->queued);
-        if (core_->in_flight) {
-            // Latest-wins: converge the in-flight predecessor through its
-            // cancellation channel; it settles explicitly as kCancelled.
-            core_->in_flight->cancel.request_cancel();
+    publish_request(*core_, state);
+    return future;
+}
+
+std::future<VisualAnalysisResult> VisualSessionHost::query_continuous(VisualContinuousQuery query) {
+    auto state = std::make_shared<RequestState>(std::move(query));
+    auto future = state->done.get_future();
+    if (lifecycle_.load(std::memory_order_acquire) != Lifecycle::Running || !config_.continuous ||
+        state->query->expected_source_revision == 0) {
+        settle_rejected(
+            *state,
+            "continuous state query requires a running continuous host and source revision");
+        return future;
+    }
+    if (state->query->attention) {
+        const auto &policy = *state->query->attention;
+        if (policy.conditions.size() >
+                static_cast<std::size_t>(config_.continuous->max_focus_conditions) ||
+            !query_policy_fits(policy, *config_.continuous)) {
+            settle_failed(*state, {mirador::ErrorCode::kBudgetExceeded,
+                                   "query policy payload budget exceeded"});
+            return future;
         }
-        core_->queued = state;
+        if (auto valid = mirador::validate_attention_policy(policy); !valid) {
+            settle_failed(*state, valid.status());
+            return future;
+        }
     }
-    core_->mailbox.publish(state);
-    core_->cv.notify_all();
-    if (superseded) {
-        settle_cancelled(*superseded, "superseded by a newer analysis request");
+    if (!worker_.status().is_running) {
+        settle_rejected(*state, "visual session worker is not running");
+        return future;
     }
+    publish_request(*core_, state);
     return future;
 }
 
@@ -1386,6 +1538,7 @@ void VisualSessionHost::stop() {
     std::vector<std::shared_ptr<RequestState>> to_settle;
     if (core_) {
         std::lock_guard lock(core_->mutex);
+        core_->accepting = false;
         if (core_->queued) {
             to_settle.push_back(std::move(core_->queued));
             core_->queued = nullptr;

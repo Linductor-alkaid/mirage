@@ -122,3 +122,10 @@ M9-07 在实现前冻结，并用目标设备实测 RSS/拷贝及延迟。
 或填写节省比例。负责人为 Mirage 维护者；补跑条件为 native 文本/动作接线与
 可重置的真实授权桌面、provider 环境到位。当前单元长序列仅验证对象表逻辑
 存量，不代表连续帧采集 CPU/GPU/RSS 或端到端收益。
+
+
+2026-10-22 无帧查询：输入 policy 的 vector/string capacity 在投递前按
+max_coordination_bytes（默认 512 KiB）检查；每个命令最多 16 条条件，沿用一个
+在途+一个最新待处理命令。结果沿用实体/事件/焦点数量上限并计 state_owned_bytes；
+mailbox 历史槽中的已结算 policy 在 future 可见前释放。最后完成分析时间/序号
+仅为状态年龄元数据，查询/skip/失败不推进，不建立任务监控或定时器。
