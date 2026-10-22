@@ -7,6 +7,12 @@
 
 ## 1. 项目概述
 
+2026-10-22 实施增量：M9-06/07 新增可显式启用的连续采集基础层，外部 owner
+注入授权 capture 函数和 kairo Executor，需求 timer 唤醒串行 blocking worker，
+最新完整帧按两代像素预算共享给 Mirador，撤销需求推进 epoch 并拒绝晚到结果。
+契约和限制见[基础层设计](continuous-capture-infrastructure.md)。本轮未接生产
+消费者或改变 pet/采集默认值；文本供给、静态退避及真实资源验收继续由 M9 承接。
+
 2026-10-20 决策增量（已接受，首个契约增量实施中）：
 [DEC-111](../decisions/DEC-111-target-text-value-verification.md) 采用平台中立的目标
 文本值验证：通过 AccessibilityProvider 按需读取同一控件的实际值，受控复制作为

@@ -5,7 +5,7 @@
 > 所属计划：[Mirage 实施总计划](mirage-implementation-plan.md)
 > 前置：M1 Runtime、M3 Mirador 集成、M6 owner/会话、M7 动作/观察能力；不要求关闭旧里程碑全部门禁
 > 建议发布点：持续任务与文本观察 Linux 预览；标签未定，Windows/原生 Wayland 单列验收
-> 更新日期：2026-10-20
+> 更新日期：2026-10-22
 
 ## 目标
 
@@ -108,7 +108,7 @@ MiniCPM-o 4.5 仅参考视觉 token 压缩与时分复用机制，不纳入模�
   缺失历史显式 gap/reset，不把重建当前状态当作恢复完整历史。
   按 DEC-109 定义带显式边界的时间单元，关联观察区间、状态基线、变化及动作
   反馈水位；单元内保留不同证据的真实时间、缺失和版本。
-- [ ] `M9-06` **Planned**（依赖 05）：接通文本优先供给与共享帧复用。复用授权
+- [ ] `M9-06` **In Progress**（依赖 05）：接通文本优先供给与共享帧复用。复用授权
   最新帧和 OCR/融合 worker，避免 capture/OCR 重复取帧及不必要 PNG 编码/供图；
   文本不足时按请求回退 ROI/全图。验收：有文字任务不附重复图片、文本/像素
   同源可追溯，非文字任务能升级观察，权限撤回立刻失效；记录 backend 实调数。
@@ -116,6 +116,9 @@ MiniCPM-o 4.5 仅参考视觉 token 压缩与时分复用机制，不纳入模�
   生成无用 PNG/artifact，不因多个消费者保留多份整屏副本。
   按 DEC-109 分离低清巡检/模型概览与清晰证据 ROI；优先探测源缩放/ROI，记录采后
   缩图仍发生的全帧取回/拷贝。小文字或相似目标不足时从当前源帧提清晰度。
+  2026-10-22 首增量：opt-in 连续采集宿主与零拷贝 Mirador 帧适配，需求代际、
+  两代像素背压及取消/关闭契约见[基础层设计](../design/continuous-capture-infrastructure.md)。
+  native/IPC 文本供给与生产消费者未接线，本项保持开放。
 - [ ] `M9-07` **In Progress**（依赖 05/06）：变化驱动感知与 ROI 增量。无相关变化
   跳过重识别，局部变化更新相交区域，布局切换重置；为关键文字设强制新识别
   路径。冻结采样/工作/缓存/忽略区域预算与迟到丢弃语义。验收：微小文字、动画、
@@ -491,3 +494,18 @@ BUG-20261020-001 本轮最终回归：Debug 104/104，native-release、ASan、UB
 2026-10-21 续查：当前 native-release 的旧 SSE 截断探针三种脱敏样本全部解析为
 Incomplete（退出 0）。公开诊断接口转发正常，但失败流未持久化，仍无本次协议
 错误的最小复现；具体接口边界和复验命令已追加至调查记录，SSE 门禁继续开放。
+
+2026-10-22（连续采集基础层）：按 DEC-091/109 推进 M9-06/07，新增 opt-in
+ContinuousCaptureHost：外部 Executor、串行 blocking worker、按需求启动/取消的
+periodic timer 和 LatestMailbox；需求 epoch 拒绝旧 tick/迟到帧，固定两代像素
+容量在 provider 调用前背压，移动捕获 buffer 并由 Mirador Frame 共享同一 owner。
+异常进入 kairo worker 失败状态，取消/超时/拒绝显式诊断；关闭幂等且 callback
+拥有的 Backend 状态在 worker 退出前释放。M9-06 转 In Progress，07/11/12 保持开放。
+
+验证：Debug 全量 109/109，Release、ASAN、UBSAN 定向各 5/5，TSAN 以测试子进程
+关闭 ASLR 后 3/3，通过；采集专项各 166 检查零失败，64 代 fake 周转像素预算
+不超过 512 字节。契约、命令、首轮 TSAN 启动限制与补跑条件见
+[本轮证据](../compatibility/continuous-capture-infrastructure-20261022.md)。尚未接生产
+native/IPC 消费、平台推送流启停、静态退避、真实 4K/多源/低端设备与 pet 共存；
+不声明产品资源收益，也不关闭完整工作项。负责人 Mirage 维护者，待对应平台/
+消费者接线及资源阈值/授权环境就绪，由 M9-11/12 补齐真实验收。

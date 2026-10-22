@@ -28,6 +28,16 @@ M9-06/07/08 按 [DEC-109](../decisions/DEC-109-continuous-perception-attention-a
 
 ## 现状与迁移边界
 
+### 2026-10-22：采集基础层局部预算
+
+M9-06/07 opt-in `ContinuousCaptureHost` 的预算已在
+[基础层契约](continuous-capture-infrastructure.md)登记：固定两代像素（包括消费者
+保留与在途分配）、默认每帧 8 MiB、采样 250 ms、合作式 capture 期限 2 s；
+无需求取消 timer，代槽满时在 provider 调用前背压。配置默认值为本 API 的暂定值，
+非已实测产品参数。Mirador 共享相同像素 owner，无新增 copy/PNG/模型工作。
+平台 buffer、派生转换与全产品资源门禁仍按下节单独验收，不能用此局部字节上限
+关闭 M9-01/07/11/12；真实设备资源/静态退避和生产消费者接线仍待实施。
+
 ### 2026-10-20：端侧低负载门禁（待冻结与实现）
 
 依据 DEC-109，MiniCPM 只借鉴视觉表示压缩与时间组织机制，首增量不新增神经

@@ -6,9 +6,15 @@
 > 版本：0.1
 > 负责人：Mirage 维护者
 > 依据：[《Mirage：Linux - Windows 桌面端设计方案》](../design/Mirage：Linux%20-%20Windows%20桌面端设计方案.md)（下称"设计文档"）
-> 更新日期：2026-10-21（M7-27 持键移动、设备守卫与窗口切换器增量；既有里程碑状态保留）
+> 更新日期：2026-10-22（M9-06/07 连续采集基础层增量；既有里程碑状态保留）
 
 ## 当前状态
+
+2026-10-22：按 DEC-091/109 推进 M9-06/07 的 opt-in 连续采集基础层：kairo worker/
+timer、需求 epoch、两代像素背压与共享 Mirador Frame。M9-06 转 In Progress，
+M9-07/11/12 保持开放；生产消费者、静态退避、真实平台与产品资源验收仍待交付。
+契约见[基础层设计](../design/continuous-capture-infrastructure.md)，实际测试与限制见
+[本轮证据](../compatibility/continuous-capture-infrastructure-20261022.md)。
 
 2026-10-20：M7-25/26 点击子集继续交付：三条物理点击工具 4.0.0 默认本地自动平滑
 接近，不接收模型 glide_ms；同一 lease 内到达重验后才点击释放。Portal 加同源 Cursor

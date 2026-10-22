@@ -11,6 +11,7 @@
 #include <mirador/result.hpp>
 
 #include <mirage/desktop/screen_provider.hpp>
+#include <mirage/integration/continuous_capture_host.hpp>
 
 namespace mirage::integration {
 
@@ -33,6 +34,12 @@ namespace mirage::integration {
 [[nodiscard]] mirador::Result<mirador::Frame>
 to_mirador_frame(const desktop::ImageFrame &frame, std::string source_id, std::uint64_t sequence,
                  std::chrono::steady_clock::time_point timestamp);
+
+/// M9-06: share immutable capture pixels without copying. The returned owner
+/// retains the capture generation and therefore participates in its two-slot
+/// budget. Null/invalid frames fail like the copying overload above.
+[[nodiscard]] mirador::Result<mirador::Frame>
+to_mirador_frame(std::shared_ptr<const SharedCaptureFrame> frame);
 
 /// Converts an existing mirador frame's pixels to `target_format` through
 /// mirador's `convert_color` kernel under the explicit `max_bytes` budget
