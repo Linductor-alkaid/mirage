@@ -5,6 +5,7 @@
 // fully controlled tree. (The real at-spi2-registryd is bypassed: Ubuntu
 // 24.04's build segfaults on Socket.Embed — upstream bug, see atspi_session.hpp.)
 
+#include "../../platform/linux/src/atspi_backend.hpp"
 #include "../support/atspi_session.hpp"
 #include "../support/fake_atspi_desktop.hpp"
 #include "../support/test.hpp"
@@ -52,6 +53,28 @@ int main() {
         if (!desktop.start(session.bus_address())) {
             return 1;
         }
+
+        // Pure Wayland uses the AT-SPI window provider, not the X11 provider
+        // tested below. Applications are not themselves window roots.
+        auto native_windows = mirage::platform::linux_backend::AtspiBackend::open_window_provider();
+        MIRAGE_CHECK(native_windows != nullptr);
+        const auto native_list = native_windows->list_windows();
+        MIRAGE_CHECK(native_list.ok && native_list.windows.size() == 2);
+        if (native_list.windows.size() == 2) {
+            MIRAGE_CHECK(native_list.windows[0].title == "FakeWindow — main");
+            MIRAGE_CHECK(native_list.windows[0].geometry.width == 200);
+            MIRAGE_CHECK(native_list.windows[1].title == "SecondWindow");
+        }
+        mirage::desktop::WindowListLimits native_tight;
+        native_tight.max_windows = 1;
+        const auto native_overflow = native_windows->list_windows(native_tight, {});
+        MIRAGE_CHECK(!native_overflow.ok && native_overflow.windows.empty());
+        MIRAGE_CHECK(native_overflow.error.code == "result_too_large");
+        CancelToken native_cancel;
+        native_cancel.request_cancel();
+        MIRAGE_CHECK(!native_windows->list_windows({}, native_cancel).ok);
+        MIRAGE_CHECK(native_windows->front_window().found);
+        MIRAGE_CHECK(!native_windows->activate("atspi:FakeEditor/FakeWindow — main").ok);
 
         // A real X window whose title matches the accessible window makes
         // the window-id -> title -> accessibility-tree mapping observable.

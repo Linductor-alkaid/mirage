@@ -103,6 +103,12 @@ class FakeAtspiDesktop {
     }
 
   private:
+    static constexpr const char *kComponentXml =
+        "<node><interface name='org.a11y.atspi.Component'>"
+        "<method name='GetExtents'><arg type='u' direction='in'/>"
+        "<arg type='(iiii)' direction='out'/></method>"
+        "</interface></node>";
+
     static constexpr const char *kAccessibleXml =
         "<node><interface name='org.a11y.atspi.Accessible'>"
         "<method name='GetChildAtIndex'><arg type='i' direction='in'/>"
@@ -234,10 +240,16 @@ class FakeAtspiDesktop {
         } else if (name == "GetApplication") {
             GVariant *reference = object_ref(self, self.nodes[self.application_index(node)].path);
             g_dbus_method_invocation_return_value(invocation, g_variant_new_tuple(&reference, 1));
+        } else if (name == "GetExtents") {
+            g_dbus_method_invocation_return_value(invocation,
+                                                  g_variant_new("((iiii))", 10, 20, 200, 150));
         } else if (name == "GetInterfaces") {
             GVariantBuilder builder;
             g_variant_builder_init(&builder, G_VARIANT_TYPE("as"));
             g_variant_builder_add(&builder, "s", "org.a11y.atspi.Accessible");
+            if (node.role == ATSPI_ROLE_FRAME || node.role == ATSPI_ROLE_WINDOW ||
+                node.role == ATSPI_ROLE_DIALOG)
+                g_variant_builder_add(&builder, "s", "org.a11y.atspi.Component");
             if (node.has_action) {
                 g_variant_builder_add(&builder, "s", "org.a11y.atspi.Action");
             }
@@ -341,6 +353,7 @@ class FakeAtspiDesktop {
         GDBusNodeInfo *accessible_info = g_dbus_node_info_new_for_xml(kAccessibleXml, nullptr);
         GDBusNodeInfo *action_info = g_dbus_node_info_new_for_xml(kActionXml, nullptr);
         GDBusNodeInfo *editable_info = g_dbus_node_info_new_for_xml(kEditableTextXml, nullptr);
+        auto *component_info = g_dbus_node_info_new_for_xml(kComponentXml, nullptr);
         GDBusInterfaceVTable vtable{};
         vtable.method_call = on_method_call;
         vtable.get_property = on_get_property;
@@ -358,6 +371,16 @@ class FakeAtspiDesktop {
                 std::fprintf(stderr, "register Accessible failed: %s\n", error->message);
                 g_error_free(error);
                 ok = false;
+            }
+            if (nodes[i].role == ATSPI_ROLE_FRAME || nodes[i].role == ATSPI_ROLE_WINDOW ||
+                nodes[i].role == ATSPI_ROLE_DIALOG) {
+                if (g_dbus_connection_register_object(connection_, nodes[i].path.c_str(),
+                                                      component_info->interfaces[0], &vtable,
+                                                      context, nullptr, &error) == 0) {
+                    std::fprintf(stderr, "register Component failed: %s\n", error->message);
+                    g_error_free(error);
+                    ok = false;
+                }
             }
             if (nodes[i].has_action) {
                 if (g_dbus_connection_register_object(connection_, nodes[i].path.c_str(),
@@ -378,6 +401,7 @@ class FakeAtspiDesktop {
                 }
             }
         }
+        g_dbus_node_info_unref(component_info);
         g_dbus_node_info_unref(accessible_info);
         g_dbus_node_info_unref(action_info);
         g_dbus_node_info_unref(editable_info);
