@@ -187,3 +187,12 @@ Release 相关 8/8，ASAN/UBSAN view+fixtures 各 3/3，无报告；85 个共同
 [稳定分段记录](../benchmarks/native-settled-segments-20261023.md)。
 M6-52 本轮关闭；Windows、真实 compositor/硬件 GPU/物理高 DPI 仍由
 Mirage 维护者取得环境后按同字体/输入补验，未标记这些平台完成。
+
+
+### 2026-10-23：Native Release / DEB 交付跟进
+
+状态 Completed（Linux amd64 构建、测试与包校验）。M6-48/50/51/52 已更新至
+native-release，完整 CTest 120/120，0 skip；同一构建生成 0.1.0 amd64 DEB，
+四程序、18 项 UI / 12 项视觉资源、依赖、控制脚本和校验和通过。交付包已替换并
+保留旧包备份。系统安装/升级/卸载、原会话与 Windows 仍待维护者取得环境后补验。
+记录见[打包验收](../compatibility/native-package-refresh-20261023.md)。
