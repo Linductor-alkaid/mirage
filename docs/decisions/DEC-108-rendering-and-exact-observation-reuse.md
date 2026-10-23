@@ -34,3 +34,28 @@ pet 的 512×512 RGBA 全帧缓存和持续 ImageStream 刷新产生与当前可
 同机配对输入测试、像素还原比较、私有 X11 pet 呈现与生命周期、OCR 调用次数及
 取消/授权/epoch 回归、sanitizer。性能数据与平台限制见
 [维护计划](../plans/maintenance-performance-20261019.md)。
+
+## 2026-10-23：长会话几何复用细化（M6-48）
+
+离屏正文裁剪仍每帧进入 Markdown 高度估算（包括段落遍历与上游布局缓存查找），且原精确 contentKey 超过 64 KiB 后
+退回两次全量测量。现在在 UI owner 内保存当前会话逐消息的精确源快照与两个宽度的
+几何（含滚动条 gutter），仅重新测量发生变化的消息；正文、状态、失败原因、过程
+parts、展开状态与 timings 逐项比较，不以 hash 或事件序号代替内容。消息顺序、
+视口、字体/缩放和主题变化推动有界 revision，作为 EUI 公共 contentKey。composer
+增高和主题切换只改变 scroll key；字体/缩放使全部几何失效，宽度按实际值分别测量。
+
+保留最多 80 条消息、额外源快照预算 8 MiB，只持有一个会话；超预算清空缓存并退回
+原测量，不截断正文。复用 EUI 公开 Markdown/字体/ScrollView 实现，不新增排版器、
+线程、事件队列或异步路径。验收与平台限制见
+[2026-10-23 性能记录](../benchmarks/native-long-session-20261023.md)。
+
+
+## 2026-10-23：授权消费 EUI 视口能力（M6-50）
+
+维护者在本轮明确授权独立 EUI 分支开发和修复 PR，见 EUI-20261023-001。
+Mirage 消费公共 MarkdownBuilder viewport，由 EUI 承担通用块/行布局复用与
+控件构建预算；Mirage 只计算产品的局部视口并保留既有消息几何和滚动状态。
+默认完整 builder 用于按下时的全正文选区快照，避免裁掉的行改变 UTF-8 引用。
+不复制依赖私有类型，不引入 worker/定时器，也不把产品消息或选区策略下沉 EUI。
+上游 [PR #117](https://github.com/sudoevolve/EUI-NEO/pull/117)，集成 pin/
+四后端验证/平台限制见[审计](../supply-chain/eui-dev-20261023.md)。

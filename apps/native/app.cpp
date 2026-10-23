@@ -2,6 +2,7 @@
 #include "../common/typography.hpp"
 #include "chat_model.hpp"
 #include "control_button.hpp"
+#include "conversation_layout.hpp"
 #include "conversation_preview.hpp"
 #include "icons.hpp"
 #include "markdown_adapter.hpp"
@@ -162,6 +163,7 @@ struct MotionValue {
 struct PageState {
     ChatModel chat;
     PlainTextLayout plain_text;
+    ConversationLayout conversation_layout;
     float render_scale = 1;
     TextSelection selection;
     std::uint64_t hovered_message = 0;
@@ -2793,15 +2795,18 @@ std::string tool_failure_label(const conversation::Part &part) {
 void render_process(eui::Ui &ui, const std::string &key, const LocalMessage &message,
                     std::uint64_t session, float width, float y, const Palette &p,
                     const components::theme::ThemeColorTokens &tokens,
-                    const components::MarkdownStyle &markdown) {
+                    const components::MarkdownStyle &markdown,
+                    const std::vector<float> &part_heights, float viewport_top,
+                    float viewport_height) {
     for (const auto &line : process_timing_lines(message.timings)) {
         text(ui, key + ".timing." + std::to_string(static_cast<int>(y)), line, 4, y, width - 8, 20,
              12, p.muted);
         y += 20;
     }
-    for (const auto &part : message.parts) {
+    for (std::size_t i = 0; i < message.parts.size(); ++i) {
+        const auto &part = message.parts[i];
         const auto id = key + ".part." + part.id;
-        const auto height = process_part_height(message, part, width, markdown);
+        const auto height = part_heights[i];
         if (part.kind == "text") {
             components::markdown(ui, id + ".markdown")
                 .position(0, y)
@@ -2809,6 +2814,7 @@ void render_process(eui::Ui &ui, const std::string &key, const LocalMessage &mes
                 .height(height - 8)
                 .markdown(part.text)
                 .style(markdown)
+                .viewport(viewport_top - y, viewport_height, 64)
                 .build();
             if (auto *view = ui.find(id + ".markdown"))
                 compact_markdown_cjk(*view, part.text);
@@ -2924,48 +2930,50 @@ void render_process(eui::Ui &ui, const std::string &key, const LocalMessage &mes
     }
 }
 
-// ScrollView's public height cache avoids constructing the entire history in
-// two measuring UIs on every keystroke. Keep an exact, length-delimited key:
-// message/part edits and expansion must invalidate it even without a revision
-// change. Oversized histories fall back to automatic measurement, not hashes.
-std::string conversation_measure_key(const LocalSession &session, const PageState &page,
+// A compact revision refers to exact source snapshots owned by the UI. Long
+// history no longer disables ScrollView's public height cache (M6-48).
+std::string conversation_measure_key(const LocalSession &session, PageState &page,
                                      float viewport_width, float viewport_height) {
-    constexpr std::size_t budget = 64 * 1024;
-    std::string key;
-    key.reserve(2048);
-    const auto append = [&](const std::string &value) {
-        if (value.size() > budget || key.size() + value.size() + 24 > budget)
-            return false;
-        key += std::to_string(value.size());
-        key += ':';
-        key += value;
-        return true;
-    };
-    if (!append(std::to_string(page.font_size_step)) ||
-        !append(std::to_string(page.code_font_size_step)) ||
-        !append(std::to_string(page.render_scale)) || !append(std::to_string(viewport_width)) ||
-        !append(std::to_string(viewport_height)) || !append(page.dark ? "dark" : "light") ||
-        !append(std::to_string(session.messages.size())))
-        return {};
-    for (const auto &message : session.messages) {
-        if (!append(std::to_string(message.id)) || !append(message.role) ||
-            !append(message.status) || !append(message.text) || !append(message.error) ||
-            !append(std::to_string(message.parts.size())) ||
-            !append(conversation::encode_timings(message.timings)))
-            return {};
-        for (const auto &part : message.parts)
-            if (!append(part.id) || !append(part.kind) || !append(part.status) ||
-                !append(part.text) || !append(part.input) || !append(part.output) ||
-                !append(part.truncated ? "cut" : "full") ||
-                !append(part.omitted_for_display_budget ? "omitted" : "retained"))
-                return {};
-        if (!append(std::to_string(message.expanded_parts.size())))
-            return {};
-        for (const auto &part : message.expanded_parts)
-            if (!append(part))
-                return {};
+    return page.conversation_layout.prepare(session, {viewport_width, viewport_height,
+                                                      page.render_scale, page.font_size_step,
+                                                      page.code_font_size_step, page.dark});
+}
+
+MessageGeometry measure_message(const LocalMessage &message, float width,
+                                const components::MarkdownStyle &markdown) {
+    auto &s = state();
+    const bool user = message.role == "你";
+    MessageGeometry result;
+    result.bubble_width = width;
+    if (user) {
+        const auto measured = s.plain_text.measure(message.text, 0, 14, 22, s.render_scale);
+        const float natural_width = (std::ceil(measured.x * s.render_scale) + 1) / s.render_scale;
+        result.bubble_width =
+            std::min(std::min(576.0f, width), std::max(80.0f, natural_width + 24));
     }
-    return key;
+    const float body_width = user ? result.bubble_width - 24 : width - 16;
+    result.body_height = message.text.empty() ? 0
+                         : user               ? text_height(message.text, body_width, 14, 22)
+                                : std::max(22.0f, components::MarkdownBuilder::estimateHeight(
+                                                      message.text, body_width, markdown));
+    float process_height =
+        user ? 0.0f : static_cast<float>(process_timing_lines(message.timings).size()) * 20.0f;
+    if (!user)
+        for (const auto &part : message.parts) {
+            const auto height = process_part_height(message, part, width, markdown);
+            result.part_heights.push_back(height);
+            process_height += height;
+        }
+    const bool pending = message.status == "运行中";
+    const bool failed = message.status == "已停止或失败";
+    result.process_y = pending || failed ? 28.0f : 0.0f;
+    result.body_y = user ? 8.0f : result.process_y + process_height;
+    result.failure_height = failed && !message.error.empty()
+                                ? text_height("失败原因：" + message.error, body_width, 12, 20) + 8
+                                : 0.0f;
+    result.row_height = result.body_height + result.body_y + result.failure_height +
+                        (user ? 8 : 0) + (pending ? 4 : 28);
+    return result;
 }
 
 void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, const Palette &p,
@@ -3070,22 +3078,29 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
                     const bool user = message.role == "你";
                     const bool pending = message.status == "运行中";
                     const bool failed = message.status == "已停止或失败";
-                    float bubble_width = width;
-                    if (user) {
-                        const auto measured =
-                            s.plain_text.measure(message.text, 0, 14, 22, s.render_scale);
-                        // Round in physical pixels and keep one pixel of shaping slack.
-                        const float natural_width =
-                            (std::ceil(measured.x * s.render_scale) + 1) / s.render_scale;
-                        bubble_width =
-                            std::min(std::min(576.0f, width), std::max(80.0f, natural_width + 24));
+                    const auto geometry = s.conversation_layout.measure(
+                        message, width, [&] { return measure_message(message, width, markdown); });
+                    const auto bubble_width = geometry.bubble_width;
+                    const auto body_width = user ? bubble_width - 24 : width - 16;
+                    const auto body_height = geometry.body_height;
+                    const auto process_y = geometry.process_y;
+                    const auto body_y = geometry.body_y;
+                    const auto row_height = geometry.row_height;
+                    // Measurement UIs need only explicit row bounds. In the real
+                    // tree retain one viewport of overscan in both directions.
+                    // Keep an active selection/focus alive until its interaction ends.
+                    const bool retain =
+                        viewport &&
+                        ((row_y + row_height >= viewport_offset - height &&
+                          row_y <= viewport_offset + 2 * height) ||
+                         s.selection.message == message.id || list.isFocused(key + ".copy.bg") ||
+                         list.isFocused(key + ".edit.bg"));
+                    const auto message_y = row_y;
+                    row_y += row_height + 14;
+                    if (!retain) {
+                        list.stack(key).size(width, row_height).build();
+                        continue;
                     }
-                    const float body_width = user ? bubble_width - 24 : width - 16;
-                    const float body_height =
-                        message.text.empty() ? 0
-                        : user               ? text_height(message.text, body_width, 14, 22)
-                               : std::max(22.0f, components::MarkdownBuilder::estimateHeight(
-                                                     message.text, body_width, markdown));
                     const bool tool_running = std::any_of(
                         message.parts.begin(), message.parts.end(), [](const auto &part) {
                             return part.kind == "tool" && part.status == "running";
@@ -3107,36 +3122,9 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
                         static_cast<unsigned long long>(std::max(0.0f, elapsed) * 10);
                     const std::string elapsed_label =
                         std::to_string(tenths / 10) + "." + std::to_string(tenths % 10) + " 秒";
-                    float process_height =
-                        user ? 0.0f
-                             : static_cast<float>(process_timing_lines(message.timings).size()) *
-                                   20.0f;
-                    if (!user)
-                        for (const auto &part : message.parts)
-                            process_height += process_part_height(message, part, width, markdown);
-                    const float process_y = pending || failed ? 28.0f : 0.0f;
-                    const float body_y = user ? 8.0f : process_y + process_height;
                     const std::string failure = failed && !message.error.empty()
                                                     ? "失败原因：" + message.error
                                                     : std::string{};
-                    const float failure_height =
-                        failure.empty() ? 0.0f : text_height(failure, body_width, 12, 20) + 8;
-                    const float row_height =
-                        body_height + body_y + failure_height + (user ? 8 : 0) + (pending ? 4 : 28);
-                    // Measurement UIs need only explicit row bounds. In the real
-                    // tree retain one viewport of overscan in both directions.
-                    // Keep an active selection/focus alive until its interaction ends.
-                    const bool retain =
-                        viewport &&
-                        ((row_y + row_height >= viewport_offset - height &&
-                          row_y <= viewport_offset + 2 * height) ||
-                         s.selection.message == message.id || list.isFocused(key + ".copy.bg") ||
-                         list.isFocused(key + ".edit.bg"));
-                    row_y += row_height + 14;
-                    if (!retain) {
-                        list.stack(key).size(width, row_height).build();
-                        continue;
-                    }
                     list.stack(key)
                         .size(width, row_height)
                         .content([&] {
@@ -3177,7 +3165,8 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
                             }
                             if (!user)
                                 render_process(list, key, message, session_id, width, process_y, p,
-                                               tokens, markdown);
+                                               tokens, markdown, geometry.part_heights,
+                                               viewport_offset - message_y, height);
                             if (user)
                                 list.text(key + ".body")
                                     .position(left + (user ? 12 : 0), body_y)
@@ -3197,6 +3186,7 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
                                     .height(body_height)
                                     .markdown(message.text)
                                     .style(markdown)
+                                    .viewport(viewport_offset - message_y - body_y, height, 64)
                                     .build();
                                 if (auto *view = list.find(key + ".markdown"))
                                     compact_markdown_cjk(*view, message.text);
@@ -3204,7 +3194,7 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
                             if (!failure.empty())
                                 list.text(key + ".failure")
                                     .position(0, body_y + body_height + 8)
-                                    .size(body_width, failure_height - 8)
+                                    .size(body_width, geometry.failure_height - 8)
                                     .maxWidth(body_width)
                                     .text(failure)
                                     .fontSize(ui_font_size(12))
@@ -3233,12 +3223,44 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
                                             page.hovered_message = 0;
                                     })
                                     .onPress([rendered, id, session_id, width = body_width, &list,
-                                              key,
+                                              key, markdown,
                                               plain = user](const auto &event, const auto &bounds) {
                                         *rendered = {};
                                         if (const auto *body =
-                                                list.find(key + (plain ? ".body" : ".markdown")))
-                                            collect_selection_text(*body, *rendered);
+                                                list.find(key + (plain ? ".body" : ".markdown"))) {
+                                            if (plain)
+                                                collect_selection_text(*body, *rendered);
+                                            else if (const auto *selection_session =
+                                                         state().chat.find(session_id)) {
+                                                const auto source = std::find_if(
+                                                    selection_session->messages.begin(),
+                                                    selection_session->messages.end(),
+                                                    [id](const auto &candidate) {
+                                                        return candidate.id == id;
+                                                    });
+                                                if (source != selection_session->messages.end()) {
+                                                    // Selection needs the complete UTF-8 geometry
+                                                    // only on press. Reuse EUI's full builder;
+                                                    // regular frames keep the viewport tree.
+                                                    eui::Ui measured;
+                                                    measured.begin("selection-snapshot");
+                                                    components::markdown(measured, "body")
+                                                        .position(body->frame.x, body->frame.y)
+                                                        .size(width, body->frame.height)
+                                                        .markdown(source->text)
+                                                        .style(markdown)
+                                                        .build();
+                                                    compact_markdown_cjk(*measured.find("body"),
+                                                                         source->text);
+                                                    measured.end();
+                                                    measured.layout(body->frame.x + width,
+                                                                    body->frame.y +
+                                                                        body->frame.height);
+                                                    collect_selection_text(*measured.find("body"),
+                                                                           *rendered);
+                                                }
+                                            }
+                                        }
                                         auto &selection = state().selection;
                                         selection.clear();
                                         selection.session = session_id;

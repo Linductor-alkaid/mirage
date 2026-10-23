@@ -494,3 +494,28 @@ M6-42第二阶段已消费EUI-20261017-001的有界字形advance缓存（最新d
 原始留存不变。无效终态过程沿用最后有效快照并保留服务诊断，避免损坏广播同时断开
 native 和 pet。依据 DEC-049、DEC-095，见
 [修复与验收](../plans/maintenance-ui-exit-20261019.md)。
+
+
+### 2026-10-23 长会话几何预算（M6-48）
+
+按 DEC-108 在 UI 线程复用当前会话逐消息几何：逐项比较精确正文/过程/展开/状态与
+时序数据，以紧凑 revision 驱动 EUI ScrollView 的公开高度缓存。历史超过 64 KiB
+仍可复用；不变消息不再每帧遍历 Markdown 高度估算。仅保存当前会话的至多 80 条消息，
+源快照预算 8 MiB、每条两种宽度；超预算退回原测量。字体/代码字号/缩放、窗口宽度、
+展开、失败、流式文本及消息顺序均可失效，不更改滚动几何、内容容量或显示语义。
+性能与未验平台见[证据](../benchmarks/native-long-session-20261023.md)。
+
+
+### 2026-10-23 Markdown 视口与选区（M6-50）
+
+正文和过程 text 段消费 EUI 公共 `.viewport(top,height,64)`，局部 top 从消息/过程
+行几何及当前 scroll offset 推导。全高仍使用公开 estimateHeight，不改变原有
+跟随、手动浏览或过程展开规则。EUI 在 UI 线程用有界布局计划复用解析文档/inline
+几何，构建与可见区域相交的块、表格行与段落行；依赖中无新线程或调度设施。
+
+视口树不包含完整选区信息，因此 Markdown 按下时临时调用默认完整 builder，
+同字体/style/宽度及全局未滚动坐标布局，沿用原 CJK 适配与 selection adapter。
+只保留选区需要的复制数据，临时树立即释放；拖选和引用保持原 UTF-8/Markdown
+渲染语义。此首次选择仍可能有长文布局成本，不宣称所有交互均达到帧预算。
+依据 EUI-20261023-001、[PR #117](https://github.com/sudoevolve/EUI-NEO/pull/117)
+及[验证记录](../benchmarks/native-long-session-20261023.md)。

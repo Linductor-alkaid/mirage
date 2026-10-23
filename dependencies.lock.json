@@ -1,7 +1,7 @@
 {
   "schema_version": 3,
   "project": "mirage",
-  "updated": "2026-10-22",
+  "updated": "2026-10-23",
   "notes": "Schema v3 (DEC-037): native EUI frontend replaces retired npm/CEF. All dependency gitlinks and nested pins remain mandatory. artifacts is empty; no Chromium binary is acquired or packaged. M7-23 optional ncnn runtime is audited under pinned Mirador. No model weights enter Git; verified PP-OCR and explicitly selected offline YOLO bundles may accompany product packages.",
   "dependencies": [
     {
@@ -88,14 +88,16 @@
       "path": "third_party/eui-neo",
       "version": "0.6.1-dev",
       "branch": "dev",
-      "commit": "63117f77caac0d17f3d51e81afe00f1dd893de4f",
+      "commit": "19acab66aba45020fced22c9bd5ae5cd0ae54923",
       "license": "Apache-2.0",
       "license_file": "third_party/eui-neo/LICENSE",
       "consumption": "UI-only; opt-in apps/native; bundled GLFW/OpenGL; DEC-033",
       "notes": "Dev c444e53 plus compositor-mediated window move/resize (upstream PR#91 https://github.com/sudoevolve/EUI-NEO/pull/91, issue #89) and transparent framebuffer support (upstream PR#92 https://github.com/sudoevolve/EUI-NEO/pull/92, issue #90); pin includes both PR branches plus the first-frame/drawable-size repair (upstream PR#94 https://github.com/sudoevolve/EUI-NEO/pull/94, issue #93, EUI-20261008-001 / M6-35), reachable from maintainer fork. OpenGL consumption unchanged. DEC-033 / DEC-041. EUI-20261013-001: authorized upgrade to upstream dev v0.6.1 preparation includes merged PR#97 (f8caff1) fixing per-column RGBA8/BGRA8 output and PR#96 slider hit ordering; previous window move/transparency/frame repairs remain present. Mirage removes its temporary GPU upload adapter and consumes the bounded public ImageStream. Downstream issue #106 records stride/alpha regression follow-up; audit docs/supply-chain/eui-rgba-upgrade-20261013.md.",
       "upstream": "https://github.com/sudoevolve/EUI-NEO.git",
-      "windows_presentation_upgrade": "BUG-20261014-007: maintainer-authorized Windows transparency repair consumes the scoped fork commits for SDL fallback guard (#110) and the bundled GLFW WM_PAINT redirection-alpha repair (#109, upstream GLFW #2815). Review and four-backend evidence: docs/supply-chain/eui-windows-presentation-20261015.md. No new runtime dependency or assets. PRs remain subject to upstream review.",
-      "performance_upgrade": "M6-42 / EUI-20261017-001: authorized latest upstream dev ad7e9e7 plus independently tested glyph advance cache b59b6e9 (issue#113 / PR#114 https://github.com/sudoevolve/EUI-NEO/pull/114). Integration merge retains existing fork Windows presentation commits f052729/bcfaa2e (#110/#109). No new public API, dependencies or resources. Four local backend combinations 36/36 plus installed consumers 1/1; repeated CFF/TTF A/B with identical metrics fingerprints. Audit: docs/supply-chain/eui-text-performance-20261017.md. Upstream PR remains under review; not merged by this task."
+      "windows_presentation_upgrade": "BUG-20261014-007: maintainer-authorized Windows transparency repair consumes the scoped fork commits for SDL fallback guard (#110) and the bundled GLFW WM_PAINT redirection-alpha repair (#109, upstream GLFW #2815). Review and four-backend evidence: docs/supply-chain/eui-windows-presentation-20261015.md. No new runtime dependency or assets. PR#111 is merged as of 2026-10-23; PR#112 remains open. Historical numbering is retained here; see dev_upgrade.",
+      "performance_upgrade": "M6-42 / EUI-20261017-001: authorized latest upstream dev ad7e9e7 plus independently tested glyph advance cache b59b6e9 (issue#113 / PR#114 https://github.com/sudoevolve/EUI-NEO/pull/114). Integration merge retains existing fork Windows presentation commits f052729/bcfaa2e (#110/#109). No new public API, dependencies or resources. Four local backend combinations 36/36 plus installed consumers 1/1; repeated CFF/TTF A/B with identical metrics fingerprints. Audit: docs/supply-chain/eui-text-performance-20261017.md. PR#114 merged into upstream dev on 2026-10-21. This field records the original 2026-10-17 integration evidence; see dev_upgrade for latest consumption.",
+      "dev_upgrade": "M6-49 / 2026-10-23: integrate upstream dev 22f0ca3 (merged PR#107 RGBA regression, PR#111 SDL move guard, PR#114 glyph advance cache; 068e192 deferred atlas allocation and used-region upload). Preserve pending Windows redirection-alpha fix bcfaa2e / PR#112. Integration pin 91f7d07 on maintainer fork build/mirage-dev-20261023; no downstream source patch. Audit: docs/supply-chain/eui-dev-20261023.md.",
+      "markdown_viewport_upgrade": "M6-50 / EUI-20261023-001: explicitly authorized independent EUI viewport construction/layout reuse, PR#117 https://github.com/sudoevolve/EUI-NEO/pull/117 (c18a4bad1003d79c96a1e155fb73bbb975c56696). Integration 19acab6 on build/mirage-markdown-viewport preserves Windows redirection fix bcfaa2e / PR#112. No source patch in Mirage. Four local Release combinations, SDK consumers and viewer checks; OpenGL pixel equivalence; Vulkan pixel readback explicitly skipped. Audit docs/supply-chain/eui-dev-20261023.md."
     }
   ],
   "artifacts": [],

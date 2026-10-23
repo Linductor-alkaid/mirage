@@ -280,3 +280,58 @@ Mirage pin63117f7保留既有Windows修复，消费缓存并接入公开contentK
 状态保持Accepted等待上游评审，不代维护者合并PR。见
 [升级审计](../supply-chain/eui-text-performance-20261017.md)与
 [最终输入矩阵](../compatibility/native-input-performance-20261017.md)。
+
+
+2026-10-23 跟进：EUI-20261017-001 对应 [PR #114](https://github.com/sudoevolve/EUI-NEO/pull/114)
+已于 2026-10-21 合入 upstream dev `22f0ca3`（GitHub merge 时间 08:24 UTC）。
+同批 [#111](https://github.com/sudoevolve/EUI-NEO/pull/111) SDL guard 与
+[#107](https://github.com/sudoevolve/EUI-NEO/pull/107) RGBA stride/alpha 测试均已合入。
+Windows redirection alpha 对应 [#112](https://github.com/sudoevolve/EUI-NEO/pull/112)
+仍开放，消费 pin 保留原 `bcfaa2e`。升级审计与验证见
+[记录](../supply-chain/eui-dev-20261023.md)。
+
+## EUI-20261023-001：单条长 Markdown 仍完整构建可见/离屏 DSL 控件
+
+- 状态：Completed（本轮公共能力与 Linux 消费验收）；上游 PR #117 待合并。2026-10-23 维护者明确授权独立 EUI 开发与修复 PR；负责人：Mirage / EUI 维护者；关联 M6-48/50、DEC-108。
+- 缺口确认时版本：upstream dev `22f0ca35d19c06e989d64998ce18a27101ffd55c`，Mirage
+  集成 `91f7d07`。核对公开 `components/markdown.h` 的 MarkdownBuilder：提供
+  markdown/position/width/height/style/theme/zIndex 与 estimateHeight，无 viewport
+  或可复用的控件构建入口。已有 8 项文档缓存与 256 项 inline 布局缓存；不缺解析器。
+  公共 DSL Loader keepAlive 只保留 state scope，active 时仍每次调用 content。
+- 复现：Release、同一字体目录，运行 `native_input_performance_test --long-history`。
+  39 条不同 8 KiB 回复、折叠思考和短末条，旧消息尾部进入视口。Mirage 已将逐消息
+  几何命中收敛，仍为与视口相交的整条 Markdown 调用 build；build 遍历所有 blocks，
+  renderInlineRuns 为完整 segments 构建 DSL 节点。可视范围小并不限制该树的大小。
+- 证据：本轮 Linux Xvfb/llvmpipe 三轮交替，16 KB 多段输入 p50/p95 中位从
+  69.15/71.76 降至 38.81/41.33 ms；compose/update 仍有大树开销，不能宣称 60 FPS。
+  流式整帧 p50/p95 82.10/106.53 → 31.02/33.44 ms。原始数据与固定方法见
+  [性能记录](../benchmarks/native-long-session-20261023.md)，不外推硬件 GPU/Windows。
+- 最小能力建议：MarkdownBuilder 公共可选 viewport（正文局部 y 范围）与有界布局
+  复用，默认保持原行为；依据已有解析/inline 布局按块/行跳过不相交控件，保留全高、
+  稳定 block/segment ID、CJK/代码/表格布局、复制/选择映射。超长单块也必须限制节点
+  构建量；不能只跳过远端块而仍将一个大段拆成全量 glyph 节点。宽度、字体/缩放、
+  文本、style 改变精确失效；内存预算与 owner 明确；无需新增并发任务或调度器。
+- 应用临时边界：继续用 Mirage 单会话几何缓存与消息行视口裁剪，不复制 EUI 私有
+  MarkdownRun/Block、解析器或通用布局引擎。这是授权前的边界；授权后通过独立上游 PR #117 交付公共能力，见下方。
+- 延期影响：长历史的重复估高已减少，单条长内容/可见长过程段仍可能卡顿；首次布局与
+  侧栏宽度动画也仍须重新度量。不能将本轮优化描述为完全消除掉帧。
+- 可验收结果：同源完整/按视口构建的可见像素、全高与 UTF-8 选区一致；CJK/Latin/
+  emoji、标题/长段/列表/代码/表格/思考正文、窗口/DPI/主题与流式追加/替换均覆盖；
+  固定 long-history 与单条长段的节点数/compose/update/p50/p95/RSS 前后对比，
+  ASAN/UBSAN 与 EUI 支持的后端门禁。授权后已在独立分支实施并由 Mirage 消费，最终证据见下方。
+
+
+2026-10-23 授权后：独立修复提交 c18a4ba，
+[PR #117](https://github.com/sudoevolve/EUI-NEO/pull/117) 已提交、四项上游 CI 通过；
+集成 pin 19acab6 保留 Windows 修复，审计见
+[供应链记录](../supply-chain/eui-dev-20261023.md)。EUI 四组合本机 Release、
+安装消费与实际 viewer 滚动通过；OpenGL 十二组像素相等、Vulkan 仅几何/交互
+覆盖（读回 probe skip）。Mirage 完整 119/119 与 ASAN/UBSAN 各 5/5 通过，
+滚动中部选择保持原 UTF-8 源映射；最终产品配对记录在
+[性能记录](../benchmarks/native-long-session-20261023.md)。仍不宣称 60 FPS 或
+Windows/硬件 GPU 性能，完整选择开始时的按需全树构建仍有成本。
+
+最终有效产品数据：长历史 16 KB 多段输入整帧 p95 95.11→13.54 ms；
+15,984 B 变化段落 p95 409.20→62.38 ms，逐帧验证 ChatModel 实际接纳。
+最初超上限 18 KB 样本废弃，不能用于比较。变化内容的重新度量仍超帧预算，
+此项关闭的是公共视口构建/有界布局复用能力和消费，不代表所有文字交互已达 60 FPS。

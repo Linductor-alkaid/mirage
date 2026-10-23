@@ -119,9 +119,9 @@ int main(int argc, char **argv) {
         {}, {}, 1);
     {
         auto sample = page.chat.current();
+        const auto narrow_key = conversation_measure_key(sample, page, 799.75f, 500);
         const auto key = conversation_measure_key(sample, page, 800, 500);
-        MIRAGE_CHECK(!key.empty());
-        MIRAGE_CHECK(conversation_measure_key(sample, page, 799.75f, 500) != key);
+        MIRAGE_CHECK(!key.empty() && key != narrow_key);
         sample.draft = "Typing does not change history height";
         sample.scroll_offset = 80;
         MIRAGE_CHECK(conversation_measure_key(sample, page, 800, 500) == key);
@@ -146,7 +146,85 @@ int main(int argc, char **argv) {
         MIRAGE_CHECK(conversation_measure_key(sample, page, 800, 500) != before_font);
         --page.font_size_step;
         part.output.assign(64 * 1024, 'x');
+        MIRAGE_CHECK(!conversation_measure_key(sample, page, 800, 500).empty());
+        // The old 64 KiB key limit must not disable caching long histories.
+        const auto long_key = conversation_measure_key(sample, page, 800, 500);
+        MIRAGE_CHECK(conversation_measure_key(sample, page, 800, 500) == long_key);
+        part.output.assign(9 * 1024 * 1024, 'x');
         MIRAGE_CHECK(conversation_measure_key(sample, page, 800, 500).empty());
+    }
+    {
+        ConversationLayout cache;
+        ConversationLayout::Context context{800, 500, 1, 1, 1, false};
+        auto sample = page.chat.current();
+        sample.messages.back().text.assign(80 * 1024, 'x');
+        const auto key = cache.prepare(sample, context);
+        int calculations = 0;
+        const auto measure = [&](const LocalMessage &message, float width) {
+            return cache.measure(message, width, [&] {
+                ++calculations;
+                MessageGeometry geometry;
+                geometry.row_height = static_cast<float>(message.text.size()) / width;
+                return geometry;
+            });
+        };
+        for (const auto &message : sample.messages) {
+            measure(message, 800);
+            measure(message, 788);
+        }
+        const auto initial = calculations;
+        MIRAGE_CHECK(initial == static_cast<int>(sample.messages.size()) * 2);
+        MIRAGE_CHECK(cache.prepare(sample, context) == key);
+        for (const auto &message : sample.messages) {
+            measure(message, 800);
+            measure(message, 788);
+        }
+        MIRAGE_CHECK(calculations == initial);
+        // Only the edited message is measured again, including equal-length edits.
+        sample.messages.back().text.back() = 'y';
+        MIRAGE_CHECK(cache.prepare(sample, context) != key);
+        for (const auto &message : sample.messages)
+            measure(message, 788);
+        MIRAGE_CHECK(calculations == initial + 1);
+        int expected = calculations;
+        const auto check_change = [&] {
+            cache.prepare(sample, context);
+            measure(sample.messages.back(), 788);
+            MIRAGE_CHECK(calculations == ++expected);
+        };
+        sample.messages.back().error = "failure";
+        check_change();
+        sample.messages.back().status = "已停止或失败";
+        check_change();
+        sample.messages.back().timings.ocr = {1, 50};
+        check_change();
+        sample.messages.back().parts.push_back({});
+        check_change();
+        sample.messages.back().parts.back().output = "changed";
+        check_change();
+        sample.messages.back().expanded_parts.push_back("thinking");
+        check_change();
+        // Composer growth and theme changes invalidate the scroll extent key,
+        // but preserve geometry. Width uses its own pair of cached measurements.
+        const auto old_key = cache.prepare(sample, context);
+        context.height -= 22;
+        context.dark = true;
+        MIRAGE_CHECK(cache.prepare(sample, context) != old_key);
+        measure(sample.messages.back(), 788);
+        MIRAGE_CHECK(calculations == expected);
+        context.scale = 1.25f;
+        check_change();
+        ++context.font_step;
+        check_change();
+        ++context.code_step;
+        check_change();
+        const auto ordered = cache.prepare(sample, context);
+        std::reverse(sample.messages.begin(), sample.messages.end());
+        MIRAGE_CHECK(cache.prepare(sample, context) != ordered);
+        ++sample.id;
+        cache.prepare(sample, context);
+        measure(sample.messages.front(), 788);
+        MIRAGE_CHECK(calculations == ++expected);
     }
     page.chat.current().scroll_offset = 0;
     core::dsl::Runtime runtime;
@@ -1868,9 +1946,12 @@ const auto model = "Mirage";
         page.selection.clear();
         page.chat.create_session();
         const auto history_id = page.chat.current().id;
+        std::string historical_reply = "## 历史回复\n\n";
+        while (historical_reply.size() < 2048)
+            historical_reply += "正文保持原始高度与滚动位置。\n\n";
         for (int i = 0; i < 40; ++i)
             page.chat.apply_turn(history_id, "virtual-" + std::to_string(i), "ok", "历史输入",
-                                 "## 历史回复\n\n正文保持原始高度与滚动位置。", {}, {}, i + 1);
+                                 i == 39 ? "最新短回复" : historical_reply, {}, {}, i + 1);
         width = 1180;
         height = 800;
         dpi_scale = 1;
@@ -1893,6 +1974,57 @@ const auto model = "Mirage";
         element(thread)->onScrollOffsetChanged(extent);
         frame();
         MIRAGE_CHECK(view->find(last + ".markdown") && page.chat.current().follow_output);
+    }
+    // M6-50: selecting a scrolled Markdown slice must use the full source
+    // geometry, including lines omitted from the normal control tree.
+    {
+        page.selection.clear();
+        page.chat.create_session();
+        const auto sid = page.chat.current().id;
+        std::string source;
+        for (int line = 0; line < 120; ++line)
+            source += "paragraph" + std::to_string(line) + " **重点** English。\n\n";
+        page.chat.apply_turn(sid, "viewport-selection", "ok", "长正文", source, {}, {}, 1);
+        frame();
+        const auto thread = "thread." + std::to_string(sid);
+        const auto message = "message." + std::to_string(page.chat.current().messages.back().id);
+        const auto extent = element(thread)->scrollMaxOffset;
+        element(thread)->onScrollOffsetChanged(extent / 2);
+        frame();
+        const auto *md = element(message + ".markdown");
+        MIRAGE_CHECK(md && extent > 2000);
+        std::vector<const core::dsl::Element *> leaves;
+        auto walk = [&](auto &&self, const auto &node) -> void {
+            if (node.kind == core::dsl::ElementKind::Text && node.text.starts_with("paragraph"))
+                leaves.push_back(&node);
+            for (const auto &child : node.children)
+                self(self, *child);
+        };
+        walk(walk, *md);
+        MIRAGE_CHECK(!leaves.empty() && leaves.size() < 40);
+        const auto offset = element(thread)->scrollOffset;
+        const auto visible = std::find_if(leaves.begin(), leaves.end(), [&](const auto *leaf) {
+            return leaf->frame.y - offset > 180 && leaf->frame.y - offset < 350;
+        });
+        MIRAGE_CHECK(visible != leaves.end());
+        if (visible != leaves.end()) {
+            const auto *leaf = *visible;
+            const auto prefix = leaf->text;
+            MIRAGE_CHECK(prefix != "paragraph0");
+            const auto x = leaf->frame.x + 1;
+            const auto y = leaf->frame.y - offset + 10;
+            core::queuePointerButton(handle, x, y, core::PointerButton::Left,
+                                     core::PointerAction::Press, {});
+            frame();
+            core::queuePointerMotion(handle, x + 250, y, core::PointerButton::Left, {});
+            frame();
+            core::queuePointerButton(handle, x + 250, y, core::PointerButton::Left,
+                                     core::PointerAction::Release, {});
+            frame();
+            MIRAGE_CHECK(page.selection.ready && page.selection.excerpt.starts_with(prefix) &&
+                         page.selection.excerpt.find("**") == std::string::npos);
+            capture("viewport-markdown-selection");
+        }
     }
     width = 1180;
     height = 800;

@@ -201,3 +201,25 @@ p50/p95/max。覆盖 64/4096/16000 字节草稿、无历史/40轮历史，以及
 高度缓存；消息/工具/字体/视口变化精确失效，64KiB key超限安全回退。固定方法
 3轮A/B覆盖的12种场景p50/p95均改善；软件渲染统计不代表任意设备60fps。升级
 依据和四后端/许可证证据见[审计](../../docs/supply-chain/eui-text-performance-20261017.md)。
+
+
+2026-10-23（M6-48/49）：当前会话使用精确源快照复用逐消息几何及过程段高度；
+contentKey 改为紧凑 revision，超过 64 KiB 的历史仍可命中。缓存只保留当前会话，
+至多 80 条、8 MiB 源快照与每条两个宽度，超预算安全回退。新增长会话基准：
+
+```bash
+(cd build/native-release/apps/native && ../../tests/native_input_performance_test --long-history)
+(cd build/native-release/apps/native && ../../tests/native_input_performance_test --long-history --unbroken)
+```
+
+覆盖 40 轮各不相同的长回复、折叠思考，以及流式更新；标准 CTest 也包含多段长历史。
+精确条件、前后数据和平台限制见[性能记录](../../docs/benchmarks/native-long-session-20261023.md)。
+EUI 最新 dev 已合入 #107/#111/#114，集成保留未合入的 Windows 透明修复 #112，
+见[升级审计](../../docs/supply-chain/eui-dev-20261023.md)。
+
+
+2026-10-23（M6-50）：维护者授权的 EUI [PR #117](https://github.com/sudoevolve/EUI-NEO/pull/117)
+新增公共 Markdown viewport 构建/布局复用，当前已消费。正文及 text 过程段传入局部视口，
+保留完整滚动高度；选择开始时用公共完整 builder 按需取得全正文 UTF-8 几何，
+平常帧不保留离屏文字控件。`native_input_performance_test --long-visible` 单独测量
+约 16 KB 中文/Latin/emoji 段落的变化预览；数值仍包含字体、渲染和 glFinish。
