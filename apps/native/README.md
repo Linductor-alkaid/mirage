@@ -223,3 +223,10 @@ EUI 最新 dev 已合入 #107/#111/#114，集成保留未合入的 Windows 透�
 保留完整滚动高度；选择开始时用公共完整 builder 按需取得全正文 UTF-8 几何，
 平常帧不保留离屏文字控件。`native_input_performance_test --long-visible` 单独测量
 约 16 KB 中文/Latin/emoji 段落的变化预览；数值仍包含字体、渲染和 glFinish。
+
+
+2026-10-23（M6-51）：消息行高和固定间距能证明溢出时，省去 ScrollView
+完整宽度探测中的变化长文排版，最终 gutter 宽度的内容高度仍精确计算。
+证明不足或接近边界时完整测量，实际正文/选区/滚动条几何保持一致。
+方法、回归、受干扰样本和独立配对结果见
+[溢出探测记录](../../docs/benchmarks/native-overflow-probe-20261023.md)。

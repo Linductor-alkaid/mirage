@@ -2,6 +2,7 @@
 
 #include "chat_model.hpp"
 #include <algorithm>
+#include <cmath>
 #include <utility>
 
 namespace mirage::native_ui {
@@ -70,6 +71,27 @@ class ConversationLayout {
         if (changed)
             ++revision_;
         return std::to_string(revision_);
+    }
+
+    // ScrollView's first pass only decides whether it needs a scrollbar.
+    // prepare() has already removed stale rows/measurements. Unknown rows have
+    // non-negative height; known rows plus gaps therefore give a lower bound.
+    // This is never the final content extent, which still uses exact geometry.
+    bool proves_overflow(float width, float viewport_height, float gap) const {
+        if (entries_.empty())
+            return false;
+        double lower_bound = std::max(0.0f, gap) * static_cast<double>(entries_.size() - 1);
+        for (const auto &entry : entries_)
+            for (const auto &measurement : entry.measurements)
+                if (measurement.width == width) {
+                    const auto height = measurement.geometry.row_height;
+                    if (!std::isfinite(height) || height < 0)
+                        return false;
+                    lower_bound += height;
+                    break;
+                }
+        // Leave the boundary to the full pass (including float layout rounding).
+        return lower_bound > static_cast<double>(viewport_height) + 1.0;
     }
 
     template <typename Measure>

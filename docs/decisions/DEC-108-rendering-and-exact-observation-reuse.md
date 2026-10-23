@@ -59,3 +59,14 @@ Mirage 消费公共 MarkdownBuilder viewport，由 EUI 承担通用块/行布局
 不复制依赖私有类型，不引入 worker/定时器，也不把产品消息或选区策略下沉 EUI。
 上游 [PR #117](https://github.com/sudoevolve/EUI-NEO/pull/117)，集成 pin/
 四后端验证/平台限制见[审计](../supply-chain/eui-dev-20261023.md)。
+
+
+## 2026-10-23：已知历史的溢出下界（M6-51）
+
+消费 pinned EUI ScrollView 的两阶段测量：完整宽度的首轮只作溢出判定，
+带 gutter 宽度的末轮给出真实范围。精确源缓存中未变化行的高度与行间距
+提供非负总高的下界，留出一个逻辑单位边界余量后，只在能证明溢出时省去
+首轮变化长文布局。该代理仅存在于无 ScrollView root 的完整宽度测量 UI，
+真实内容和末轮精确几何不变；不能证明或任何失效均完整测量。
+不修改依赖、不增加异步路径；依赖升级必须重验首轮高度的使用方式。
+设计及取证见[溢出探测记录](../benchmarks/native-overflow-probe-20261023.md)。

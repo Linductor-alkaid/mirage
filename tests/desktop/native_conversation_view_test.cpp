@@ -226,6 +226,66 @@ int main(int argc, char **argv) {
         measure(sample.messages.front(), 788);
         MIRAGE_CHECK(calculations == ++expected);
     }
+    // M6-51: an overflow proof may use only still-valid exact-width geometry;
+    // unknown/changed rows and the fit boundary must retain full measurement.
+    {
+        ConversationLayout cache;
+        ConversationLayout::Context context{800, 500, 1, 1, 1, false};
+        auto sample = page.chat.current();
+        sample.messages.resize(2);
+        sample.messages[0].id = 100;
+        sample.messages[1].id = 101;
+        cache.prepare(sample, context);
+        MIRAGE_CHECK(!cache.proves_overflow(800, 100, 14));
+        const auto save_height = [&](std::size_t row, float height) {
+            cache.measure(sample.messages[row], 800, [height] {
+                MessageGeometry geometry;
+                geometry.row_height = height;
+                return geometry;
+            });
+        };
+        save_height(0, 120);
+        MIRAGE_CHECK(cache.proves_overflow(800, 132, 14));
+        MIRAGE_CHECK(!cache.proves_overflow(800, 133, 14));
+        MIRAGE_CHECK(!cache.proves_overflow(800, 134, 14));
+        MIRAGE_CHECK(!cache.proves_overflow(788, 100, 14));
+        sample.messages[0].text += "changed";
+        cache.prepare(sample, context);
+        MIRAGE_CHECK(!cache.proves_overflow(800, 100, 14));
+        save_height(0, 50);
+        save_height(1, 60);
+        MIRAGE_CHECK(cache.proves_overflow(800, 122, 14));
+        MIRAGE_CHECK(!cache.proves_overflow(800, 124, 14));
+        std::reverse(sample.messages.begin(), sample.messages.end());
+        cache.prepare(sample, context);
+        MIRAGE_CHECK(cache.proves_overflow(800, 122, 14));
+        sample.messages.erase(sample.messages.begin());
+        cache.prepare(sample, context);
+        MIRAGE_CHECK(!cache.proves_overflow(800, 100, 14));
+        context.scale = 1.25f;
+        cache.prepare(sample, context);
+        MIRAGE_CHECK(!cache.proves_overflow(800, 1, 14));
+        save_height(0, 200);
+        ++sample.id;
+        cache.prepare(sample, context);
+        MIRAGE_CHECK(!cache.proves_overflow(800, 1, 14));
+        sample.messages[0].text.assign(9 * 1024 * 1024, 'x');
+        cache.prepare(sample, context);
+        MIRAGE_CHECK(!cache.proves_overflow(800, 1, 14));
+        // A cold long history can already overflow from gaps alone. This proof
+        // needs neither source geometry nor a font/width cache hit.
+        LocalSession many;
+        many.id = sample.id + 1;
+        many.messages.resize(40);
+        for (std::size_t i = 0; i < many.messages.size(); ++i)
+            many.messages[i].id = 1000 + i;
+        cache.prepare(many, context);
+        MIRAGE_CHECK(cache.proves_overflow(800, 500, 14));
+        MIRAGE_CHECK(!cache.proves_overflow(800, 550, 14));
+        ++context.font_step;
+        cache.prepare(many, context);
+        MIRAGE_CHECK(cache.proves_overflow(788, 500, 14));
+    }
     page.chat.current().scroll_offset = 0;
     core::dsl::Runtime runtime;
     MIRAGE_CHECK(runtime.initialize(handle));
@@ -1974,6 +2034,20 @@ const auto model = "Mirage";
         element(thread)->onScrollOffsetChanged(extent);
         frame();
         MIRAGE_CHECK(view->find(last + ".markdown") && page.chat.current().follow_output);
+        // A changing final reply takes the proof path. Compare its actual extent
+        // and placement against a fresh complete ScrollView measurement.
+        page.chat.current().messages.back().text = historical_reply + "新尾段";
+        frame();
+        const auto probed_extent = element(thread)->scrollMaxOffset;
+        const auto probed_body = element(last + ".markdown")->frame;
+        page.conversation_layout = {};
+        view->releaseStateScope(thread + ".measure");
+        frame();
+        MIRAGE_CHECK(std::abs(element(thread)->scrollMaxOffset - probed_extent) < .5f);
+        MIRAGE_CHECK(std::abs(element(last + ".markdown")->frame.y - probed_body.y) < .5f);
+        MIRAGE_CHECK(std::abs(element(last + ".markdown")->frame.height - probed_body.height) <
+                     .5f);
+        MIRAGE_CHECK(page.chat.current().follow_output);
     }
     // M6-50: selecting a scrolled Markdown slice must use the full source
     // geometry, including lines omitted from the normal control tree.

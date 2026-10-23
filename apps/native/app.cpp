@@ -3071,6 +3071,14 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
             })
             .content([&](eui::Ui &list, float width, float height) {
                 const auto *viewport = list.find("thread." + std::to_string(session_id));
+                // M6-51: unchanged rows can prove the wide probe overflows.
+                // ScrollView then measures the actual gutter width as usual.
+                // Real trees and unproven probes always use exact row geometry.
+                if (!viewport && width == column &&
+                    s.conversation_layout.proves_overflow(width, height, 14)) {
+                    list.stack("thread.overflow.probe").size(width, height + 1).build();
+                    return;
+                }
                 const float viewport_offset = viewport ? viewport->scrollOffset : 0.0f;
                 float row_y = 0;
                 for (const auto &message : session.messages) {
