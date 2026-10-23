@@ -38,6 +38,12 @@ CPU 和内存。以当前未提交的 observation-efficiency 工作树为基线�
   不改变最终内容宽度、滚动范围、选区或显示内容，沿用 DEC-108。
   复验溢出边界、源/字体/宽度失效、滚动/跟随、前后像素与配对基准及 sanitizer。
 
+- [x] `M6-52` Completed（2026-10-23，Linux 实现/验证）：稳定消息/已完成过程段与变化预览分别
+  保留几何，正文变化不重测稳定过程段，过程变化不重测稳定正文；按 part ID
+  精确处理追加、替换、重排、展开/字体/宽度失效。离屏 text 过程段不进入
+  Markdown 构建/布局入口；保持总高、滚动、选区及 Markdown 解释语义。
+  依据 DEC-108，复用 EUI/Mira 既有分段，不在 UI 私自切割 Markdown。
+
 ## 依赖与承载
 
 前端复用 EUI 公共 ScrollView/scrollState；其 VirtualList 只支持定高行，不适用于可变
@@ -163,3 +169,21 @@ Release 相关 7/7；ASAN/UBSAN view+fixtures 各 3/3。补充冷历史间距边
 不与原配置拼接。M6-51 本轮关闭，真实 compositor/硬件 GPU/Windows/物理
 高 DPI 继续由维护者取得环境后同负载补验；变化长文仍超 60 FPS 帧预算。
 证据：[溢出探测记录](../benchmarks/native-overflow-probe-20261023.md)。
+
+
+### 2026-10-23：M6-52 稳定分段验收
+
+按精确 Part ID/内容保留独立正文和过程几何，变化预览不重测稳定过程段。
+连续失效、段落增删/重排、展开、终态/时序、字体/宽度/会话和旧总高不参与
+溢出证明均有回归；离屏 text 不进入 Markdown 构建，滚回时恢复，总高不变。
+沿用 EUI/Mira 的公开边界，不私自按空行切割同一 Markdown。
+
+Release 相关 8/8，ASAN/UBSAN view+fixtures 各 3/3，无报告；85 个共同截图
+82 个像素相同，3 个仅 pulse/计时差异，另新增过程尾部与历史视图验证。
+边界检查 66/0/2，变更文件格式与 diff 检查通过。未重跑无关后端全量。
+三次 CPU 空闲门槛后，三轮配对的稳定过程 + 短预览 p95 中位 38.18→9.96ms，
+同过程 + 15,984 B 长预览 74.65→46.33ms，单一长活动文档对照基本持平。
+常规输入未普遍改善，长预览仍超帧预算；完整数值与波动见
+[稳定分段记录](../benchmarks/native-settled-segments-20261023.md)。
+M6-52 本轮关闭；Windows、真实 compositor/硬件 GPU/物理高 DPI 仍由
+Mirage 维护者取得环境后按同字体/输入补验，未标记这些平台完成。

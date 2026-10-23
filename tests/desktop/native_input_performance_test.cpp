@@ -26,12 +26,15 @@ void report(const char *phase, std::size_t bytes, int history, std::vector<doubl
 } // namespace
 
 int main(int argc, char **argv) {
-    bool unbroken = false, long_history = false, long_visible = false;
+    bool unbroken = false, long_history = false, long_visible = false, settled_parts = false;
     for (int i = 1; i < argc; ++i) {
         unbroken |= std::string_view(argv[i]) == "--unbroken";
         long_history |= std::string_view(argv[i]) == "--long-history";
         long_visible |= std::string_view(argv[i]) == "--long-visible";
+        settled_parts |= std::string_view(argv[i]) == "--settled-parts";
     }
+    const bool long_preview = long_visible;
+    long_visible |= settled_parts;
     mirage::testing::TempDir private_state;
     for (const auto *variable : {"XDG_CONFIG_HOME", "XDG_STATE_HOME", "XDG_DATA_HOME"}) {
         const auto directory = private_state.root() / variable;
@@ -162,8 +165,35 @@ int main(int argc, char **argv) {
             page.chat.set_draft("");
             const auto id = page.chat.current().id;
             page.chat.apply_turn(id, "visible-stream", "pending", "长段落流式测试", {}, {}, {}, 42);
+            if (settled_parts) {
+                std::vector<mirage::conversation::Part> parts;
+                for (int step = 0; step < 16; ++step) {
+                    mirage::conversation::Part text;
+                    text.id = "settled-" + std::to_string(step);
+                    text.kind = "text";
+                    for (int line = 0;; ++line) {
+                        const auto value = "步骤 " + std::to_string(step) + "/" +
+                                           std::to_string(line) +
+                                           " 中文 **内容** English `code`。\n\n";
+                        if (text.text.size() + value.size() > 960)
+                            break;
+                        text.text += value;
+                    }
+                    parts.push_back(std::move(text));
+                    mirage::conversation::Part tool;
+                    tool.id = "tool-" + std::to_string(step);
+                    tool.kind = "tool";
+                    tool.name = "inspect";
+                    tool.output = "完成";
+                    parts.push_back(std::move(tool));
+                }
+                MIRAGE_CHECK(mirage::conversation::valid_parts(parts));
+                page.chat.apply_process(id, "visible-stream", parts, 1, true, false);
+                MIRAGE_CHECK(page.chat.current().messages.back().parts == parts);
+            }
             std::string paragraph;
-            while (paragraph.size() + 32 < 16000)
+            const std::size_t target_bytes = settled_parts && !long_preview ? 64 : 16000;
+            while (paragraph.size() + 32 < target_bytes)
                 paragraph += "中文 English 😀 e\xcc\x81 ";
             std::vector<double> totals;
             for (int i = 0; i < 65; ++i) {
@@ -180,7 +210,8 @@ int main(int argc, char **argv) {
                 if (i >= 5)
                     totals.push_back(milliseconds(start));
             }
-            report("long_visible_stream_total", paragraph.size(), history, totals);
+            report(settled_parts ? "settled_parts_stream_total" : "long_visible_stream_total",
+                   paragraph.size(), history, totals);
         }
         if (long_history) {
             page.chat.set_draft("");

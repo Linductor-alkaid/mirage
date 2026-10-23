@@ -2808,6 +2808,12 @@ void render_process(eui::Ui &ui, const std::string &key, const LocalMessage &mes
         const auto id = key + ".part." + part.id;
         const auto height = part_heights[i];
         if (part.kind == "text") {
+            // Geometry already accounts for this settled part. Avoid entering
+            // EUI's document/layout cache at all when it is outside the viewport.
+            if (y + height < viewport_top - 64 || y > viewport_top + viewport_height + 64) {
+                y += height;
+                continue;
+            }
             components::markdown(ui, id + ".markdown")
                 .position(0, y)
                 .width(width - 16)
@@ -2940,27 +2946,37 @@ std::string conversation_measure_key(const LocalSession &session, PageState &pag
 }
 
 MessageGeometry measure_message(const LocalMessage &message, float width,
-                                const components::MarkdownStyle &markdown) {
+                                const components::MarkdownStyle &markdown,
+                                const MessageGeometryReuse &reuse = {}) {
     auto &s = state();
     const bool user = message.role == "你";
     MessageGeometry result;
     result.bubble_width = width;
-    if (user) {
-        const auto measured = s.plain_text.measure(message.text, 0, 14, 22, s.render_scale);
-        const float natural_width = (std::ceil(measured.x * s.render_scale) + 1) / s.render_scale;
-        result.bubble_width =
-            std::min(std::min(576.0f, width), std::max(80.0f, natural_width + 24));
+    if (reuse.body) {
+        result.bubble_width = reuse.previous->bubble_width;
+        result.body_height = reuse.previous->body_height;
+    } else {
+        if (user) {
+            const auto measured = s.plain_text.measure(message.text, 0, 14, 22, s.render_scale);
+            const float natural_width =
+                (std::ceil(measured.x * s.render_scale) + 1) / s.render_scale;
+            result.bubble_width =
+                std::min(std::min(576.0f, width), std::max(80.0f, natural_width + 24));
+        }
+        const float body_width = user ? result.bubble_width - 24 : width - 16;
+        result.body_height = message.text.empty() ? 0
+                             : user               ? text_height(message.text, body_width, 14, 22)
+                                    : std::max(22.0f, components::MarkdownBuilder::estimateHeight(
+                                                          message.text, body_width, markdown));
     }
     const float body_width = user ? result.bubble_width - 24 : width - 16;
-    result.body_height = message.text.empty() ? 0
-                         : user               ? text_height(message.text, body_width, 14, 22)
-                                : std::max(22.0f, components::MarkdownBuilder::estimateHeight(
-                                                      message.text, body_width, markdown));
     float process_height =
         user ? 0.0f : static_cast<float>(process_timing_lines(message.timings).size()) * 20.0f;
     if (!user)
-        for (const auto &part : message.parts) {
-            const auto height = process_part_height(message, part, width, markdown);
+        for (std::size_t i = 0; i < message.parts.size(); ++i) {
+            const auto cached = reuse.part_height(i);
+            const auto height =
+                cached ? *cached : process_part_height(message, message.parts[i], width, markdown);
             result.part_heights.push_back(height);
             process_height += height;
         }
@@ -2968,7 +2984,8 @@ MessageGeometry measure_message(const LocalMessage &message, float width,
     const bool failed = message.status == "已停止或失败";
     result.process_y = pending || failed ? 28.0f : 0.0f;
     result.body_y = user ? 8.0f : result.process_y + process_height;
-    result.failure_height = failed && !message.error.empty()
+    result.failure_height = reuse.failure ? reuse.previous->failure_height
+                            : failed && !message.error.empty()
                                 ? text_height("失败原因：" + message.error, body_width, 12, 20) + 8
                                 : 0.0f;
     result.row_height = result.body_height + result.body_y + result.failure_height +
@@ -3086,8 +3103,10 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
                     const bool user = message.role == "你";
                     const bool pending = message.status == "运行中";
                     const bool failed = message.status == "已停止或失败";
-                    const auto geometry = s.conversation_layout.measure(
-                        message, width, [&] { return measure_message(message, width, markdown); });
+                    const auto geometry =
+                        s.conversation_layout.measure(message, width, [&](const auto &reuse) {
+                            return measure_message(message, width, markdown, reuse);
+                        });
                     const auto bubble_width = geometry.bubble_width;
                     const auto body_width = user ? bubble_width - 24 : width - 16;
                     const auto body_height = geometry.body_height;

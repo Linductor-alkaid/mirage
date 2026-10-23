@@ -10,6 +10,7 @@
 #include <core/dsl_runtime.h>
 #include <fstream>
 #include <iostream>
+#include <map>
 
 // The test drives explicit frames; it never starts the product event loop.
 namespace app {
@@ -161,7 +162,7 @@ int main(int argc, char **argv) {
         const auto key = cache.prepare(sample, context);
         int calculations = 0;
         const auto measure = [&](const LocalMessage &message, float width) {
-            return cache.measure(message, width, [&] {
+            return cache.measure(message, width, [&](const auto &) {
                 ++calculations;
                 MessageGeometry geometry;
                 geometry.row_height = static_cast<float>(message.text.size()) / width;
@@ -238,7 +239,7 @@ int main(int argc, char **argv) {
         cache.prepare(sample, context);
         MIRAGE_CHECK(!cache.proves_overflow(800, 100, 14));
         const auto save_height = [&](std::size_t row, float height) {
-            cache.measure(sample.messages[row], 800, [height] {
+            cache.measure(sample.messages[row], 800, [height](const auto &) {
                 MessageGeometry geometry;
                 geometry.row_height = height;
                 return geometry;
@@ -285,6 +286,86 @@ int main(int argc, char **argv) {
         ++context.font_step;
         cache.prepare(many, context);
         MIRAGE_CHECK(cache.proves_overflow(788, 500, 14));
+    }
+    // M6-52: completed parts and the live body have independent geometry.
+    // Counters stand in for expensive layout; totals still invalidate on edits.
+    {
+        ConversationLayout cache;
+        ConversationLayout::Context context{800, 500, 1, 1, 1, false};
+        LocalSession sample;
+        sample.id = 10000;
+        LocalMessage message{10000, "active", "Mira", "运行中", "segments"};
+        message.parts = {{"a", "text", "complete", "aaa"}, {"b", "text", "complete", "bbbb"}};
+        sample.messages.push_back(message);
+        int body_calls = 0;
+        std::map<std::string, int> part_calls;
+        const auto measure = [&](float width = 788) {
+            cache.prepare(sample, context);
+            const auto &source = sample.messages.front();
+            return cache.measure(source, width, [&](const MessageGeometryReuse &reuse) {
+                MessageGeometry geometry;
+                geometry.bubble_width = width;
+                if (reuse.body)
+                    geometry.body_height = reuse.previous->body_height;
+                else {
+                    ++body_calls;
+                    geometry.body_height = static_cast<float>(source.text.size());
+                }
+                geometry.row_height = geometry.body_height;
+                for (std::size_t i = 0; i < source.parts.size(); ++i) {
+                    const auto &part = source.parts[i];
+                    const auto known = reuse.part_height(i);
+                    if (!known)
+                        ++part_calls[part.id];
+                    const float height = known ? *known
+                                               : static_cast<float>(part.text.size()) +
+                                                     (part_expanded(source, part) ? 100 : 0);
+                    geometry.part_heights.push_back(height);
+                    geometry.row_height += height;
+                }
+                return geometry;
+            });
+        };
+        MIRAGE_CHECK(measure().row_height == 13);
+        MIRAGE_CHECK(cache.proves_overflow(788, 11, 14));
+        sample.messages.front().text = "new!";
+        cache.prepare(sample, context);
+        MIRAGE_CHECK(!cache.proves_overflow(788, 11, 14)); // old total is stale
+        MIRAGE_CHECK(measure().row_height == 11);
+        MIRAGE_CHECK(body_calls == 2 && part_calls["a"] == 1 && part_calls["b"] == 1);
+        sample.messages.front().timings.ocr = {1, 10};
+        measure();
+        MIRAGE_CHECK(body_calls == 2 && part_calls["a"] == 1 && part_calls["b"] == 1);
+        auto &parts = sample.messages.front().parts;
+        parts.push_back({"c", "thinking", "complete", "cc"});
+        measure();
+        MIRAGE_CHECK(body_calls == 2 && part_calls["c"] == 1);
+        parts[0].text = "AAAAA";
+        std::reverse(parts.begin(), parts.end());
+        cache.prepare(sample, context);
+        parts[1].text = "bbbbbb";
+        cache.prepare(sample, context); // invalidate twice before measuring
+        MIRAGE_CHECK(measure().part_heights == std::vector<float>({2, 6, 5}));
+        MIRAGE_CHECK(part_calls["a"] == 2 && part_calls["b"] == 2 && part_calls["c"] == 1);
+        sample.messages.front().expanded_parts = {"c"};
+        MIRAGE_CHECK(measure().part_heights == std::vector<float>({102, 6, 5}));
+        MIRAGE_CHECK(body_calls == 2 && part_calls["c"] == 2 && part_calls["a"] == 2);
+        parts.erase(parts.begin() + 1);
+        parts.push_back({"d", "text", "complete", "bbbbbb"});
+        MIRAGE_CHECK(measure().part_heights == std::vector<float>({102, 5, 6}));
+        MIRAGE_CHECK(body_calls == 2 && part_calls["d"] == 1 && part_calls["c"] == 2);
+        measure(776);
+        MIRAGE_CHECK(body_calls == 3 && part_calls["c"] == 3 && part_calls["d"] == 2);
+        ++context.font_step;
+        measure();
+        MIRAGE_CHECK(body_calls == 4 && part_calls["c"] == 4 && part_calls["d"] == 3);
+        sample.messages.front().status = "已停止或失败";
+        sample.messages.front().error = "synthetic failure";
+        measure();
+        MIRAGE_CHECK(body_calls == 4 && part_calls["c"] == 4 && part_calls["d"] == 3);
+        ++sample.id;
+        measure();
+        MIRAGE_CHECK(body_calls == 5 && part_calls["c"] == 5 && part_calls["d"] == 4);
     }
     page.chat.current().scroll_offset = 0;
     core::dsl::Runtime runtime;
@@ -2099,6 +2180,51 @@ const auto model = "Mirage";
                          page.selection.excerpt.find("**") == std::string::npos);
             capture("viewport-markdown-selection");
         }
+    }
+    // M6-52: settled process text remains separate from a changing preview.
+    {
+        page.selection.clear();
+        page.chat.create_session();
+        const auto sid = page.chat.current().id;
+        page.chat.apply_turn(sid, "settled", "pending", "分段回归", {}, {}, {}, 1);
+        std::string earlier = "## 已完成的历史片段\n\n";
+        for (int i = 0; i < 40; ++i)
+            earlier += "历史段 " + std::to_string(i) + " **中文** English。\n\n";
+        std::vector<mirage::conversation::Part> parts{
+            {"settled.first", "text", "complete", earlier},
+            {"settled.second", "text", "complete", earlier + "尾部。"}};
+        MIRAGE_CHECK(mirage::conversation::valid_parts(parts));
+        page.chat.apply_process(sid, "settled", parts, 1, true, false);
+        page.chat.apply_preview(sid, "settled", "settled-request", 1, "当前新段落。", false);
+        frame();
+        const auto settled_key =
+            "message." + std::to_string(page.chat.current().messages.back().id);
+        const auto thread = "thread." + std::to_string(sid);
+        MIRAGE_CHECK(!view->find(settled_key + ".part.settled.first.markdown"));
+        const auto body_y = element(settled_key + ".markdown")->frame.y;
+        capture("settled-parts-tail");
+        page.chat.apply_preview(sid, "settled", "settled-request", 2, "当前新段落。追加 **内容**。",
+                                false);
+        frame();
+        MIRAGE_CHECK(std::abs(element(settled_key + ".markdown")->frame.y - body_y) < .5f);
+        MIRAGE_CHECK(page.chat.current().messages.back().parts == parts);
+        element(thread)->onScrollOffsetChanged(0);
+        frame();
+        MIRAGE_CHECK(view->find(settled_key + ".part.settled.first.markdown"));
+        MIRAGE_CHECK(!page.chat.current().follow_output);
+        capture("settled-parts-history");
+        const auto extent = element(thread)->scrollMaxOffset;
+        page.conversation_layout = {};
+        view->releaseStateScope(thread + ".measure");
+        frame();
+        MIRAGE_CHECK(std::abs(element(thread)->scrollMaxOffset - extent) < .5f);
+        element(thread)->onScrollOffsetChanged(extent);
+        frame();
+        const auto live_y = element(settled_key + ".markdown")->frame.y;
+        page.chat.apply_turn(sid, "settled", "ok", "分段回归", "当前新段落。追加 **内容**。", {},
+                             {}, 2);
+        frame();
+        MIRAGE_CHECK(std::abs(element(settled_key + ".markdown")->frame.y - live_y + 28) < .5f);
     }
     width = 1180;
     height = 800;

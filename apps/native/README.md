@@ -230,3 +230,16 @@ EUI 最新 dev 已合入 #107/#111/#114，集成保留未合入的 Windows 透�
 证明不足或接近边界时完整测量，实际正文/选区/滚动条几何保持一致。
 方法、回归、受干扰样本和独立配对结果见
 [溢出探测记录](../../docs/benchmarks/native-overflow-probe-20261023.md)。
+
+
+2026-10-23（M6-52）：同一回复内的稳定过程段和活动正文分别保留几何，预览追加
+仅重测变化部分；完全离屏 text 过程段跳过 Markdown 构建。精确源/ID、展开、
+字体/缩放和实际宽度变化仍使相关缓存失效，保留原滚动和 Markdown 语义。
+独立长过程基准：
+
+```bash
+(cd build/native-release/apps/native && ../../tests/native_input_performance_test --long-history --settled-parts)
+(cd build/native-release/apps/native && ../../tests/native_input_performance_test --long-history --settled-parts --long-visible)
+```
+
+短/长活动正文、回归与平台限制见[稳定分段记录](../../docs/benchmarks/native-settled-segments-20261023.md)。
