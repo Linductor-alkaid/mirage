@@ -10,6 +10,7 @@
 #include <core/dsl_runtime.h>
 #include <fstream>
 #include <iostream>
+#include <map>
 
 // The test drives explicit frames; it never starts the product event loop.
 namespace app {
@@ -119,9 +120,9 @@ int main(int argc, char **argv) {
         {}, {}, 1);
     {
         auto sample = page.chat.current();
+        const auto narrow_key = conversation_measure_key(sample, page, 799.75f, 500);
         const auto key = conversation_measure_key(sample, page, 800, 500);
-        MIRAGE_CHECK(!key.empty());
-        MIRAGE_CHECK(conversation_measure_key(sample, page, 799.75f, 500) != key);
+        MIRAGE_CHECK(!key.empty() && key != narrow_key);
         sample.draft = "Typing does not change history height";
         sample.scroll_offset = 80;
         MIRAGE_CHECK(conversation_measure_key(sample, page, 800, 500) == key);
@@ -146,7 +147,225 @@ int main(int argc, char **argv) {
         MIRAGE_CHECK(conversation_measure_key(sample, page, 800, 500) != before_font);
         --page.font_size_step;
         part.output.assign(64 * 1024, 'x');
+        MIRAGE_CHECK(!conversation_measure_key(sample, page, 800, 500).empty());
+        // The old 64 KiB key limit must not disable caching long histories.
+        const auto long_key = conversation_measure_key(sample, page, 800, 500);
+        MIRAGE_CHECK(conversation_measure_key(sample, page, 800, 500) == long_key);
+        part.output.assign(9 * 1024 * 1024, 'x');
         MIRAGE_CHECK(conversation_measure_key(sample, page, 800, 500).empty());
+    }
+    {
+        ConversationLayout cache;
+        ConversationLayout::Context context{800, 500, 1, 1, 1, false};
+        auto sample = page.chat.current();
+        sample.messages.back().text.assign(80 * 1024, 'x');
+        const auto key = cache.prepare(sample, context);
+        int calculations = 0;
+        const auto measure = [&](const LocalMessage &message, float width) {
+            return cache.measure(message, width, [&](const auto &) {
+                ++calculations;
+                MessageGeometry geometry;
+                geometry.row_height = static_cast<float>(message.text.size()) / width;
+                return geometry;
+            });
+        };
+        for (const auto &message : sample.messages) {
+            measure(message, 800);
+            measure(message, 788);
+        }
+        const auto initial = calculations;
+        MIRAGE_CHECK(initial == static_cast<int>(sample.messages.size()) * 2);
+        MIRAGE_CHECK(cache.prepare(sample, context) == key);
+        for (const auto &message : sample.messages) {
+            measure(message, 800);
+            measure(message, 788);
+        }
+        MIRAGE_CHECK(calculations == initial);
+        // Only the edited message is measured again, including equal-length edits.
+        sample.messages.back().text.back() = 'y';
+        MIRAGE_CHECK(cache.prepare(sample, context) != key);
+        for (const auto &message : sample.messages)
+            measure(message, 788);
+        MIRAGE_CHECK(calculations == initial + 1);
+        int expected = calculations;
+        const auto check_change = [&] {
+            cache.prepare(sample, context);
+            measure(sample.messages.back(), 788);
+            MIRAGE_CHECK(calculations == ++expected);
+        };
+        sample.messages.back().error = "failure";
+        check_change();
+        sample.messages.back().status = "已停止或失败";
+        check_change();
+        sample.messages.back().timings.ocr = {1, 50};
+        check_change();
+        sample.messages.back().parts.push_back({});
+        check_change();
+        sample.messages.back().parts.back().output = "changed";
+        check_change();
+        sample.messages.back().expanded_parts.push_back("thinking");
+        check_change();
+        // Composer growth and theme changes invalidate the scroll extent key,
+        // but preserve geometry. Width uses its own pair of cached measurements.
+        const auto old_key = cache.prepare(sample, context);
+        context.height -= 22;
+        context.dark = true;
+        MIRAGE_CHECK(cache.prepare(sample, context) != old_key);
+        measure(sample.messages.back(), 788);
+        MIRAGE_CHECK(calculations == expected);
+        context.scale = 1.25f;
+        check_change();
+        ++context.font_step;
+        check_change();
+        ++context.code_step;
+        check_change();
+        const auto ordered = cache.prepare(sample, context);
+        std::reverse(sample.messages.begin(), sample.messages.end());
+        MIRAGE_CHECK(cache.prepare(sample, context) != ordered);
+        ++sample.id;
+        cache.prepare(sample, context);
+        measure(sample.messages.front(), 788);
+        MIRAGE_CHECK(calculations == ++expected);
+    }
+    // M6-51: an overflow proof may use only still-valid exact-width geometry;
+    // unknown/changed rows and the fit boundary must retain full measurement.
+    {
+        ConversationLayout cache;
+        ConversationLayout::Context context{800, 500, 1, 1, 1, false};
+        auto sample = page.chat.current();
+        sample.messages.resize(2);
+        sample.messages[0].id = 100;
+        sample.messages[1].id = 101;
+        cache.prepare(sample, context);
+        MIRAGE_CHECK(!cache.proves_overflow(800, 100, 14));
+        const auto save_height = [&](std::size_t row, float height) {
+            cache.measure(sample.messages[row], 800, [height](const auto &) {
+                MessageGeometry geometry;
+                geometry.row_height = height;
+                return geometry;
+            });
+        };
+        save_height(0, 120);
+        MIRAGE_CHECK(cache.proves_overflow(800, 132, 14));
+        MIRAGE_CHECK(!cache.proves_overflow(800, 133, 14));
+        MIRAGE_CHECK(!cache.proves_overflow(800, 134, 14));
+        MIRAGE_CHECK(!cache.proves_overflow(788, 100, 14));
+        sample.messages[0].text += "changed";
+        cache.prepare(sample, context);
+        MIRAGE_CHECK(!cache.proves_overflow(800, 100, 14));
+        save_height(0, 50);
+        save_height(1, 60);
+        MIRAGE_CHECK(cache.proves_overflow(800, 122, 14));
+        MIRAGE_CHECK(!cache.proves_overflow(800, 124, 14));
+        std::reverse(sample.messages.begin(), sample.messages.end());
+        cache.prepare(sample, context);
+        MIRAGE_CHECK(cache.proves_overflow(800, 122, 14));
+        sample.messages.erase(sample.messages.begin());
+        cache.prepare(sample, context);
+        MIRAGE_CHECK(!cache.proves_overflow(800, 100, 14));
+        context.scale = 1.25f;
+        cache.prepare(sample, context);
+        MIRAGE_CHECK(!cache.proves_overflow(800, 1, 14));
+        save_height(0, 200);
+        ++sample.id;
+        cache.prepare(sample, context);
+        MIRAGE_CHECK(!cache.proves_overflow(800, 1, 14));
+        sample.messages[0].text.assign(9 * 1024 * 1024, 'x');
+        cache.prepare(sample, context);
+        MIRAGE_CHECK(!cache.proves_overflow(800, 1, 14));
+        // A cold long history can already overflow from gaps alone. This proof
+        // needs neither source geometry nor a font/width cache hit.
+        LocalSession many;
+        many.id = sample.id + 1;
+        many.messages.resize(40);
+        for (std::size_t i = 0; i < many.messages.size(); ++i)
+            many.messages[i].id = 1000 + i;
+        cache.prepare(many, context);
+        MIRAGE_CHECK(cache.proves_overflow(800, 500, 14));
+        MIRAGE_CHECK(!cache.proves_overflow(800, 550, 14));
+        ++context.font_step;
+        cache.prepare(many, context);
+        MIRAGE_CHECK(cache.proves_overflow(788, 500, 14));
+    }
+    // M6-52: completed parts and the live body have independent geometry.
+    // Counters stand in for expensive layout; totals still invalidate on edits.
+    {
+        ConversationLayout cache;
+        ConversationLayout::Context context{800, 500, 1, 1, 1, false};
+        LocalSession sample;
+        sample.id = 10000;
+        LocalMessage message{10000, "active", "Mira", "运行中", "segments"};
+        message.parts = {{"a", "text", "complete", "aaa"}, {"b", "text", "complete", "bbbb"}};
+        sample.messages.push_back(message);
+        int body_calls = 0;
+        std::map<std::string, int> part_calls;
+        const auto measure = [&](float width = 788) {
+            cache.prepare(sample, context);
+            const auto &source = sample.messages.front();
+            return cache.measure(source, width, [&](const MessageGeometryReuse &reuse) {
+                MessageGeometry geometry;
+                geometry.bubble_width = width;
+                if (reuse.body)
+                    geometry.body_height = reuse.previous->body_height;
+                else {
+                    ++body_calls;
+                    geometry.body_height = static_cast<float>(source.text.size());
+                }
+                geometry.row_height = geometry.body_height;
+                for (std::size_t i = 0; i < source.parts.size(); ++i) {
+                    const auto &part = source.parts[i];
+                    const auto known = reuse.part_height(i);
+                    if (!known)
+                        ++part_calls[part.id];
+                    const float height = known ? *known
+                                               : static_cast<float>(part.text.size()) +
+                                                     (part_expanded(source, part) ? 100 : 0);
+                    geometry.part_heights.push_back(height);
+                    geometry.row_height += height;
+                }
+                return geometry;
+            });
+        };
+        MIRAGE_CHECK(measure().row_height == 13);
+        MIRAGE_CHECK(cache.proves_overflow(788, 11, 14));
+        sample.messages.front().text = "new!";
+        cache.prepare(sample, context);
+        MIRAGE_CHECK(!cache.proves_overflow(788, 11, 14)); // old total is stale
+        MIRAGE_CHECK(measure().row_height == 11);
+        MIRAGE_CHECK(body_calls == 2 && part_calls["a"] == 1 && part_calls["b"] == 1);
+        sample.messages.front().timings.ocr = {1, 10};
+        measure();
+        MIRAGE_CHECK(body_calls == 2 && part_calls["a"] == 1 && part_calls["b"] == 1);
+        auto &parts = sample.messages.front().parts;
+        parts.push_back({"c", "thinking", "complete", "cc"});
+        measure();
+        MIRAGE_CHECK(body_calls == 2 && part_calls["c"] == 1);
+        parts[0].text = "AAAAA";
+        std::reverse(parts.begin(), parts.end());
+        cache.prepare(sample, context);
+        parts[1].text = "bbbbbb";
+        cache.prepare(sample, context); // invalidate twice before measuring
+        MIRAGE_CHECK(measure().part_heights == std::vector<float>({2, 6, 5}));
+        MIRAGE_CHECK(part_calls["a"] == 2 && part_calls["b"] == 2 && part_calls["c"] == 1);
+        sample.messages.front().expanded_parts = {"c"};
+        MIRAGE_CHECK(measure().part_heights == std::vector<float>({102, 6, 5}));
+        MIRAGE_CHECK(body_calls == 2 && part_calls["c"] == 2 && part_calls["a"] == 2);
+        parts.erase(parts.begin() + 1);
+        parts.push_back({"d", "text", "complete", "bbbbbb"});
+        MIRAGE_CHECK(measure().part_heights == std::vector<float>({102, 5, 6}));
+        MIRAGE_CHECK(body_calls == 2 && part_calls["d"] == 1 && part_calls["c"] == 2);
+        measure(776);
+        MIRAGE_CHECK(body_calls == 3 && part_calls["c"] == 3 && part_calls["d"] == 2);
+        ++context.font_step;
+        measure();
+        MIRAGE_CHECK(body_calls == 4 && part_calls["c"] == 4 && part_calls["d"] == 3);
+        sample.messages.front().status = "已停止或失败";
+        sample.messages.front().error = "synthetic failure";
+        measure();
+        MIRAGE_CHECK(body_calls == 4 && part_calls["c"] == 4 && part_calls["d"] == 3);
+        ++sample.id;
+        measure();
+        MIRAGE_CHECK(body_calls == 5 && part_calls["c"] == 5 && part_calls["d"] == 4);
     }
     page.chat.current().scroll_offset = 0;
     core::dsl::Runtime runtime;
@@ -1868,9 +2087,12 @@ const auto model = "Mirage";
         page.selection.clear();
         page.chat.create_session();
         const auto history_id = page.chat.current().id;
+        std::string historical_reply = "## 历史回复\n\n";
+        while (historical_reply.size() < 2048)
+            historical_reply += "正文保持原始高度与滚动位置。\n\n";
         for (int i = 0; i < 40; ++i)
             page.chat.apply_turn(history_id, "virtual-" + std::to_string(i), "ok", "历史输入",
-                                 "## 历史回复\n\n正文保持原始高度与滚动位置。", {}, {}, i + 1);
+                                 i == 39 ? "最新短回复" : historical_reply, {}, {}, i + 1);
         width = 1180;
         height = 800;
         dpi_scale = 1;
@@ -1893,6 +2115,116 @@ const auto model = "Mirage";
         element(thread)->onScrollOffsetChanged(extent);
         frame();
         MIRAGE_CHECK(view->find(last + ".markdown") && page.chat.current().follow_output);
+        // A changing final reply takes the proof path. Compare its actual extent
+        // and placement against a fresh complete ScrollView measurement.
+        page.chat.current().messages.back().text = historical_reply + "新尾段";
+        frame();
+        const auto probed_extent = element(thread)->scrollMaxOffset;
+        const auto probed_body = element(last + ".markdown")->frame;
+        page.conversation_layout = {};
+        view->releaseStateScope(thread + ".measure");
+        frame();
+        MIRAGE_CHECK(std::abs(element(thread)->scrollMaxOffset - probed_extent) < .5f);
+        MIRAGE_CHECK(std::abs(element(last + ".markdown")->frame.y - probed_body.y) < .5f);
+        MIRAGE_CHECK(std::abs(element(last + ".markdown")->frame.height - probed_body.height) <
+                     .5f);
+        MIRAGE_CHECK(page.chat.current().follow_output);
+    }
+    // M6-50: selecting a scrolled Markdown slice must use the full source
+    // geometry, including lines omitted from the normal control tree.
+    {
+        page.selection.clear();
+        page.chat.create_session();
+        const auto sid = page.chat.current().id;
+        std::string source;
+        for (int line = 0; line < 120; ++line)
+            source += "paragraph" + std::to_string(line) + " **重点** English。\n\n";
+        page.chat.apply_turn(sid, "viewport-selection", "ok", "长正文", source, {}, {}, 1);
+        frame();
+        const auto thread = "thread." + std::to_string(sid);
+        const auto message = "message." + std::to_string(page.chat.current().messages.back().id);
+        const auto extent = element(thread)->scrollMaxOffset;
+        element(thread)->onScrollOffsetChanged(extent / 2);
+        frame();
+        const auto *md = element(message + ".markdown");
+        MIRAGE_CHECK(md && extent > 2000);
+        std::vector<const core::dsl::Element *> leaves;
+        auto walk = [&](auto &&self, const auto &node) -> void {
+            if (node.kind == core::dsl::ElementKind::Text && node.text.starts_with("paragraph"))
+                leaves.push_back(&node);
+            for (const auto &child : node.children)
+                self(self, *child);
+        };
+        walk(walk, *md);
+        MIRAGE_CHECK(!leaves.empty() && leaves.size() < 40);
+        const auto offset = element(thread)->scrollOffset;
+        const auto visible = std::find_if(leaves.begin(), leaves.end(), [&](const auto *leaf) {
+            return leaf->frame.y - offset > 180 && leaf->frame.y - offset < 350;
+        });
+        MIRAGE_CHECK(visible != leaves.end());
+        if (visible != leaves.end()) {
+            const auto *leaf = *visible;
+            const auto prefix = leaf->text;
+            MIRAGE_CHECK(prefix != "paragraph0");
+            const auto x = leaf->frame.x + 1;
+            const auto y = leaf->frame.y - offset + 10;
+            core::queuePointerButton(handle, x, y, core::PointerButton::Left,
+                                     core::PointerAction::Press, {});
+            frame();
+            core::queuePointerMotion(handle, x + 250, y, core::PointerButton::Left, {});
+            frame();
+            core::queuePointerButton(handle, x + 250, y, core::PointerButton::Left,
+                                     core::PointerAction::Release, {});
+            frame();
+            MIRAGE_CHECK(page.selection.ready && page.selection.excerpt.starts_with(prefix) &&
+                         page.selection.excerpt.find("**") == std::string::npos);
+            capture("viewport-markdown-selection");
+        }
+    }
+    // M6-52: settled process text remains separate from a changing preview.
+    {
+        page.selection.clear();
+        page.chat.create_session();
+        const auto sid = page.chat.current().id;
+        page.chat.apply_turn(sid, "settled", "pending", "分段回归", {}, {}, {}, 1);
+        std::string earlier = "## 已完成的历史片段\n\n";
+        for (int i = 0; i < 40; ++i)
+            earlier += "历史段 " + std::to_string(i) + " **中文** English。\n\n";
+        std::vector<mirage::conversation::Part> parts{
+            {"settled.first", "text", "complete", earlier},
+            {"settled.second", "text", "complete", earlier + "尾部。"}};
+        MIRAGE_CHECK(mirage::conversation::valid_parts(parts));
+        page.chat.apply_process(sid, "settled", parts, 1, true, false);
+        page.chat.apply_preview(sid, "settled", "settled-request", 1, "当前新段落。", false);
+        frame();
+        const auto settled_key =
+            "message." + std::to_string(page.chat.current().messages.back().id);
+        const auto thread = "thread." + std::to_string(sid);
+        MIRAGE_CHECK(!view->find(settled_key + ".part.settled.first.markdown"));
+        const auto body_y = element(settled_key + ".markdown")->frame.y;
+        capture("settled-parts-tail");
+        page.chat.apply_preview(sid, "settled", "settled-request", 2, "当前新段落。追加 **内容**。",
+                                false);
+        frame();
+        MIRAGE_CHECK(std::abs(element(settled_key + ".markdown")->frame.y - body_y) < .5f);
+        MIRAGE_CHECK(page.chat.current().messages.back().parts == parts);
+        element(thread)->onScrollOffsetChanged(0);
+        frame();
+        MIRAGE_CHECK(view->find(settled_key + ".part.settled.first.markdown"));
+        MIRAGE_CHECK(!page.chat.current().follow_output);
+        capture("settled-parts-history");
+        const auto extent = element(thread)->scrollMaxOffset;
+        page.conversation_layout = {};
+        view->releaseStateScope(thread + ".measure");
+        frame();
+        MIRAGE_CHECK(std::abs(element(thread)->scrollMaxOffset - extent) < .5f);
+        element(thread)->onScrollOffsetChanged(extent);
+        frame();
+        const auto live_y = element(settled_key + ".markdown")->frame.y;
+        page.chat.apply_turn(sid, "settled", "ok", "分段回归", "当前新段落。追加 **内容**。", {},
+                             {}, 2);
+        frame();
+        MIRAGE_CHECK(std::abs(element(settled_key + ".markdown")->frame.y - live_y + 28) < .5f);
     }
     width = 1180;
     height = 800;

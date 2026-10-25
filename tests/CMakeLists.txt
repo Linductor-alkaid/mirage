@@ -1271,7 +1271,11 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND MIRAGE_ENABLE_NATIVE_FRONTEND)
         Mirage::platform Mirage::kairo_consumer)
     mirage_enable_warnings(native_input_performance_test)
     add_test(NAME native_input_performance_test COMMAND native_input_performance_test)
-    set_tests_properties(native_input_performance_test PROPERTIES LABELS "integration;ui;performance"
+    add_test(NAME native_long_history_performance_test COMMAND native_input_performance_test --long-history)
+    add_test(NAME native_long_markdown_performance_test COMMAND native_input_performance_test --long-visible)
+    add_test(NAME native_settled_parts_performance_test COMMAND native_input_performance_test --long-history --settled-parts)
+    set_tests_properties(native_input_performance_test native_long_history_performance_test native_long_markdown_performance_test native_settled_parts_performance_test
+        PROPERTIES LABELS "integration;ui;performance"
         TIMEOUT 120 WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/apps/native")
 
 endif()
