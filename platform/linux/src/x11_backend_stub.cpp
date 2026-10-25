@@ -32,6 +32,12 @@ using mirage::desktop::WindowQueryOutcome;
 struct X11Backend::XConnection {};
 
 bool X11Backend::controlled_input_supported() const { return false; }
+bool X11Backend::window_switcher_supported() const { return false; }
+std::unique_ptr<mirage::desktop::InputSessionBackend>
+X11Backend::open_window_switcher_session(const mirage::desktop::PointerActionScope &,
+                                         const CancelToken &) {
+    return {};
+}
 std::unique_ptr<mirage::desktop::InputSessionBackend>
 X11Backend::open_input_session(const mirage::desktop::PointerActionScope &, const CancelToken &) {
     return {};

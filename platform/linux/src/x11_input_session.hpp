@@ -5,5 +5,6 @@
 namespace mirage::platform::linux_backend {
 std::unique_ptr<desktop::InputSessionBackend>
 open_x11_input_session(const std::string &, const desktop::PointerActionScope &,
-                       const desktop::CancelToken &);
-}
+                       const desktop::CancelToken &, bool window_switcher = false);
+bool x11_window_switcher_available(const std::string &);
+} // namespace mirage::platform::linux_backend

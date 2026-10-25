@@ -1,0 +1,23 @@
+{
+  "schema": "window_switch_v1",
+  "version": [1, 0, 0],
+  "permission_resource": "window_switcher",
+  "permissions": ["window.activate", "input.inject"],
+  "held_keys": ["alt"],
+  "command_cost": {"forward": 1, "backward": 3},
+  "tools": {
+    "begin": ["window_id", "environment_epoch"],
+    "advance": ["session_id", "sequence", "state_version", "direction"],
+    "observe": ["session_id"],
+    "release": ["session_id"]
+  },
+  "invalid_advance": [
+    {"direction": "left"},
+    {"direction": "forward", "key": "tab"},
+    {"direction": "forward", "x": 20},
+    {"direction": "forward", "duration_ms": 10},
+    {"direction": "forward", "press": "long"},
+    {"direction": "forward", "sequence": 0},
+    {"direction": "forward", "state_version": 0}
+  ]
+}

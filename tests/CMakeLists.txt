@@ -1784,6 +1784,26 @@ mirage_add_test(controlled_input_session_test
 
 get_target_property(MIRAGE_CONTROLLED_XINPUT2 mirage_platform MIRAGE_XINPUT2_AVAILABLE)
 if(MIRAGE_CONTROLLED_XINPUT2)
+option(MIRAGE_BUILD_X11_SWITCHER_ACCEPTANCE "Run private Openbox/Xvfb window-switcher acceptance" OFF)
+if(MIRAGE_BUILD_X11_SWITCHER_ACCEPTANCE)
+    find_program(MIRAGE_OPENBOX_EXECUTABLE NAMES openbox REQUIRED)
+    mirage_add_test(controlled_window_switch_test
+        SOURCES platform/controlled_window_switch_test.cpp
+        LIBS Mirage::platform Mirage::integration_mira Mirage::kairo_consumer ${X11_X11_LIB} ${X11_Xtst_LIB}
+        LABELS "integration;platform;input;security"
+        TIMEOUT 90)
+    target_compile_definitions(controlled_window_switch_test PRIVATE
+        MIRAGE_OPENBOX_EXECUTABLE="${MIRAGE_OPENBOX_EXECUTABLE}"
+        MIRAGE_OPENBOX_CONFIG="${CMAKE_CURRENT_SOURCE_DIR}/platform/data/openbox-switcher.xml"
+        MIRAGE_SWITCHER_GOLDEN="${CMAKE_CURRENT_SOURCE_DIR}/integration/data/window-switcher-v1.json")
+endif()
+mirage_add_test(controlled_input_devices_test
+    SOURCES platform/controlled_input_devices_test.cpp
+    LIBS Mirage::platform Mirage::integration_mira Mirage::kairo_consumer ${X11_X11_LIB} ${X11_Xtst_LIB} X11::Xi
+    LABELS "integration;platform;input;security"
+    TIMEOUT 30)
+target_link_options(controlled_input_devices_test PRIVATE
+    -Wl,--wrap=XIQueryVersion -Wl,--wrap=XGetEventData)
 mirage_add_test(controlled_input_x11_test
     SOURCES platform/controlled_input_x11_test.cpp
     LIBS Mirage::platform Mirage::integration_mira Mirage::kairo_consumer ${X11_X11_LIB} ${X11_Xtst_LIB}

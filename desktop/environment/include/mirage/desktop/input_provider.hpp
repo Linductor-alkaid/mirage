@@ -109,6 +109,11 @@ class InputProvider {
     virtual bool controlled_input_supported() const { return false; }
     virtual std::unique_ptr<InputSessionBackend> open_input_session(const PointerActionScope &,
                                                                     const CancelToken &);
+    /// Separate opt-in for an observed window-switcher profile. It must keep
+    /// the original focus while holding; only final release may commit focus.
+    virtual bool window_switcher_supported() const { return false; }
+    virtual std::unique_ptr<InputSessionBackend>
+    open_window_switcher_session(const PointerActionScope &, const CancelToken &);
     /// Complete discrete actions require explicit backend opt-in. The backend
     /// preflights physical input, owns its presses and reports cleanup failure.
     /// This includes type_text. Cancellation/deadline never suppress release;

@@ -1,8 +1,13 @@
+#include "../../integration/mira/src/controlled_input_session.hpp"
+#include "../../integration/mira/src/controlled_input_tools.hpp"
 #include "../support/provider_tool_name.hpp"
 #include "../support/test.hpp"
 #include "../support/xvfb_display.hpp"
 #include <algorithm>
 #include <array>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <kairo/executor.hpp>
 #include <mira/model_digest.hpp>
 #include <mira/model_provider.hpp>
@@ -36,7 +41,8 @@ struct Fixture {
                                      0xffffff);
         XStoreName(client, window, "Controlled input fixture");
         XSelectInput(client, window,
-                     KeyPressMask | KeyReleaseMask | ButtonPressMask | ButtonReleaseMask);
+                     KeyPressMask | KeyReleaseMask | ButtonPressMask | ButtonReleaseMask |
+                         PointerMotionMask);
         XMapWindow(client, window);
         XSetInputFocus(client, window, RevertToParent, CurrentTime);
         XWarpPointer(client, None, window, 0, 0, 0, 0, 100, 100);
@@ -63,7 +69,195 @@ struct Fixture {
                                    &wy, &mask));
         return mask;
     }
+    d::PointerPoint pointer() {
+        const auto outcome = environment.input()->pointer_position({});
+        MIRAGE_CHECK(outcome.ok);
+        return {outcome.position.x, outcome.position.y};
+    }
 };
+void tool_contract(kairo::Executor &executor) {
+    std::ifstream file(std::filesystem::path{__FILE__}.parent_path().parent_path() /
+                       "integration/data/controlled-input-travel-v1.1.json");
+    const auto parsed = mira::parse_json(std::string{std::istreambuf_iterator<char>{file}, {}});
+    if (!parsed)
+        throw std::runtime_error("controlled input travel golden unavailable");
+    const auto &golden = parsed.value();
+    Fixture f;
+    i::DesktopToolContext desktop;
+    desktop.environment = std::shared_ptr<d::DesktopEnvironment>(&f.environment, [](auto *) {});
+    desktop.actions = std::make_shared<d::ActionCoordinator>();
+    desktop.gate = [](const auto &, const auto &, const auto &stop) { return !stop(); };
+    auto ctx = mira::make_control_context();
+    ctx.task = mira::TaskId::generate();
+    ctx.session = mira::SessionId::generate();
+    ctx.task_epoch = 1;
+    i::detail::ControlledInputTools tools(executor, desktop, ctx, {});
+    mira::BuiltinToolRegistry registry;
+    tools.register_tools(registry, {});
+    const auto specs = registry.exposed_tools();
+    const auto call = [&](const std::string &name, const J &args) {
+        const auto spec = std::find_if(specs.begin(), specs.end(), [&](const auto &entry) {
+            return entry.wire_name == "desktop.input_session." + name;
+        });
+        if (spec == specs.end())
+            throw std::runtime_error("controlled input tool not registered");
+        mira::ToolProposal proposal;
+        proposal.tool_id = spec->tool_id;
+        proposal.wire_name = spec->wire_name;
+        proposal.tool_version = spec->version;
+        proposal.arguments = args;
+        proposal.arguments_digest = mira::digest_string(mira::to_json_string(args));
+        proposal.operation_id = mira::OperationId::generate();
+        proposal.has_side_effects = spec->has_side_effects;
+        const auto result = registry.execute(proposal, ctx);
+        if (!result)
+            throw std::runtime_error(result.error().safe_message);
+        return result.value();
+    };
+    for (const auto &spec : specs) {
+        if (spec.wire_name != "desktop.input_session.advance")
+            continue;
+        const auto &version = *golden.find("advance_version")->as_array();
+        MIRAGE_CHECK(spec.version.major == version[0].as_integer());
+        MIRAGE_CHECK(spec.version.minor == version[1].as_integer());
+        MIRAGE_CHECK(spec.version.patch == version[2].as_integer());
+        const auto *properties = spec.parameters_schema.root.find("properties");
+        for (const char *coordinate : {"x", "y"}) {
+            MIRAGE_CHECK(properties->find(coordinate)->find("minimum")->as_integer() ==
+                         golden.find("coordinate_min")->as_integer());
+            MIRAGE_CHECK(properties->find(coordinate)->find("maximum")->as_integer() ==
+                         golden.find("coordinate_max")->as_integer());
+        }
+        MIRAGE_CHECK(!properties->find("duration") && !properties->find("path_points"));
+    }
+    auto state = call("begin", J{J::Object{{"window_id", f.scope.window_id},
+                                           {"environment_epoch",
+                                            static_cast<std::int64_t>(desktop.actions->epoch())}}});
+    MIRAGE_CHECK(!state.failed);
+    const auto args_for = [&](const J &command) {
+        auto args = command;
+        args.set("session_id", *state.result.find("session_id"));
+        args.set("state_version", *state.result.find("state_version"));
+        args.set("sequence", std::int64_t{1});
+        return args;
+    };
+    for (const auto &row : *golden.find("invalid_arguments")->as_array()) {
+        const auto invalid = call("advance", args_for(row));
+        MIRAGE_CHECK(invalid.failed);
+        MIRAGE_CHECK(f.pointer().x == 140 && f.pointer().y == 140);
+        MIRAGE_CHECK(tools.snapshot().find("command_sequence")->as_integer() == 0);
+    }
+    const auto moved = call("advance", args_for(*golden.find("example")));
+    MIRAGE_CHECK(!moved.failed && f.pointer().x == 340 && f.pointer().y == 190);
+    MIRAGE_CHECK(moved.result.find("schema") && *moved.result.find("schema")->as_string() ==
+                                                    *golden.find("receipt_schema")->as_string());
+    MIRAGE_CHECK(
+        !call("release", J{J::Object{{"session_id", *state.result.find("session_id")}}}).failed);
+    MIRAGE_CHECK(tools.finish().code.empty());
+}
+void travel(kairo::Executor &executor) {
+    // Actual server events demonstrate held delivery to the receiving window;
+    // no desktop input is sent to the user's display.
+    for (int mode = 0; mode < 5; ++mode) {
+        Fixture f;
+        auto owner = std::make_shared<d::ActionCoordinator>();
+        d::CancelToken stop;
+        using Session = i::detail::ControlledInputSession;
+        Session session(executor, owner, stop,
+                        [&] { return f.environment.input()->open_input_session(f.scope, {}); }, {});
+        auto state = session.begin(owner->epoch());
+        d::InputSessionCommand command;
+        command.kind = d::InputSessionCommand::Kind::key_down;
+        command.key_name = "shift";
+        state = session.advance(1, state.state_version, command);
+        command = {};
+        command.kind = d::InputSessionCommand::Kind::button_down;
+        command.button = "left";
+        state = session.advance(2, state.state_version, command);
+        MIRAGE_CHECK(f.shift() && (f.buttons() & Button1Mask));
+        XSync(f.client, False);
+        while (XPending(f.client)) {
+            XEvent event;
+            XNextEvent(f.client, &event);
+        }
+        command = {};
+        command.kind = d::InputSessionCommand::Kind::smooth_move;
+        command.x = mode == 2 ? 450 : 340; // outside the bound [40,400) window
+        command.y = 140;
+        command.duration = std::chrono::milliseconds{600};
+        bool interrupted = false;
+        if (mode == 1 || mode == 3 || mode == 4) {
+            // Same-worker probe avoids fixture cross-thread Xlib calls. At least
+            // one segment reached the server before cancellation/focus change.
+            stop = d::CancelToken([&] {
+                const auto position = f.pointer();
+                if (!interrupted && position.x >= 180) {
+                    interrupted = true;
+                    if (mode == 3) {
+                        XSetInputFocus(f.client, DefaultRootWindow(f.client), RevertToParent,
+                                       CurrentTime);
+                        XSync(f.client, False);
+                    }
+                    if (mode == 4)
+                        owner->invalidate_authority();
+                }
+                return interrupted && mode == 1;
+            });
+        }
+        const auto started = std::chrono::steady_clock::now();
+        state = session.advance(3, state.state_version, command, stop);
+        const auto position = f.pointer();
+        if (mode == 0) {
+            MIRAGE_CHECK(position.x == 340 && position.y == 140);
+            MIRAGE_CHECK(std::chrono::steady_clock::now() - started >=
+                         std::chrono::milliseconds{599});
+            MIRAGE_CHECK(state.outcome == d::InputSessionOutcome::holding &&
+                         state.held_keys == std::vector<std::string>{"shift"} &&
+                         state.held_buttons == std::vector<std::string>{"left"});
+            MIRAGE_CHECK(f.environment.screen()->capture_window(f.scope.window_id, {}, {}).ok);
+            MIRAGE_CHECK(f.shift() && (f.buttons() & Button1Mask));
+            const auto stale = session.advance(3, state.state_version, command);
+            MIRAGE_CHECK(stale.error.code == "stale_input_command");
+            MIRAGE_CHECK(session.release().release_confirmed);
+        } else {
+            MIRAGE_CHECK(state.release_confirmed && !state.error.code.empty());
+            if (mode == 2) {
+                MIRAGE_CHECK(position.x == 140 && position.y == 140);
+                MIRAGE_CHECK(state.error.code == "target_changed");
+            } else {
+                MIRAGE_CHECK(interrupted && position.x >= 180 && position.x < 340);
+                MIRAGE_CHECK(state.cancelled == (mode == 1 || mode == 4));
+                MIRAGE_CHECK(state.error.code == (mode == 3 ? "target_changed" : "cancelled"));
+            }
+        }
+        MIRAGE_CHECK(!f.shift() && !(f.buttons() & Button1Mask) && owner->input_released());
+        int motion = 0, button_up = 0, key_up = 0, last_x = 140;
+        XSync(f.client, False);
+        while (XPending(f.client)) {
+            XEvent event;
+            XNextEvent(f.client, &event);
+            if (event.type == MotionNotify) {
+                MIRAGE_CHECK(event.xmotion.x_root >= last_x && event.xmotion.x_root <= 340);
+                MIRAGE_CHECK(event.xmotion.y_root == 140);
+                MIRAGE_CHECK(event.xmotion.state & ShiftMask);
+                MIRAGE_CHECK(event.xmotion.state & Button1Mask);
+                last_x = event.xmotion.x_root;
+                ++motion;
+            }
+            button_up += event.type == ButtonRelease;
+            key_up += event.type == KeyRelease;
+        }
+        if (mode == 2)
+            MIRAGE_CHECK(motion == 0);
+        else
+            MIRAGE_CHECK(motion > 1);
+        MIRAGE_CHECK(button_up == 1);
+        // After focus changes, X11 may route release through pointer focus;
+        // server key state above is authoritative and release is never replayed.
+        MIRAGE_CHECK(mode == 3 ? key_up <= 1 : key_up == 1);
+        session.stop();
+    }
+}
 void platform(kairo::Executor &executor) {
     Fixture f;
     auto backend = f.environment.input()->open_input_session(f.scope, {});
@@ -167,11 +361,19 @@ class Script final : public mira::IModelProvider {
                         state = result->result;
                 }
             }
-        const auto step = requests++;
+        const auto actual_step = requests++;
+        const bool moving = mode_ == "move" || mode_ == "drag";
+        const auto step = actual_step - (moving && actual_step >= 4 ? 1 : 0);
         if (step == 4 || (step == 5 && mode_ == "recover"))
             MIRAGE_CHECK(has_image);
         if ((step == 3 || step == 4) && mode_ != "long") {
-            MIRAGE_CHECK(fixture_.shift() && host_state);
+            MIRAGE_CHECK(
+                (mode_ == "drag" ? (fixture_.buttons() & Button1Mask) != 0 : fixture_.shift()) &&
+                host_state);
+        }
+        if (moving && actual_step == 4) {
+            MIRAGE_CHECK(fixture_.pointer().x == 340 && fixture_.pointer().y == 190);
+            MIRAGE_CHECK(state.find("outcome") && *state.find("outcome")->as_string() == "holding");
         }
         if ((mode_ == "paused" || mode_ == "policy" || mode_ == "recover") && step == 4) {
             pause();
@@ -206,10 +408,20 @@ class Script final : public mira::IModelProvider {
             args = {{"session_id", *state.find("session_id")},
                     {"state_version", *state.find("state_version")},
                     {"sequence", std::int64_t{1}},
-                    {"command", mode_ == "long" ? "key_tap" : "key_down"},
-                    {"key", "shift"}};
+                    {"command", mode_ == "long"   ? "key_tap"
+                                : mode_ == "drag" ? "button_down"
+                                                  : "key_down"},
+                    {mode_ == "drag" ? "button" : "key", mode_ == "drag" ? "left" : "shift"}};
             if (mode_ == "long")
                 args.emplace_back("press", "long");
+        } else if (moving && actual_step == 3) {
+            name = "desktop.input_session.advance";
+            args = {{"session_id", *state.find("session_id")},
+                    {"state_version", *state.find("state_version")},
+                    {"sequence", std::int64_t{2}},
+                    {"command", "smooth_move"},
+                    {"x", std::int64_t{340}},
+                    {"y", std::int64_t{190}}};
         } else if (step == 3) {
             name = "desktop.screen.capture";
             args = {{"source", "window"}, {"source_id", fixture_.scope.window_id}};
@@ -242,8 +454,8 @@ class Script final : public mira::IModelProvider {
     }
 };
 void loop(kairo::Executor &executor) {
-    for (const std::string mode :
-         {"normal", "long", "unclosed", "protocol", "paused", "policy", "recover"}) {
+    for (const std::string mode : {"normal", "long", "unclosed", "protocol", "paused", "policy",
+                                   "recover", "move", "drag"}) {
         Fixture f;
         i::DesktopToolContext desktop;
         desktop.environment = std::shared_ptr<d::DesktopEnvironment>(&f.environment, [](auto *) {});
@@ -283,10 +495,13 @@ void loop(kairo::Executor &executor) {
         context.deadline = std::chrono::steady_clock::now() + std::chrono::seconds{20};
         const auto completion =
             model.complete_harness_turn("", "hold and observe", context, "", true, {}, {}, parent);
-        if (completion.ok != (mode == "normal" || mode == "long" || mode == "recover"))
+        const bool expected = mode == "normal" || mode == "long" || mode == "recover" ||
+                              mode == "move" || mode == "drag";
+        if (completion.ok != expected)
             std::fprintf(stderr, "hold mode=%s error=%s\n", mode.c_str(), completion.error.c_str());
-        MIRAGE_CHECK(completion.ok == (mode == "normal" || mode == "long" || mode == "recover"));
-        MIRAGE_CHECK(!f.shift() && desktop.actions->input_released());
+        MIRAGE_CHECK(completion.ok == expected);
+        MIRAGE_CHECK(!f.shift() && !(f.buttons() & Button1Mask) &&
+                     desktop.actions->input_released());
         if (mode == "unclosed")
             MIRAGE_CHECK(completion.error.find("input_session_unclosed") != std::string::npos);
         if (mode == "protocol")
@@ -300,7 +515,7 @@ void loop(kairo::Executor &executor) {
             down += event.type == KeyPress;
             up += event.type == KeyRelease;
         }
-        MIRAGE_CHECK(down == 1 && up == 1); // No replay after provider or model failure.
+        MIRAGE_CHECK(down == (mode == "drag" ? 0 : 1) && up == down); // No replay.
         model.shutdown();
     }
 }
@@ -312,6 +527,8 @@ int main() {
         executor
             .submit_auto([&] {
                 platform(executor);
+                travel(executor);
+                tool_contract(executor);
                 loop(executor);
             })
             .get();

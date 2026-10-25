@@ -6,7 +6,7 @@
 > 版本：0.1
 > 负责人：Mirage 维护者
 > 依据：[《Mirage：Linux - Windows 桌面端设计方案》](../design/Mirage：Linux%20-%20Windows%20桌面端设计方案.md)（下称"设计文档"）
-> 更新日期：2026-10-20（DEC-110 默认自然输入、DEC-111 文本验证与 DEC-109 低资源连续感知补充；既有里程碑状态保留）
+> 更新日期：2026-10-21（M7-27 持键移动、设备守卫与窗口切换器增量；既有里程碑状态保留）
 
 ## 当前状态
 
@@ -901,3 +901,28 @@ ModelLayer 的一个 Executor blocking worker，任务终结与权限换代进�
 继续开放。详见[实施与验收证据](../compatibility/controlled-input-sessions-20261021.md)。
 本轮 Debug 全量 106/106、ASan/UBSan/native-release 定向各 15/15；完整 native-release
 product 与公开头文件边界检查通过。M7-27 仍按剩余门禁保持 In Progress。
+
+2026-10-21 后续：M7-27 接通 X11/XInput2 固定窗口内持有中移动，advance 1.1.0
+只接收目标整数坐标，本地规划时长，移动后保持 holding；取消、权限换代、焦点变化
+和越界经原释放路径结算。工具 schema/golden、Xvfb 真实轨迹与 ModelLayer 调用链
+及 sanitizer 证据见[本增量记录](../compatibility/controlled-input-travel-20261021.md)。
+系统切换器焦点转换、Portal 跨调用持有、Windows 与真实模型/设备门禁继续开放，
+M7-27 保持 In Progress。
+
+2026-10-21 设备守卫后续：M7-27 受控 X11 持键最低 XI 2.1，补齐外部 grab 期间的
+raw 来源观测与固定设备路由/拓扑变化屏障；同键/同按钮归属不确定不发 up，其他
+外部输入只触发本任务已知输入清理。Xvfb、API 故障注入与实际 sanitizer 结果见
+[本增量记录](../compatibility/controlled-input-devices-20261021.md)。不把协议设备
+夹具当作物理拔插证明，剩余平台与 M7-27 的系统切换器门禁继续开放。
+
+2026-10-21 系统切换器后续：M7-27 接入 Openbox 3.6.1 的独立 window_switch 工具族，
+由宿主持 Alt、正反选择和清理，允许全屏截图；原窗口焦点/几何与单写者 lease 不放宽。
+实际 Openbox/Xvfb 与 ModelLayer 脚本闭环、故障和 sanitizer 验证见
+[本增量记录](../compatibility/controlled-window-switcher-20261021.md)。其他管理器、
+Portal/Windows、真实物理设备与在线模型门禁继续开放，M7-27 保持 In Progress。
+
+2026-10-21 native-release 后续：完整 mirage-native-product 已更新（含 native、
+pet、OCR/YOLO 和资源打包），Release 定向回归 19/19、39.57 s，公开头文件边界
+零违规，launcher --version 正常。命令和产物哈希见
+[后续验证记录](../compatibility/controlled-window-switcher-20261021.md#2026-10-21native-release-更新与提交前验证)。
+本次未启动/重启产品；M7-27 的其他平台与真实环境门禁继续开放。

@@ -8,7 +8,7 @@
 > 所属计划：[Mirage 实施总计划](mirage-implementation-plan.md)
 > 前置：M2/M3 桌面与视觉适配；M6 当前原生会话/托盘 Runtime owner
 > 建议发布点：桌面工具预览版（名称与 tag 由维护者另定）
-> 更新日期：2026-10-20
+> 更新日期：2026-10-21
 
 ## 目标
 
@@ -63,11 +63,18 @@
 - [ ] `M7-25` **In Progress（冻结稿待评审）**：连续动作/跨观察输入会话的契约层与
   golden 状态/负向矩阵已交付并通过独立对账测试（见专项计划验证记录）；`M7-26`
   **In Progress（X11 平滑移动首增量）**：opt-in `smooth_move_to` 与 `glide_ms`
-  点击旅行已交付并取得真实 Xvfb 轨迹证据；`M7-27`～`M7-31` **Proposed**：持键会话、
-  IME、虚拟设备与外接 HID 兼容性，以及实际模型/平台验收；稳定编号、前置、
+  点击旅行已交付并取得真实 Xvfb 轨迹证据；`M7-27` **In Progress**：X11 固定窗口
+  持键/截图、完整长按及持有中移动，证据见[增量记录](../compatibility/controlled-input-travel-20261021.md)；
+  `M7-28`～`M7-31` **Proposed**：IME、虚拟设备与外接 HID 兼容性，以及实际模型/平台验收；稳定编号、前置、
   冻结点和退出条件见
   [专项计划](m7-continuous-input-and-device-compatibility.md)。设备兼容性与动作能力
   并行评估，各平台未验证项保持开放。
+  2026-10-21 后续：[设备来源守卫](../compatibility/controlled-input-devices-20261021.md)
+  将持键最低要求改为 XI 2.1，补齐外部 grab 同键/按钮竞争、拓扑变化与事件积压；
+  真实硬件拔插、系统切换器和未验平台继续开放。
+  同日系统切换器首增量：Openbox 3.6.1 已接独立 window_switch 工具族，持 Alt
+  正反选窗/截图及释放后前台验证见[记录](../compatibility/controlled-window-switcher-20261021.md)；
+  GNOME/KDE、Portal/Windows 与其他未验门禁继续开放。
   2026-10-20：M7-25 冻结稿需补默认自动时序、完整动作完成边界与兼容迁移；M7-26
   需迁移全部适用键鼠入口，M7-31 追加无时间参数、返回/后置验证顺序的真实事件验收。
   同日已接受 DEC-056 分层策略，追加默认无业务条件、动作组/条件依赖和终态证据复用
