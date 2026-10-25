@@ -69,10 +69,11 @@
 - **预计工时**: 3 天
 
 #### 1.5 依赖能力确认
-- [ ] **与 Mira 维护者确认**:
-  - pinned mira 是否计划提供语义相似度计算？
-  - 如果有，预计哪个版本？API 形式？
-  - 如果无，是否接受反馈台账（MIRA-20261016-001）？
+- [x] **公开能力核对**（2026-10-25，pin `68a8bf1`，上游 DEC-060 / PR#103）：
+  - Mira 已提供 `IEmbeddingProvider`、`IMemoryEmbeddingIndex`、`MemoryEmbeddingIndexer`。
+  - Core 不含 embedding 模型推理；宿主提供生产者并管理 Executor 路由，复用上游向量召回与有界修复。
+  - [MIRA-20261016-001](../dependency_feedback/mira.md#mira-20261016-001) 为 Accepted（部分交付）；不重复提报已有 API。
+  - 该勾选仅确认接口与职责，不代表 M10 产品接线或真实语义质量通过。
 - [ ] **fallback 方案评估**:
   - 基于关键词 Jaccard 相似度的质量如何？
   - 在标注测试集上的召回率是否可接受（>60%）？

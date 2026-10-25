@@ -1417,6 +1417,7 @@ class ContinuationScript final : public mira::IModelProvider {
     std::vector<std::string> partials;
     std::vector<bool> cut_tool_calls;
     std::string final_answer;
+    std::string final_error;
     mira::Result<mira::ModelResponse> infer(const mira::ModelRequest &request,
                                             const mira::OperationContext &,
                                             const mira::ProviderInferOptions &) override {
@@ -1459,6 +1460,12 @@ class ContinuationScript final : public mira::IModelProvider {
                 response.output.emplace_back(std::move(message));
             }
             return response;
+        }
+        if (!final_error.empty()) {
+            mira::Error error;
+            error.code = mira::ErrorCode::Internal;
+            error.safe_message = final_error;
+            return error;
         }
         response.status = mira::ModelCompletionStatus::Completed;
         mira::MessageOutput message;
@@ -1656,13 +1663,43 @@ void output_continuation_scenario() {
         MIRAGE_CHECK(result.error.find("output-limit continuation budget exhausted") !=
                      std::string::npos);
         // MIRA-20261022-001: the exhaustion settle carries the structured
-        // output-limit category on top of the (interim) summary anchor.
+        // output-limit category from the upstream terminal reason.
         MIRAGE_CHECK(result.output_limit_truncated);
         // Four requests: the initial call plus three continuations; the
         // fourth cutoff arrives on the last continuation's response and the
         // exhausted settle makes no further model call (loop semantics:
         // a continuation is only issued while budget remains).
         MIRAGE_CHECK(script && script->requests.size() == 4);
+        MIRAGE_CHECK(result.tool_calls == 0);
+        layer.shutdown();
+        owner.shutdown(true);
+    }
+    // (e) a recovered cutoff followed by an unrelated failure whose message
+    // contains the old summary anchor must not become an output-limit failure.
+    {
+        kairo::Executor owner;
+        MIRAGE_CHECK(static_cast<bool>(owner.initialize({})));
+        integration::ModelProviderOverride provider([](const auto &profile) {
+            auto script = std::make_shared<ContinuationScript>(profile);
+            script->partials = {"recovered cutoff"};
+            script->final_error = "unrelated failure: output-limit continuation budget exhausted";
+            return script;
+        });
+        integration::DesktopToolContext tools;
+        tools.environment = environment();
+        integration::ModelLayer layer(owner, model_config(), &provider, tools);
+        auto context = mira::make_control_context();
+        context.deadline = std::chrono::steady_clock::now() + 10s;
+        const auto result = owner
+                                .submit_auto([&] {
+                                    return layer.complete_harness_turn(
+                                        {}, "unrelated failure probe", context, "", false);
+                                })
+                                .get();
+        MIRAGE_CHECK(result.failed && !result.ok && !result.cancelled);
+        MIRAGE_CHECK(result.error.find("output-limit continuation budget exhausted") !=
+                     std::string::npos);
+        MIRAGE_CHECK(!result.output_limit_truncated);
         MIRAGE_CHECK(result.tool_calls == 0);
         layer.shutdown();
         owner.shutdown(true);
@@ -1723,6 +1760,53 @@ class DialogOutcomeScript final : public mira::IModelProvider {
   private:
     mira::ModelProfile profile_;
 };
+
+// Upstream DEC-065/066/067 consumption: an incomplete fragment is never a
+// final answer; ContextWindow/Other/unreported causes never become output_limit.
+// Refusal/filter settle after one call and do not spend the recovery budget.
+void harness_terminal_reason_scenario() {
+    const auto drive = [](mira::ModelCompletionStatus status,
+                          std::optional<mira::IncompleteReason> reason, bool expect_limit,
+                          std::size_t expected_calls) {
+        kairo::Executor owner;
+        kairo::ExecutorConfig executor_config;
+        executor_config.min_threads = executor_config.max_threads = 2;
+        MIRAGE_CHECK(static_cast<bool>(owner.initialize(executor_config)));
+        std::shared_ptr<DialogOutcomeScript> script;
+        integration::ModelProviderOverride provider([&](const auto &profile) {
+            script = std::make_shared<DialogOutcomeScript>(profile);
+            script->status = status;
+            script->incomplete_reason = reason;
+            script->partial_text = "unfinished fragment must never become the answer";
+            return script;
+        });
+        integration::DesktopToolContext tools;
+        tools.environment = environment();
+        integration::ModelLayer layer(owner, model_config(), &provider, tools);
+        auto context = mira::make_control_context();
+        context.deadline = std::chrono::steady_clock::now() + 10s;
+        const auto result = owner
+                                .submit_auto([&] {
+                                    return layer.complete_harness_turn({}, "terminal reason probe",
+                                                                       context, "", false);
+                                })
+                                .get();
+        MIRAGE_CHECK(result.failed && !result.ok && !result.cancelled);
+        MIRAGE_CHECK(result.output_limit_truncated == expect_limit);
+        MIRAGE_CHECK(result.reply_text.empty());
+        MIRAGE_CHECK(result.tool_calls == 0);
+        MIRAGE_CHECK(script && script->requests.size() == expected_calls);
+        layer.shutdown();
+        owner.shutdown(true);
+    };
+    drive(mira::ModelCompletionStatus::Incomplete, mira::IncompleteReason::MaxOutputTokens, true,
+          4);
+    drive(mira::ModelCompletionStatus::Incomplete, mira::IncompleteReason::ContextWindow, false, 3);
+    drive(mira::ModelCompletionStatus::Incomplete, mira::IncompleteReason::Other, false, 3);
+    drive(mira::ModelCompletionStatus::Incomplete, std::nullopt, false, 3);
+    drive(mira::ModelCompletionStatus::Refused, std::nullopt, false, 1);
+    drive(mira::ModelCompletionStatus::ContentFiltered, std::nullopt, false, 1);
+}
 
 // MIRA-20261022-001 (DEC-112): a pure dialog request that settles
 // Incomplete(MaxOutputTokens) is the structured output-limit failure — failed
@@ -3130,6 +3214,7 @@ int main() {
     cross_effect_admission_scenario();
     output_continuation_scenario();
     dialog_output_limit_scenario();
+    harness_terminal_reason_scenario();
     preflight_budget_scenario();
     for (const auto *scenario : {"block_permanent", "transient_not_blocked", "failure_summary",
                                  "budget_final_turn", "budget_counts"})
