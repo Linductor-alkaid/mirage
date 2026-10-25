@@ -943,3 +943,51 @@ Finite 产品行为，M9-03 仍需接线，不能把 pin 前滚等同于原长�
 261 模型步/260 工具（无窗口与大窗口）、40 动作归档、字节截断 2MiB 精确生效；
 debug 全量 91/91、asan 聚焦 9/9。原长任务问题（2026-10-15 09:56 会话）的
 产品侧修复至此关闭。
+
+<a id="mira-20261022-001"></a>
+
+## MIRA-20261022-001：ConversationLoop 终态不携带输出截断结构化原因，事件面不可观测
+
+- 状态：Open；日期：2026-10-22；负责人：Mirage 维护者，处理方：Mira 上游。
+  上游：[mira#100](https://github.com/Linductor-alkaid/mira/issues/100)（2026-10-22
+  提报）。
+  关联 [MIRA-20261009-002](#mira-20261009-002)、
+  [MIRA-20261016-002](#mira-20261016-002)（DEC-085 系列）、
+  [DEC-112](../decisions/DEC-112-output-limit-failure-category.md)。
+- 核对版本：pinned `a29374a`（mira 0.1.0）。公开头文件核对：
+  `include/mira/conversation_loop.hpp` 的 `ConversationLoopResult`（:72-105）带有
+  `output_continuations` 计数（:96-98），但没有任何终态截断原因字段；
+  `ConversationSettled` 事件（`src/model/conversation_loop.cpp:831-839`）只携带
+  outcome/turns/total_turns/recoveries/tool_executions/turn_records_dropped，不含
+  `incomplete_reason` 与 `output_continuations`。续写预算耗尽以
+  `ConversationOutcome::Failed` + `safe_summary` 文本
+  "output-limit continuation budget exhausted; …"（`conversation_loop.cpp:662`，
+  上游 `m3_conversation_loop_test::continuation_budget_exhaustion_settles_output_limit`
+  固化）结算。
+- 现象与复现：宿主在 loop 结果上无法从公开结构区分"输出上限耗尽"与其他
+  `Failed`（恢复耗尽、工具预算等）——唯一信号是 `safe_summary` 文本；
+  仅订阅事件面（IEventStore）的消费者则完全无法感知截断语义。复现：以固定返回
+  `Incomplete(MaxOutputTokens)` 的 provider 驱动 `ConversationLoop` 超过
+  `max_output_continuations`，检查 `ConversationLoopResult` 公开字段与
+  `ConversationSettled` 事件载荷。
+- 应用职责排除：直连 `ModelGateway::infer` 可得
+  `ModelResponse.incomplete_reason`，但 loop 消费者不经过该面；Mirage 已在自有
+  边界内为 dialog/harness 两条路径补了结构化类别与 IPC `error_kind`
+  （[DEC-112](../decisions/DEC-112-output-limit-failure-category.md)），属消费侧
+  表达面，不能替代上游结构化事实源。续写提示文案/锚窗/次数不可注入是既有边界，
+  不属本条诉求。
+- 影响：Mirage 的 IPC `error_kind: "output_limit"` 在 harness 路径依赖
+  `safe_summary` 文本锚点（临时方案，见下），pinned 升级若改 summary 文案会静默
+  失配；事件订阅方对截断不可观测，与仓库"失败须转化为明确结果与事件"纪律相悖。
+- 最小期望能力：`ConversationLoopResult` 增加终态截断结构化字段（如
+  `std::optional<IncompleteReason> terminal_incomplete_reason` 或等价
+  `output_limit_exhausted` 标记）；`ConversationSettled` 事件摘要增加
+  `output_continuations`（或在发生截断时附 `incomplete_reason`）。
+- 延期影响：Mirage 维持文本锚点临时方案——限定在 `integration/mira` 适配边界内
+  （`model_layer.cpp` harness settle 处，含注释与移除条件），行为差异是该锚点对
+  summary 文案敏感；事件面截断观测继续缺失。
+- 可验收结果：mira 测试固化新字段语义（耗尽 settle 时字段为真/事件携带计数）；
+  Mirage 消费后删除文本锚点、以结构化字段驱动 `error_kind` 并回归
+  `harness_desktop_tools_test` 续写耗尽场景。未运行验证的负责人：Mirage 维护者；
+  补跑条件：上游 PR 合并、授权升级 pin、复验。
+

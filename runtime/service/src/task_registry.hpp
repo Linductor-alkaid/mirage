@@ -190,6 +190,9 @@ struct DialogTurnRecord {
     std::string user_text;
     std::string reply_text;
     std::string error;
+    /// MIRA-20261022-001 / DEC-112: stable failure category ("output_limit"),
+    /// empty when unclassified; mirrors the wire one to one.
+    std::string error_kind;
     std::uint64_t sequence = 0;
     std::int64_t recorded_at_ms = 0;
     std::vector<conversation::Part> parts = {};

@@ -127,6 +127,9 @@ constexpr const char *kObservationRegionSources[] = {"ocr", "detector", "templat
 /// accepted turn whose model call is in flight, "ok" a settled turn with a
 /// reply, "failed" a settled turn with a stable error.
 constexpr const char *kDialogTurnStatuses[] = {"pending", "ok", "failed"};
+// MIRA-20261022-001 / DEC-112: closed failure categories of the dialog face;
+// new categories join additively.
+constexpr const char *kDialogTurnErrorKinds[] = {"output_limit"};
 
 bool in_stable_set(const std::string &value, const char *const *set, std::size_t count) {
     for (std::size_t index = 0; index < count; ++index) {
@@ -454,6 +457,24 @@ std::optional<DialogTurnEntry> decode_dialog_turn(const mira::JsonValue &value,
     } else if (turn.status == "failed") {
         error = "session.chat.history 'error' is present exactly when status is 'failed'";
         return std::nullopt;
+    }
+    if (const auto *kind = member(value, "error_kind"); kind != nullptr) {
+        const auto text = kind->as_string();
+        if (!text) {
+            error = "session.chat.history turn 'error_kind' must be a string";
+            return std::nullopt;
+        }
+        if (turn.status != "failed") {
+            error = "session.chat.history 'error_kind' is present exactly when status is 'failed'";
+            return std::nullopt;
+        }
+        if (!in_stable_set(*text, kDialogTurnErrorKinds,
+                           sizeof(kDialogTurnErrorKinds) / sizeof(kDialogTurnErrorKinds[0]))) {
+            error = "session.chat.history turn 'error_kind' is not a known failure category";
+            return std::nullopt;
+        }
+        turn.error_kind = *text;
+        turn.has_error_kind = true;
     }
     if (!decode_context_usage(value, turn.status, turn.context_usage, error))
         return std::nullopt;
@@ -786,6 +807,9 @@ mira::JsonValue encode_payload(const ResponsePayload &payload) {
                     }
                     if (turn.has_error) {
                         put(entry, "error", turn.error);
+                    }
+                    if (turn.has_error_kind) {
+                        put(entry, "error_kind", turn.error_kind);
                     }
                     put(entry, "sequence", static_cast<std::int64_t>(turn.sequence));
                     put(entry, "recorded_at_ms", turn.recorded_at_ms);
@@ -2748,6 +2772,9 @@ std::string encode_event(const Event &event) {
                 if (value.has_error) {
                     put(object, "error", value.error);
                 }
+                if (value.has_error_kind) {
+                    put(object, "error_kind", value.error_kind);
+                }
                 put(object, "sequence", static_cast<std::int64_t>(value.sequence));
             }
         },
@@ -3082,6 +3109,21 @@ EventDecode decode_event(std::string_view payload) {
             result.error = "session.chat_updated 'error' must be a string present exactly "
                            "when status is 'failed'";
             return result;
+        }
+        if (const auto *kind = member(object, "error_kind"); kind != nullptr) {
+            const auto text = kind->as_string();
+            if (!text || chat.status != "failed") {
+                result.error = "session.chat_updated 'error_kind' must be a string present "
+                               "exactly when status is 'failed'";
+                return result;
+            }
+            if (!in_stable_set(*text, kDialogTurnErrorKinds,
+                               sizeof(kDialogTurnErrorKinds) / sizeof(kDialogTurnErrorKinds[0]))) {
+                result.error = "session.chat_updated 'error_kind' is not a known failure category";
+                return result;
+            }
+            chat.error_kind = *text;
+            chat.has_error_kind = true;
         }
         if (!decode_context_usage(object, chat.status, chat.context_usage, result.error))
             return result;

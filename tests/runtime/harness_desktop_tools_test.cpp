@@ -1518,6 +1518,9 @@ void output_continuation_scenario() {
                 .get();
         MIRAGE_CHECK(result.ok && !result.failed && !result.cancelled);
         MIRAGE_CHECK(result.reply_text == "Two windows are open.");
+        // MIRA-20261022-001: a successful continuation is not an output-limit
+        // settlement — the category stays clear on a settled Answered run.
+        MIRAGE_CHECK(!result.output_limit_truncated);
         MIRAGE_CHECK(script && script->requests.size() == 3);
         MIRAGE_CHECK(result.model_steps == 3);
         MIRAGE_CHECK(result.tool_calls == 0);
@@ -1570,6 +1573,7 @@ void output_continuation_scenario() {
                                 .get();
         MIRAGE_CHECK(result.ok);
         MIRAGE_CHECK(result.tool_calls == 0);
+        MIRAGE_CHECK(!result.output_limit_truncated); // cut call continued, not settled
         MIRAGE_CHECK(script && script->requests.size() == 2);
         MIRAGE_CHECK(result.model_steps == 2);
         if (script->requests.size() == 2) {
@@ -1609,6 +1613,7 @@ void output_continuation_scenario() {
                 .get();
         MIRAGE_CHECK(result.ok && !result.failed && !result.cancelled);
         MIRAGE_CHECK(result.reply_text == "Continued after three cutoffs.");
+        MIRAGE_CHECK(!result.output_limit_truncated); // budget survived, run answered
         // Four requests: three continuations, then the terminal answer.
         MIRAGE_CHECK(script && script->requests.size() == 4);
         MIRAGE_CHECK(result.model_steps == 4);
@@ -1650,6 +1655,9 @@ void output_continuation_scenario() {
         MIRAGE_CHECK(!result.ok && result.failed && !result.cancelled);
         MIRAGE_CHECK(result.error.find("output-limit continuation budget exhausted") !=
                      std::string::npos);
+        // MIRA-20261022-001: the exhaustion settle carries the structured
+        // output-limit category on top of the (interim) summary anchor.
+        MIRAGE_CHECK(result.output_limit_truncated);
         // Four requests: the initial call plus three continuations; the
         // fourth cutoff arrives on the last continuation's response and the
         // exhausted settle makes no further model call (loop semantics:
@@ -1658,6 +1666,175 @@ void output_continuation_scenario() {
         MIRAGE_CHECK(result.tool_calls == 0);
         layer.shutdown();
         owner.shutdown(true);
+    }
+}
+
+// MIRA-20261022-001 dialog fixture: a pure-dialog provider that records the
+// wire request and serves one scripted completion status — Incomplete with a
+// chosen reason plus optional partial message text, or a terminal answer.
+class DialogOutcomeScript final : public mira::IModelProvider {
+  public:
+    explicit DialogOutcomeScript(const mira::ModelProfile &profile) : profile_(profile) {}
+    const mira::ModelProfile &profile() const override { return profile_; }
+    std::vector<mira::ModelRequest> requests;
+    mira::ModelCompletionStatus status = mira::ModelCompletionStatus::Completed;
+    std::optional<mira::IncompleteReason> incomplete_reason;
+    std::string partial_text;
+    // MIRA-20261022-001 edge: when set, the message carries this refusal part
+    // after the partial text (a provider contradicting itself mid-cutoff).
+    std::string refusal_summary;
+    // The top-level RefusalOutput variant of the same edge.
+    std::string refusal_output_summary;
+    mira::Result<mira::ModelResponse> infer(const mira::ModelRequest &request,
+                                            const mira::OperationContext &,
+                                            const mira::ProviderInferOptions &) override {
+        requests.push_back(request);
+        mira::ModelResponse response;
+        response.request_id = request.request_id;
+        response.operation_id = request.operation_id;
+        response.profile_id = profile_.id;
+        response.status = status;
+        response.incomplete_reason = incomplete_reason;
+        if (!refusal_output_summary.empty()) {
+            mira::RefusalOutput refusal;
+            refusal.safe_summary = refusal_output_summary;
+            response.output.emplace_back(std::move(refusal));
+            return response;
+        }
+        if (!partial_text.empty() || !refusal_summary.empty() ||
+            status == mira::ModelCompletionStatus::Completed) {
+            mira::MessageOutput message;
+            message.role = mira::ModelRole::Assistant;
+            if (!partial_text.empty() || status == mira::ModelCompletionStatus::Completed) {
+                mira::OutputTextPart text;
+                text.text = partial_text;
+                message.content.emplace_back(std::move(text));
+            }
+            if (!refusal_summary.empty()) {
+                mira::OutputRefusalPart refusal;
+                refusal.safe_summary = refusal_summary;
+                message.content.emplace_back(std::move(refusal));
+            }
+            response.output.emplace_back(std::move(message));
+        }
+        return response;
+    }
+
+  private:
+    mira::ModelProfile profile_;
+};
+
+// MIRA-20261022-001 (DEC-112): a pure dialog request that settles
+// Incomplete(MaxOutputTokens) is the structured output-limit failure — failed
+// with the category, the partial body kept as user-visible evidence (DEC-104)
+// and the truncation-specific error; other Incomplete reasons keep the generic
+// settle error and never raise the category.
+void dialog_output_limit_scenario() {
+    const auto drive = [](const char *label, auto &&populate) {
+        kairo::Executor owner;
+        kairo::ExecutorConfig executor_config;
+        executor_config.min_threads = executor_config.max_threads = 2;
+        MIRAGE_CHECK(static_cast<bool>(owner.initialize(executor_config)));
+        std::shared_ptr<DialogOutcomeScript> script;
+        integration::ModelProviderOverride provider([&](const auto &profile) {
+            script = std::make_shared<DialogOutcomeScript>(profile);
+            populate(*script);
+            return script;
+        });
+        integration::ModelLayer layer(owner, model_config(), &provider, {});
+        auto context = mira::make_control_context();
+        context.deadline = std::chrono::steady_clock::now() + 10s;
+        const auto result =
+            owner
+                .submit_auto([&] {
+                    return layer.complete_dialog_turn({}, "output limit probe", context, "", false);
+                })
+                .get();
+        std::fprintf(stderr, "dialog output-limit [%s]: ok=%d failed=%d truncated=%d error=%s\n",
+                     label, result.ok, result.failed, result.output_limit_truncated,
+                     result.error.c_str());
+        layer.shutdown();
+        owner.shutdown(true);
+        return result;
+    };
+    // (a) MaxOutputTokens with partial body: failed + category, the partial
+    // text stays the user-visible reply, and the error is truncation-specific.
+    {
+        const auto result = drive("partial body", [](DialogOutcomeScript &script) {
+            script.status = mira::ModelCompletionStatus::Incomplete;
+            script.incomplete_reason = mira::IncompleteReason::MaxOutputTokens;
+            script.partial_text = "回答的前半部分已被输出上限截断";
+        });
+        MIRAGE_CHECK(!result.ok && result.failed && !result.cancelled);
+        MIRAGE_CHECK(result.output_limit_truncated);
+        MIRAGE_CHECK(result.reply_text == "回答的前半部分已被输出上限截断");
+        MIRAGE_CHECK(result.error.find("cut off by the model output token limit") !=
+                     std::string::npos);
+    }
+    // (b) MaxOutputTokens with no output: still failed with the category, the
+    // empty-body fallback must not overwrite the truncation-specific error.
+    {
+        const auto result = drive("empty body", [](DialogOutcomeScript &script) {
+            script.status = mira::ModelCompletionStatus::Incomplete;
+            script.incomplete_reason = mira::IncompleteReason::MaxOutputTokens;
+        });
+        MIRAGE_CHECK(!result.ok && result.failed && !result.cancelled);
+        MIRAGE_CHECK(result.output_limit_truncated);
+        MIRAGE_CHECK(result.reply_text.empty());
+        MIRAGE_CHECK(result.error.find("cut off by the model output token limit") !=
+                     std::string::npos);
+        MIRAGE_CHECK(result.error.find("model returned no reply text") == std::string::npos);
+    }
+    // (c) Incomplete with a different reason: the generic settle error, no
+    // output-limit category.
+    {
+        const auto result = drive("context window", [](DialogOutcomeScript &script) {
+            script.status = mira::ModelCompletionStatus::Incomplete;
+            script.incomplete_reason = mira::IncompleteReason::ContextWindow;
+            script.partial_text = "context window overflow keeps no body";
+        });
+        MIRAGE_CHECK(!result.ok && result.failed && !result.cancelled);
+        MIRAGE_CHECK(!result.output_limit_truncated);
+        MIRAGE_CHECK(result.reply_text.empty());
+        MIRAGE_CHECK(result.error.find("model layer did not complete the turn") !=
+                     std::string::npos);
+    }
+    // (d) Incomplete with the reason unset: same generic classification.
+    {
+        const auto result = drive("unset reason", [](DialogOutcomeScript &script) {
+            script.status = mira::ModelCompletionStatus::Incomplete;
+        });
+        MIRAGE_CHECK(!result.ok && result.failed && !result.cancelled);
+        MIRAGE_CHECK(!result.output_limit_truncated);
+        MIRAGE_CHECK(result.error.find("model layer did not complete the turn") !=
+                     std::string::npos);
+    }
+    // (e) a cut-off response that also refuses (OutputRefusalPart after the
+    // partial text): the refusal owns the settle reason and the truncation
+    // category must not survive it; no reply text leaks either way.
+    {
+        const auto result = drive("refusal part on cutoff", [](DialogOutcomeScript &script) {
+            script.status = mira::ModelCompletionStatus::Incomplete;
+            script.incomplete_reason = mira::IncompleteReason::MaxOutputTokens;
+            script.partial_text = "截断后紧跟拒绝";
+            script.refusal_summary = "cannot help with that";
+        });
+        MIRAGE_CHECK(!result.ok && result.failed && !result.cancelled);
+        MIRAGE_CHECK(!result.output_limit_truncated);
+        MIRAGE_CHECK(result.reply_text.empty());
+        MIRAGE_CHECK(result.error == "model refused the request: cannot help with that");
+    }
+    // (f) the same edge through the top-level RefusalOutput item.
+    {
+        const auto result = drive("refusal output on cutoff", [](DialogOutcomeScript &script) {
+            script.status = mira::ModelCompletionStatus::Incomplete;
+            script.incomplete_reason = mira::IncompleteReason::MaxOutputTokens;
+            script.refusal_output_summary = "refused at the item level";
+        });
+        MIRAGE_CHECK(!result.ok && result.failed && !result.cancelled);
+        MIRAGE_CHECK(!result.output_limit_truncated);
+        MIRAGE_CHECK(result.reply_text.empty());
+        MIRAGE_CHECK(result.error == "model refused the request: refused at the item level");
     }
 }
 
@@ -2887,6 +3064,7 @@ int main() {
     episode_reset_scenario();
     action_archive_scenario();
     output_continuation_scenario();
+    dialog_output_limit_scenario();
     preflight_budget_scenario();
     for (const auto *scenario : {"block_permanent", "transient_not_blocked", "failure_summary",
                                  "budget_final_turn", "budget_counts"})

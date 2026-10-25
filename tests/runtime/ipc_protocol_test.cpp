@@ -1355,8 +1355,156 @@ void scenario_session_context_usage() {
     MIRAGE_CHECK(!round_trip().ok);
 }
 
+// MIRA-20261022-001 / DEC-112: the structured dialog-turn failure category.
+// "output_limit" rides failed settlements only, from the closed vocabulary,
+// and is absent on unclassified failures; every violation is a decode error.
+void scenario_dialog_turn_error_kind() {
+    constexpr const char *kTruncationError =
+        "the reply was cut off by the model output token limit";
+    // session.chat_updated: the classified failed settlement round-trips.
+    {
+        ipc::ChatTurnUpdatedEvent event;
+        event.session_id = "session-1";
+        event.turn_id = "turn-1";
+        event.status = "failed";
+        event.user_text = "写一首长诗";
+        event.error = kTruncationError;
+        event.has_error = true;
+        event.error_kind = "output_limit";
+        event.has_error_kind = true;
+        event.sequence = 4;
+        const std::string payload = ipc::encode_event(ipc::Event{9, event});
+        MIRAGE_CHECK(payload.find("\"error_kind\":\"output_limit\"") != std::string::npos);
+        const ipc::EventDecode decoded = ipc::decode_event(payload);
+        MIRAGE_CHECK(decoded.ok);
+        const auto *back = std::get_if<ipc::ChatTurnUpdatedEvent>(&decoded.event.payload);
+        MIRAGE_CHECK(back != nullptr);
+        if (back != nullptr) {
+            MIRAGE_CHECK(back->status == "failed");
+            MIRAGE_CHECK(back->has_error && back->error == kTruncationError);
+            MIRAGE_CHECK(back->has_error_kind && back->error_kind == "output_limit");
+        }
+    }
+    // An unclassified failed settlement carries no error_kind and decodes with
+    // the category absent.
+    {
+        ipc::ChatTurnUpdatedEvent event;
+        event.session_id = "session-1";
+        event.turn_id = "turn-2";
+        event.status = "failed";
+        event.user_text = "plain failure";
+        event.error = "model layer did not complete the turn (status 5)";
+        event.has_error = true;
+        event.sequence = 5;
+        const ipc::EventDecode decoded =
+            ipc::decode_event(ipc::encode_event(ipc::Event{10, event}));
+        MIRAGE_CHECK(decoded.ok);
+        const auto *back = std::get_if<ipc::ChatTurnUpdatedEvent>(&decoded.event.payload);
+        MIRAGE_CHECK(back != nullptr);
+        if (back != nullptr) {
+            MIRAGE_CHECK(!back->has_error_kind && back->error_kind.empty());
+        }
+    }
+    // The category is present exactly when status is "failed": a non-failed
+    // event carrying it is rejected.
+    {
+        ipc::ChatTurnUpdatedEvent event;
+        event.session_id = "session-1";
+        event.turn_id = "turn-3";
+        event.status = "ok";
+        event.user_text = "ok but miscategorized";
+        event.reply_text = "done";
+        event.has_reply = true;
+        event.error_kind = "output_limit";
+        event.has_error_kind = true; // encoder writes it; decode must refuse
+        event.sequence = 6;
+        const ipc::EventDecode decoded =
+            ipc::decode_event(ipc::encode_event(ipc::Event{11, event}));
+        MIRAGE_CHECK(!decoded.ok);
+        MIRAGE_CHECK(decoded.error.find("error_kind") != std::string::npos);
+    }
+    // Wire-level rejections over the same envelope: unknown category,
+    // non-string category.
+    for (const char *payload : std::vector<const char *>{
+             R"({"v":1,"seq":1,"event":"session.chat_updated","session_id":"s","turn_id":"t",)"
+             R"("status":"failed","user_text":"u","sequence":1,"error":"boom",)"
+             R"("error_kind":"mystery"})",
+             R"({"v":1,"seq":1,"event":"session.chat_updated","session_id":"s","turn_id":"t",)"
+             R"("status":"failed","user_text":"u","sequence":1,"error":"boom",)"
+             R"("error_kind":7})"}) {
+        const ipc::EventDecode decoded = ipc::decode_event(payload);
+        MIRAGE_CHECK(!decoded.ok);
+        MIRAGE_CHECK(!decoded.error.empty());
+    }
+
+    // session.chat.history: the classified failed turn round-trips through
+    // the DialogHistory response payload.
+    {
+        ipc::DialogHistory history;
+        history.session_id = "session-1";
+        ipc::DialogTurnEntry failed;
+        failed.turn_id = "turn-1";
+        failed.status = "failed";
+        failed.user_text = "写一首长诗";
+        failed.error = kTruncationError;
+        failed.has_error = true;
+        failed.error_kind = "output_limit";
+        failed.has_error_kind = true;
+        failed.sequence = 1;
+        failed.recorded_at_ms = 1760000000000;
+        history.turns.push_back(failed);
+        ipc::DialogTurnEntry unclassified;
+        unclassified.turn_id = "turn-2";
+        unclassified.status = "failed";
+        unclassified.user_text = "plain failure";
+        unclassified.error = "model layer did not complete the turn (status 5)";
+        unclassified.has_error = true;
+        unclassified.sequence = 2;
+        unclassified.recorded_at_ms = 1760000001000;
+        history.turns.push_back(unclassified);
+        ipc::Response response;
+        response.ok = true;
+        response.id = 21;
+        response.payload = history;
+        const std::string wire = ipc::encode_response(response);
+        MIRAGE_CHECK(wire.find("\"error_kind\":\"output_limit\"") != std::string::npos);
+        // The unclassified turn writes no error_kind member at all.
+        MIRAGE_CHECK(wire.find("plain failure") != std::string::npos);
+        const ipc::ResponseDecode decoded = ipc::decode_response(wire);
+        MIRAGE_CHECK(decoded.ok);
+        const auto *back = std::get_if<ipc::DialogHistory>(&decoded.response.payload);
+        MIRAGE_CHECK(back != nullptr);
+        if (back != nullptr && back->turns.size() == 2) {
+            MIRAGE_CHECK(back->turns[0].has_error_kind &&
+                         back->turns[0].error_kind == "output_limit");
+            MIRAGE_CHECK(back->turns[0].has_error && back->turns[0].error == kTruncationError);
+            MIRAGE_CHECK(!back->turns[1].has_error_kind && back->turns[1].error_kind.empty());
+        } else {
+            MIRAGE_CHECK(false);
+        }
+    }
+    // Wire-level rejections on the history face: unknown category, non-string
+    // category, and a category on a non-failed turn.
+    const std::string classified_turn =
+        R"({"turn_id":"t","status":"failed","user_text":"u","sequence":1,)"
+        R"("recorded_at_ms":1,"error":"boom","error_kind":)";
+    const std::string miscategorized_turn =
+        R"({"turn_id":"t","status":"ok","user_text":"u","sequence":1,)"
+        R"("recorded_at_ms":1,"reply_text":"r","error_kind":)";
+    for (const std::string &turn : {classified_turn + R"("mystery"})", classified_turn + "7}",
+                                    miscategorized_turn + R"("output_limit"})"}) {
+        const std::string wire =
+            R"({"v":1,"id":22,"ok":true,"session_id":"s","truncated":false,"turns":[)" + turn +
+            R"(]})";
+        const ipc::ResponseDecode decoded = ipc::decode_response(wire);
+        MIRAGE_CHECK(!decoded.ok);
+        MIRAGE_CHECK(!decoded.error.empty());
+    }
+}
+
 int main() {
     scenario_session_context_usage();
+    scenario_dialog_turn_error_kind();
     scenario_vision_configuration();
     run_scenario("chat_preview", scenario_chat_preview);
     run_scenario("framing_round_trip", scenario_framing_round_trip);

@@ -29,6 +29,7 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
+#include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
@@ -1206,6 +1207,47 @@ void scenario_session_list_open_and_history_flow() {
 
 // --- session.chat dialog face (DEC-027) --------------------------------------
 
+// MIRA-20261022-001 dialog fixture: every inference settles
+// Incomplete(MaxOutputTokens) carrying a partial body — until
+// fail_subsequent() switches later inferences to a plain Failed status (the
+// unclassified failure path), mirroring GatedModelProvider's discipline.
+class OutputLimitDialogProvider final : public mira::IModelProvider {
+  public:
+    [[nodiscard]] const mira::ModelProfile &profile() const override { return profile_; }
+    mira::Result<mira::ModelResponse> infer(const mira::ModelRequest &request,
+                                            const mira::OperationContext &,
+                                            const mira::ProviderInferOptions &) override {
+        ++calls_;
+        mira::ModelResponse response;
+        response.contract_version = mira::SchemaVersion{1, 0};
+        response.request_id = request.request_id;
+        response.operation_id = request.operation_id;
+        response.profile_id = profile_.id;
+        if (fail_subsequent_.load()) {
+            response.status = mira::ModelCompletionStatus::Failed;
+            return response;
+        }
+        response.status = mira::ModelCompletionStatus::Incomplete;
+        response.incomplete_reason = mira::IncompleteReason::MaxOutputTokens;
+        mira::MessageOutput message;
+        message.role = mira::ModelRole::Assistant;
+        mira::OutputTextPart text;
+        text.text = "回答的前半部分已被输出上限截断";
+        message.content.emplace_back(std::move(text));
+        response.output.emplace_back(std::move(message));
+        return response;
+    }
+    /// Binds the layer-assembled profile (the override factory receives it).
+    void bind_profile(const mira::ModelProfile &profile) { profile_ = profile; }
+    void fail_subsequent() { fail_subsequent_.store(true); }
+    [[nodiscard]] int calls() const { return calls_.load(); }
+
+  private:
+    mira::ModelProfile profile_;
+    std::atomic<int> calls_{0};
+    std::atomic<bool> fail_subsequent_{false};
+};
+
 // The scripted/gated model-provider fakes for the dialog face scenes live in
 // tests/support/scripted_model_provider.hpp (REUSE-14: deduplicated from the
 // local copies that grew in this file and event_subscription_test.cpp).
@@ -1393,6 +1435,129 @@ void scenario_session_chat_latch_and_failure() {
             break;
         }
         std::this_thread::sleep_for(std::chrono::milliseconds{25});
+    }
+
+    service.request_shutdown();
+    MIRAGE_CHECK(service.run().clean);
+}
+
+/// MIRA-20261022-001 / DEC-112 end to end: a dialog turn whose model call
+/// settles Incomplete(MaxOutputTokens) lands in the history as a failed turn
+/// with the structured "output_limit" category, no reply field, and the
+/// partial body kept user-visible through the terminal reply part (DEC-104);
+/// a plain model failure on the same session stays unclassified.
+void scenario_session_chat_output_limit() {
+    mirage::testing::TempDir dir;
+    ServiceConfig config = make_config(dir);
+    config.model.enabled = true;
+    config.model.dialect = "openai.responses.v1";
+    config.model.model_selector = "test-model";
+    auto output_limit_provider = std::make_shared<OutputLimitDialogProvider>();
+    const auto scripted = std::make_shared<mirage::integration::ModelProviderOverride>(
+        [&output_limit_provider](
+            const mira::ModelProfile &profile) -> std::shared_ptr<mira::IModelProvider> {
+            output_limit_provider->bind_profile(profile);
+            return output_limit_provider;
+        });
+    config.model_provider_override = scripted;
+    RuntimeService service(config);
+    MIRAGE_CHECK(service.start(make_binding(dir)).ok);
+
+    ipc::IpcClient client(config.socket_path);
+    const ipc::Response opened = client.call(ipc::OpenSessionRequest{}, kCallBudget);
+    MIRAGE_CHECK(opened.ok);
+    const auto *opened_session = std::get_if<ipc::SessionOpened>(&opened.payload);
+    MIRAGE_CHECK(opened_session != nullptr);
+    if (opened_session == nullptr) {
+        service.request_shutdown();
+        (void)service.run();
+        return;
+    }
+    const std::string session_id = opened_session->session_id;
+
+    // The truncated turn: accepted pending, settles failed with the category.
+    const ipc::Response accepted =
+        client.call(ipc::SessionChatRequest{session_id, "写一首很长的诗"}, kCallBudget);
+    MIRAGE_CHECK(accepted.ok);
+    const auto *turn = std::get_if<ipc::DialogTurnAccepted>(&accepted.payload);
+    MIRAGE_CHECK(turn != nullptr);
+    if (turn == nullptr) {
+        service.request_shutdown();
+        (void)service.run();
+        return;
+    }
+    std::optional<ipc::DialogTurnEntry> truncated;
+    const auto deadline = std::chrono::steady_clock::now() + kTaskBudget;
+    while (!truncated.has_value()) {
+        const ipc::Response snapshot =
+            client.call(ipc::ChatHistoryRequest{session_id, {}}, kCallBudget);
+        MIRAGE_CHECK(snapshot.ok);
+        if (snapshot.ok) {
+            const auto *dialog = std::get_if<ipc::DialogHistory>(&snapshot.payload);
+            MIRAGE_CHECK(dialog != nullptr);
+            if (dialog != nullptr && dialog->turns.size() == 1 &&
+                dialog->turns[0].status == "failed") {
+                truncated = dialog->turns[0];
+                break;
+            }
+        }
+        if (std::chrono::steady_clock::now() >= deadline) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds{25});
+    }
+    MIRAGE_CHECK(truncated.has_value());
+    if (truncated.has_value()) {
+        MIRAGE_CHECK(truncated->turn_id == turn->turn_id);
+        MIRAGE_CHECK(truncated->status == "failed");
+        MIRAGE_CHECK(truncated->has_error);
+        MIRAGE_CHECK(truncated->error.find("cut off by the model output token limit") !=
+                     std::string::npos);
+        MIRAGE_CHECK(truncated->has_error_kind);
+        MIRAGE_CHECK(truncated->error_kind == "output_limit");
+        MIRAGE_CHECK(!truncated->has_reply);
+        // DEC-104: the partial body stays user-visible through the parts even
+        // though a failed turn carries no reply_text field.
+        bool retained = false;
+        for (const auto &part : truncated->parts)
+            if (part.kind == "text" &&
+                part.text.find("回答的前半部分已被输出上限截断") != std::string::npos)
+                retained = true;
+        MIRAGE_CHECK(retained);
+    }
+
+    // A plain model failure on the same session settles failed without a
+    // category: the vocabulary stays closed to genuine output-limit settles.
+    output_limit_provider->fail_subsequent();
+    const ipc::Response second =
+        client.call(ipc::SessionChatRequest{session_id, "第二个问题"}, kCallBudget);
+    MIRAGE_CHECK(second.ok);
+    std::optional<ipc::DialogTurnEntry> plain_failure;
+    const auto failed_deadline = std::chrono::steady_clock::now() + kTaskBudget;
+    while (!plain_failure.has_value()) {
+        const ipc::Response snapshot =
+            client.call(ipc::ChatHistoryRequest{session_id, {}}, kCallBudget);
+        MIRAGE_CHECK(snapshot.ok);
+        if (snapshot.ok) {
+            const auto *dialog = std::get_if<ipc::DialogHistory>(&snapshot.payload);
+            MIRAGE_CHECK(dialog != nullptr);
+            if (dialog != nullptr && dialog->turns.size() == 2 &&
+                dialog->turns[1].status == "failed") {
+                plain_failure = dialog->turns[1];
+                break;
+            }
+        }
+        if (std::chrono::steady_clock::now() >= failed_deadline) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds{25});
+    }
+    MIRAGE_CHECK(plain_failure.has_value());
+    if (plain_failure.has_value()) {
+        MIRAGE_CHECK(plain_failure->has_error);
+        MIRAGE_CHECK(!plain_failure->has_error_kind);
+        MIRAGE_CHECK(plain_failure->error_kind.empty());
+        MIRAGE_CHECK(!plain_failure->has_reply);
     }
 
     service.request_shutdown();
@@ -2601,6 +2766,7 @@ int main() {
     run_scenario("session_state_round_trip_across_restart",
                  scenario_session_state_round_trip_across_restart);
     run_scenario("session_chat_latch_and_failure", scenario_session_chat_latch_and_failure);
+    run_scenario("session_chat_output_limit", scenario_session_chat_output_limit);
     run_scenario("session_close_cancels_inflight_task",
                  scenario_session_close_cancels_inflight_task);
     run_scenario("observe_fails_closed_on_headless_topology",
