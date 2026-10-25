@@ -10,6 +10,9 @@
 
 ## 当前状态
 
+2026-10-26：按维护者要求开展[全部工作分支集成与清理](branch-integration-20261026.md)，
+先确认祖先链，逐个 PR 验收 CI 后合并 master；未提交的 IME/连续感知与历史分支分别处理。
+
 2026-10-25：[Mira 同步维护](mira-upstream-sync-20261025.md)消费 master `68a8bf1`，
 截断终态改用上游结构化原因，接入 incomplete fail-closed 与方言拒绝/过滤修复；
 记忆公开能力核对及验证限制见[升级审计](../supply-chain/mira-upstream-sync-20261025.md)。
