@@ -5,7 +5,7 @@
 > 所属计划：[Mirage 实施总计划](mirage-implementation-plan.md)
 > 前置：M1 Runtime、M3 Mirador 集成、M6 owner/会话、M7 动作/观察能力；不要求关闭旧里程碑全部门禁
 > 建议发布点：持续任务与文本观察 Linux 预览；标签未定，Windows/原生 Wayland 单列验收
-> 更新日期：2026-10-23
+> 更新日期：2026-10-24
 
 ## 目标
 
@@ -56,6 +56,7 @@ MiniCPM-o 4.5 仅参考视觉 token 压缩与时分复用机制，不纳入模�
 - [DEC-092](../decisions/DEC-092-native-product-pet-delivery.md)：关联的 pet 完整交付。
 - [主设计](../design/Mirage：Linux%20-%20Windows%20桌面端设计方案.md)、
   [分析及 ZCode 对照](../analysis/session-budget-and-native-pet-regression-20261015.md)。
+- [DEC-115](../decisions/DEC-115-task-continuous-perception-feed.md)：任务连续事件、有限历史帧与打字优先。
 - [MIRA-20261015-002](../dependency_feedback/mira.md#mira-20261015-002)：持续循环公开能力缺口。
 - [DEC-088 历史实施记录](context-compaction-implementation.md)：保留既有 fixture 证据；
   未完成请求级/真实会话验收由本计划承接，不重复勾选旧清单。
@@ -243,6 +244,13 @@ M9-14/15/16 依据
   将执行故障默认人工检查改为观察、重规划和能力路径恢复。保留原失败及条件事实，
   验证新观察恢复输入、独立 URI 路径、连续故障退避和历史结算；真实 Wayland 长任务
   与释放失败通道修复分别留证，不能由 fixture 代替。
+
+- [ ] `M9-21` **In Progress**：按 DEC-115 在现有已授权 task session 上持续采样，
+  Mirador OCR/变化/稳定 ID/生命周期映射到有限事件游标与历史预览；自动注入模型
+  下一轮并在成功响应后确认，不重复供给同一图片。前台动作/OCR 优先、已读 60 秒
+  清理、未读 TTL/容量淘汰、取消/撤权/准入/异常/shutdown 均显式结算。
+  首增量 Linux 私有显示已实现并测试；极短提示、非文本语义、真实 Portal/Windows、
+  在线模型任务完成率与低端设备全产品资源验收未关闭，负责人为 Mirage 维护者。
 
 ## 拆分与建议交付顺序
 
@@ -609,6 +617,20 @@ exec/write/edit 被拒绝后仍可观察、OCR 与查询状态。按需消费者
 证据见[恢复验证记录](../compatibility/native-action-recovery-20261022.md)。
 真实模型、后台采样、资源和 compositor 门禁继续开放。
 
+## 2026-10-23：M9-21 任务连续事件与按需帧（In Progress）
+
+维护者依据最新输入任务要求持续读取帧、保留瞬时事件、按注意/焦点过滤噪声，减少
+工具/图片往返与无效失败。冻结 [DEC-115](../decisions/DEC-115-task-continuous-perception-feed.md)。
+复用现有连续采集与 Mirador 的同 worker 协调器，接入有界内存游标、已读 60 秒清理、
+有限预览帧、自动供给/确认和按需历史帧；后台不能抢占前台动作或重开系统授权。
+首增量已完成生产 callback、前台优先、隔离后台分析、事件/帧有界缓存、自动供给/
+确认、按需历史预览和打字优先。受控模型验证事件在推理间进入下一轮；显式一轮
+截图加等待再读取历史帧共 4 次请求、1 次平台捕获、2 次供图，淘汰帧返回正常
+available=false。真实短提示捕获/漏检及测试边界见
+[验收记录](../compatibility/task-continuous-perception-20261023.md)。Debug 全量 113/113，六个业务专项（含 fixture 8/8）在 Debug/ASAN/UBSAN/TSAN
+通过；TSAN 并发压力追加 5 轮通过，native-release 已重建。三轮 54 提示及最终独立
+18 提示均留证；100 ms 仍有漏检，后台未新增 VLM/PNG。M9-21 仍为 In Progress。
+
 ## 2026-10-23：M9-20 自主恢复首增量
 
 维护者要求纠正普通执行故障默认人工检查的方向。按 DEC-113 将执行事实、恢复
@@ -622,3 +644,11 @@ exec/write/edit 被拒绝后仍可观察、OCR 与查询状态。按需消费者
 TSAN 迭代阶段的原期限超时、单独重跑及最终全专项结果均保留在验收记录；没有放宽
 期限或新增 suppression。native-release 产品已重建，依赖指针未变。M9-20 仍待实机
 长任务及释放失败通道重建，源码首增量的通过不替代上述门禁。
+
+## 2026-10-24：M9-21 native-release 交付跟进
+
+完整 Release/产品目标与 DEB 已更新，最终全量 123/123、无跳过；包内四个程序、
+UI/视觉资源及 OCR/YOLO 锁摘要校验通过。旧的单次采集测试假设已修正，单会话
+创建/关闭约束保留，10 轮专项及全量复验通过，首次失败保留。
+见[构建交付记录](../compatibility/native-package-refresh-20261024.md)。未安装或重启，
+M9-21 仍 In Progress，在线任务、真实平台、极短提示及低端资源门禁不变。

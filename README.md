@@ -13,6 +13,12 @@ Mirage 是基于 [Mira](https://github.com/Linductor-alkaid/mira) 构建的 Linu
 `cmake --preset native-release`，
 `cmake --build --preset native-release --target mirage-native-product`，
 `./build/native-release/apps/mirage start`。
+需要 YOLO 图标检测时，配置阶段增加
+`-DMIRAGE_YOLO_MODEL_DIR=/absolute/path/to/converted-models`；该目录须包含
+`packaging/vision/yolo.lock.json` 锁定的 `validated_ui.param` 和 `validated_ui.bin`。
+原生预设默认编译 YOLO 后端，但只有提供模型目录才会将权重、detector 清单及许可证
+加入构建与安装包；运行时不会下载。检测在视觉标注请求中按需执行，见
+[YOLO 接入说明](docs/compatibility/yolo-mirage-integration-20261016.md)。
 托盘内嵌 Agent Runtime，持有独立前端子进程；窗口关闭保留任务，托盘退出有活动工作时
 要求确认。无在线托盘不能打开前端，Linux 需要 SNI 通知区宿主。模型设置与无屏幕通用
 harness 已接入。Linux 会话已接结构化桌面工具；模型设置开启“识图”后，可逐次授权

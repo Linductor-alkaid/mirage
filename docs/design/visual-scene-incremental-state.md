@@ -57,3 +57,11 @@ LLM 推断不写入 OCR、detector 类别或平台 role，也不构成动作后�
 换代、晚到标定、ID 复用、删后重建、非法输入/容量拒绝原子性及长序列存量平台期。
 Mirador mapper 只映射已有对象数据，不凭融合 ID 自动宣布 identity_confirmed。
 上述测试不证明模型接线、帧采集性能或端到端工具往返已改善。
+
+## 2026-10-23～24：连续历史事件供给
+
+[DEC-115](../decisions/DEC-115-task-continuous-perception-feed.md) / M9-21 另接任务级
+Mirador 后台 OCR/变化消费者，映射现有稳定 ID 和确认事件，不重复实现对象匹配。
+其有界游标和弱预览、自动供给/确认、前台优先与历史帧读取契约见
+[生产接线补充](native-continuous-perception-wiring.md)。该历史事件通道不产生
+VisualReference，不替代本层的 action binding 或对象语义标定。

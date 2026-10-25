@@ -28,9 +28,12 @@ namespace {
 /// channel the mirador pipeline polls, and the one-shot settlement promise.
 struct RequestState {
     explicit RequestState(VisualAnalysisRequest analysis_request)
-        : request(std::move(analysis_request)) {}
-    explicit RequestState(VisualContinuousQuery query_request) : query(std::move(query_request)) {}
+        : background(analysis_request.background_session), request(std::move(analysis_request)) {}
+    explicit RequestState(VisualContinuousQuery query_request)
+        : background(query_request.background_session), query(std::move(query_request)) {}
 
+    // Producers inspect this while settlement releases mutable payloads.
+    const bool background;
     VisualAnalysisRequest request;
     std::optional<VisualContinuousQuery> query;
     desktop::CancelToken cancel; ///< latest-wins / stop cancellation channel
@@ -157,7 +160,7 @@ struct detail::VisualSessionCore {
           session(std::move(perception_session)), templates(std::move(template_index)),
           coordinator(std::move(continuous_state)) {}
 
-    std::unique_ptr<VisualSessionCore> image_core;
+    std::unique_ptr<VisualSessionCore> image_core, background_core;
     const std::string source_id;
     const VisualSessionConfig config;
     /// Only ever touched on the worker thread: one session, one scheduling
@@ -203,12 +206,16 @@ namespace {
 
 void publish_request(detail::VisualSessionCore &core, const std::shared_ptr<RequestState> &state) {
     std::shared_ptr<RequestState> superseded;
-    bool accepted = false;
+    bool accepted = false, foreground_priority = false;
     {
         std::lock_guard lock(core.mutex);
         // Keep the transport order and queued identity identical across producers.
         // A failed bounded publication leaves the previous command untouched.
-        if (core.accepting && core.mailbox.try_publish(state)) {
+        const auto is_background = [](const auto &item) { return item && item->background; };
+        const bool foreground_busy = (!is_background(core.queued) && bool(core.queued)) ||
+                                     (!is_background(core.in_flight) && bool(core.in_flight));
+        foreground_priority = is_background(state) && foreground_busy;
+        if (core.accepting && !foreground_priority && core.mailbox.try_publish(state)) {
             superseded = std::move(core.queued);
             if (core.in_flight)
                 core.in_flight->cancel.request_cancel();
@@ -217,7 +224,10 @@ void publish_request(detail::VisualSessionCore &core, const std::shared_ptr<Requ
         }
     }
     if (!accepted) {
-        settle_rejected(*state, "visual command admission closed or mailbox publication rejected");
+        settle_rejected(*state,
+                        foreground_priority
+                            ? "foreground analysis owns worker"
+                            : "visual command admission closed or mailbox publication rejected");
         return;
     }
     core.cv.notify_all();
@@ -604,7 +614,7 @@ void execute(detail::VisualSessionCore &core, RequestState &state) {
 
     // Compare optional background work to its last completed analysis, rather
     // than to an adjacent skipped frame (which could hide accumulated drift).
-    if (request.admission == VisualAnalysisAdmission::when_changed) {
+    if (request.admission == VisualAnalysisAdmission::when_changed || request.background_session) {
         mirador::ChangeDetectionParams params;
         params.fingerprint_early_exit = false;
         auto signature = mirador::make_change_signature(request.frame.image, params);
@@ -624,10 +634,12 @@ void execute(detail::VisualSessionCore &core, RequestState &state) {
         }
         const bool force_analysis =
             !request.enrollments.empty() || request.render_marks ||
-            (request.run_ocr && request.ocr.cache_policy == mirador::CachePolicy::kRefresh) ||
-            (request.run_detector &&
-             request.detector.cache_policy == mirador::CachePolicy::kRefresh);
-        if (result.admission_change && !force_analysis &&
+            (!request.background_session &&
+             ((request.run_ocr && request.ocr.cache_policy == mirador::CachePolicy::kRefresh) ||
+              (request.run_detector &&
+               request.detector.cache_policy == mirador::CachePolicy::kRefresh)));
+        if (request.admission == VisualAnalysisAdmission::when_changed && result.admission_change &&
+            !force_analysis &&
             result.admission_change->classification == mirador::ChangeClassification::kNone) {
             if (interrupted())
                 return;
@@ -1222,7 +1234,11 @@ class VisualSessionWorker final : public kairo::IBlockingIoWorker {
             try {
                 const bool image =
                     request->query ? request->query->image_session : request->request.image_session;
-                execute(image ? *core_->image_core : *core_, *request);
+                const bool background = request->background;
+                execute(background ? *core_->background_core
+                        : image    ? *core_->image_core
+                                   : *core_,
+                        *request);
             } catch (...) {
                 // Session calls are no-throw by contract; this guards the
                 // settlement plumbing instead, so the request still settles.
@@ -1275,6 +1291,11 @@ bool VisualSessionHost::start(std::string &error) {
         return false;
     }
     std::optional<mirador::ContinuousPerception> coordinator;
+    if (config_.enable_background_session && !config_.enable_image_session) {
+        lifecycle_.store(Lifecycle::New, std::memory_order_release);
+        error = "background analysis requires an image companion";
+        return false;
+    }
     if (config_.continuous) {
         const auto &limits = *config_.continuous;
         if (!config_.template_assets.empty() || limits.max_coordination_bytes <= 0 ||
@@ -1358,36 +1379,41 @@ bool VisualSessionHost::start(std::string &error) {
     auto core = std::make_shared<detail::VisualSessionCore>(
         source_id_, config_, session.take_value(), templates.take_value(), std::move(coordinator));
     if (config_.enable_image_session) {
-        if (config_.continuous) {
-            lifecycle_.store(Lifecycle::New, std::memory_order_release);
-            error = "image companion requires a legacy display host";
-            return false;
+        for (unsigned companion = 0; companion < (config_.enable_background_session ? 2u : 1u);
+             ++companion) {
+            if (config_.continuous) {
+                lifecycle_.store(Lifecycle::New, std::memory_order_release);
+                error = "image companion requires a legacy display host";
+                return false;
+            }
+            auto image_config = config_;
+            image_config.enable_image_session = false;
+            image_config.enable_background_session = false;
+            image_config.continuous = VisualContinuousConfig{};
+            image_config.template_assets.clear();
+            image_config.frame_cache_bytes = 1 << 20;
+            image_config.result_cache_bytes = 2 << 20;
+            auto image_session = mirador::PerceptionSession::create(
+                {source_id_, image_config.frame_cache_bytes, image_config.result_cache_bytes});
+            auto image_templates = VisualTemplateIndex::create(image_config.templates);
+            mirador::ContinuousPerceptionOptions image_options;
+            image_options.source_id = source_id_;
+            image_options.max_coordination_bytes = 512 * 1024;
+            image_options.max_entities = 256;
+            image_options.max_relations = 1024;
+            image_options.max_focus_conditions = 16;
+            image_options.max_events = 256;
+            auto image_coordinator = mirador::ContinuousPerception::create(image_options);
+            if (!image_session || !image_templates || !image_coordinator) {
+                lifecycle_.store(Lifecycle::New, std::memory_order_release);
+                error = "image companion state creation failed";
+                return false;
+            }
+            auto &companion_core = companion == 0 ? core->image_core : core->background_core;
+            companion_core = std::make_unique<detail::VisualSessionCore>(
+                source_id_, std::move(image_config), image_session.take_value(),
+                image_templates.take_value(), image_coordinator.take_value());
         }
-        auto image_config = config_;
-        image_config.enable_image_session = false;
-        image_config.continuous = VisualContinuousConfig{};
-        image_config.template_assets.clear();
-        image_config.frame_cache_bytes = 1 << 20;
-        image_config.result_cache_bytes = 2 << 20;
-        auto image_session = mirador::PerceptionSession::create(
-            {source_id_, image_config.frame_cache_bytes, image_config.result_cache_bytes});
-        auto image_templates = VisualTemplateIndex::create(image_config.templates);
-        mirador::ContinuousPerceptionOptions image_options;
-        image_options.source_id = source_id_;
-        image_options.max_coordination_bytes = 512 * 1024;
-        image_options.max_entities = 256;
-        image_options.max_relations = 1024;
-        image_options.max_focus_conditions = 16;
-        image_options.max_events = 256;
-        auto image_coordinator = mirador::ContinuousPerception::create(image_options);
-        if (!image_session || !image_templates || !image_coordinator) {
-            lifecycle_.store(Lifecycle::New, std::memory_order_release);
-            error = "image companion state creation failed";
-            return false;
-        }
-        core->image_core = std::make_unique<detail::VisualSessionCore>(
-            source_id_, std::move(image_config), image_session.take_value(),
-            image_templates.take_value(), image_coordinator.take_value());
     }
     kairo::BlockingWorkerSpec spec;
     spec.name = "mirage-visual-" + source_id_;
@@ -1418,7 +1444,9 @@ std::future<VisualAnalysisResult> VisualSessionHost::submit(VisualAnalysisReques
     // frame in oriented coordinates, which is only the view's own pixel
     // space for the adapter's rotation-k0 capture form.
     const VisualAnalysisRequest &analysis = state->request;
-    if (analysis.image_session && !config_.enable_image_session) {
+    if ((analysis.background_session &&
+         (!analysis.image_session || !config_.enable_background_session)) ||
+        (analysis.image_session && !config_.enable_image_session)) {
         settle_rejected(*state, "image companion is unavailable");
         return future;
     }
@@ -1554,10 +1582,14 @@ std::future<VisualAnalysisResult> VisualSessionHost::query_continuous(VisualCont
     auto state = std::make_shared<RequestState>(std::move(query));
     auto future = state->done.get_future();
     const bool image = state->query->image_session;
-    const auto *limits = image && core_ && core_->image_core
+    const bool background = state->query->background_session;
+    const auto *limits = background && core_ && core_->background_core
+                             ? &*core_->background_core->config.continuous
+                         : image && core_ && core_->image_core
                              ? &*core_->image_core->config.continuous
                              : (config_.continuous ? &*config_.continuous : nullptr);
     if (lifecycle_.load(std::memory_order_acquire) != Lifecycle::Running || !limits ||
+        (background && (!image || !config_.enable_background_session)) ||
         (image && !config_.enable_image_session) || state->query->expected_source_revision == 0) {
         settle_rejected(
             *state,

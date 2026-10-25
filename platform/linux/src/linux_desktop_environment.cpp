@@ -2,6 +2,7 @@
 
 #include "application_backend.hpp"
 #include "atspi_backend.hpp"
+#include "input_method_backend.hpp"
 #include "notification_backend.hpp"
 #include "portal_screen_backend.hpp"
 #include "x11_backend.hpp"
@@ -115,6 +116,8 @@ LinuxDesktopEnvironment::LinuxDesktopEnvironment(std::vector<std::filesystem::pa
         // screen / input accessors report an absent capability instead of
         // returning broken providers (DEC-015 capability honesty).
     }
+    if (x11_options.enabled || atspi_options.enabled)
+        input_method_ = InputMethodBackend::open();
     if (atspi_options.enabled) {
         // The accessibility backend maps window ids by title through the X
         // window surface when present (M2-03); it works without X too.
@@ -169,6 +172,10 @@ mirage::desktop::ScreenCapability LinuxDesktopEnvironment::screen_capability() {
 
 mirage::desktop::InputProvider *LinuxDesktopEnvironment::input() {
     return x11_ != nullptr ? x11_->input() : nullptr;
+}
+
+mirage::desktop::InputMethodProvider *LinuxDesktopEnvironment::input_method() {
+    return input_method_.get();
 }
 
 mirage::desktop::AccessibilityProvider *LinuxDesktopEnvironment::accessibility() {

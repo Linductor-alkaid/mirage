@@ -1,5 +1,8 @@
 # 长会话性能修复 Native Release 与 DEB（2026-10-23）
 
+同日后续：交付目录已替换为包含 YOLO 权重的新包，见
+[YOLO 构建补充记录](yolo-native-package-20261023.md)。下文保留本轮原包证据。
+
 > 状态：Completed（Linux amd64 构建、测试与包校验）；安装实测待验收
 > 负责人：Mirage 维护者
 > 工作项：M6-48 / M6-50 / M6-51 / M6-52 交付跟进

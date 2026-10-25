@@ -21,6 +21,7 @@
 #include "desktop_context_builder.hpp"
 #include "desktop_image_supply.hpp"
 #include "desktop_ocr_tool.hpp"
+#include "ime_pinyin_planner.hpp"
 #include "model_layer_env.hpp"
 #include "pet_exclusion.hpp"
 #include "tool_alias_provider.hpp"
@@ -209,6 +210,11 @@ FailureClassification classify_tool_failure(const mira::Error &value,
     using mira::ErrorCode;
     if (value.domain == "mirage.desktop.recovery")
         return {Level::Conditional, "conditional_failure", false};
+    if (value.domain == "mirage.ime") {
+        if (value.code == ErrorCode::Cancelled || value.code == ErrorCode::DeadlineExceeded)
+            return {Level::None, {}, false};
+        return {Level::Conditional, "conditional_failure", false};
+    }
     // A canonical, effect-free argument/target rejection describes this
     // attempt, not loss of the tool capability. Corrected input must remain
     // possible; execution uncertainty never takes this classification path.
@@ -1110,11 +1116,27 @@ DialogCompletion ModelLayer::complete_harness_turn(
                 return image_turn->observe_shared(kind, text, ctx);
             });
     }
+    impl_->observed->consumed = [&image_turn](const auto &request, const auto &ctx) {
+        if (image_turn)
+            image_turn->perception_consumed(request, ctx);
+    };
     impl_->observed->request_guard = [&](const auto &request,
                                          const auto &ctx) -> mira::Result<void> {
         const auto valid = verification.validate_request(request, ctx);
         if (!valid)
             return valid.error();
+        // Host-only pure language planning carries no desktop images or tools.
+        // It still goes through the gateway's task admission, budget and the
+        // normal verification guard above. Never relax an image-bearing call.
+        if (request.prompt_provenance.system_template_digest ==
+                mira::digest_string(detail::ime_pinyin_prompt) &&
+            request.tools.empty() && request.input.size() == 2 &&
+            std::all_of(request.input.begin(), request.input.end(), [](const auto &item) {
+                return std::all_of(item.content.begin(), item.content.end(), [](const auto &part) {
+                    return std::holds_alternative<mira::TextPart>(part);
+                });
+            }))
+            return mira::Result<void>{};
         return image_turn ? image_turn->validate_request(request, ctx) : mira::Result<void>{};
     };
     if (tools_allowed) {
@@ -1127,6 +1149,9 @@ DialogCompletion ModelLayer::complete_harness_turn(
             return finish();
         }
     }
+    if (tools_allowed && image_turn)
+        image_turn->register_ime_tool(
+            *registry, detail::make_ime_planner(*impl_->gateway, impl_->profile->id), decorate);
     mira::ConversationLoopConfig config;
     // M9-03 (DEC-090, MIRA-20261015-002): normal desktop tasks no longer
     // stop at an accumulated model-step or tool-call count. Continuous mode
@@ -1404,14 +1429,77 @@ DialogCompletion ModelLayer::complete_harness_turn(
             "visual layout or to establish fresh input references. desktop.vision.state only reads "
             "advisory history and its age; it never observes current pixels or verifies an "
             "action.\n";
+    if (image_turn && native_ocr && turn_desktop.continuous_session)
+        spec.goal +=
+            "\nAfter the first successful native desktop capture, a bounded background Mirador "
+            "feed supplies untrusted appeared/disappeared/text/position events automatically. "
+            "Use their text and age instead of polling screenshots or vision.state. Unconfirmed "
+            "observations can report brief transients but never establish confirmed lifecycle. "
+            "Missing/filtered/dropped events do not prove nothing happened. If a historical "
+            "event-frame tool is exposed in the closed set below, use it only when needed; it "
+            "never authorizes input or verifies current state. Capture for a new actionable "
+            "target or necessary visual verification, not just to poll.\n";
     // DEC-081: current registry facts outrank examples and prior tool history.
     spec.goal += "\nAvailable tools for THIS turn (closed set):";
     bool shared_click_available = false;
+    bool keyboard_available = false;
+    bool ime_fill_available = false;
+    bool typing_available = false;
     for (const auto &tool : registry->exposed_tools()) {
         spec.goal += " " + detail::model_tool_name(tool.wire_name);
         shared_click_available |= tool.wire_name == "desktop.session.click";
+        ime_fill_available |= tool.wire_name == "desktop.input.fill";
+        typing_available |= tool.wire_name == "desktop.session.type_text" ||
+                            tool.wire_name == "desktop.input.type_text";
+        keyboard_available |=
+            tool.wire_name == "desktop.input.key" || tool.wire_name == "desktop.session.key";
     }
     spec.goal += ". Never call a name absent from this list, even if earlier turns used it.\n";
+    if (typing_available)
+        spec.goal +=
+            "Text entry tasks should first use the currently exposed typing route. Prefer one "
+            "type_text call for supported ordinary text, or the IME fill tool for Chinese. "
+            "Clipboard/scripts are fallback routes only when typing is actually unavailable for "
+            "this request and the fallback is already authorized; do not request broader access "
+            "just to avoid an available typing tool.\n";
+    if (ime_fill_available)
+        spec.goal +=
+            "For text entry use the exposed typing tools. For short Chinese text use "
+            "desktop.input.fill "
+            "as the primary route: provide the target field, "
+            "desired text and bounded mode/candidate ROIs once. It uses local ROI OCR for mode, "
+            "numbered candidates and committed text, without VLM recognition. Check text_verified. "
+            "It replaces the entire field and never submits Enter; inspect partial failures before "
+            "replanning. Use the exposed type_text tool for ordinary supported text. Avoid "
+            "clipboard "
+            "utilities, temporary scripts or permanent IME configuration changes while this "
+            "typing route is usable. An actually unsupported typing route may use another "
+            "already-authorized method without requiring additional user intervention.\n";
+    if (screen_capability != mirage::desktop::ScreenCapability::Unavailable && keyboard_available)
+        spec.goal +=
+            "Keyboard and Chinese IME workflow: recognize the visible mode and candidates ONLY "
+            "with ROI OCR, never VLM. Use OCR of the visible "
+            "input-method indicator (中/英) to establish Chinese/English conversion mode. "
+            "desktop.input.state, when exposed, supplies partial framework facts; engine names "
+            "and unknown fields never establish conversion mode. If the observed mode differs "
+            "from the required mode, tap shift once through an authorized complete key tool "
+            "when this IME uses Shift, then observe the indicator again. Do not blindly toggle "
+            "or switch while an unresolved preedit might be committed/lost. For Chinese input, "
+            "type a short pinyin segment with ordinary ASCII typing, observe the candidate "
+            "popup with bounded ROI OCR, and match the exact requested character or phrase to "
+            "its visible selection number. If absent on this page, use = for next page or - "
+            "for previous page when supported by this IME's current configuration; observe "
+            "each resulting page before another key. Select using the number shown on the "
+            "CURRENT page, not an inferred index or an old page. Stop paging when the page "
+            "does not change, repeats, or a boundary is visible; replan the pinyin rather than "
+            "looping. An unreadable indicator/candidate is unknown, not evidence of absence; "
+            "use a closer capture/OCR or another supported route. Preserve focus on the intended "
+            "input field and use the latest actionable scope/epoch for each key. Candidate "
+            "commit and form submission are separate: verify the committed text in the target "
+            "field after selection before enter/submit. Candidate text, pinyin preedit and an "
+            "input receipt never prove accepted target text. Refresh focus/mode after switching "
+            "windows. Shortcuts are configuration-dependent; do not change permanent IME "
+            "preferences or the clipboard to make this route work.\n";
     if (shared_click_available)
         spec.goal +=
             "Native desktop mouse and keyboard tools ARE exposed for this task. Treat them as a "

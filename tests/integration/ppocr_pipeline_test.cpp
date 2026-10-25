@@ -359,7 +359,7 @@ void ocr_scope_contract(kairo::Executor &executor) {
 class NativeOcrEnvironment final : public mirage::desktop::DesktopEnvironment,
                                    public mirage::desktop::ScreenProvider {
   public:
-    int captured = 0, closed = 0;
+    int opened = 0, captured = 0, closed = 0;
     mirage::desktop::EnvironmentInfo info() const override {
         return {"native OCR fixture", "test"};
     }
@@ -382,6 +382,7 @@ class NativeOcrEnvironment final : public mirage::desktop::DesktopEnvironment,
     };
     std::unique_ptr<mirage::desktop::DesktopCaptureSession>
     create_desktop_capture_session() override {
+        ++opened;
         return std::make_unique<Session>(*this);
     }
     mirage::desktop::DisplayListOutcome
@@ -548,8 +549,13 @@ void service_contract(const std::filesystem::path &dir, const std::filesystem::p
         service.request_shutdown();
         MIRAGE_CHECK(service.run().clean);
         MIRAGE_CHECK(env->capture_calls == (mode == 4 || deny ? 0 : 2));
-        if (mode == 4)
-            MIRAGE_CHECK(native->captured == 1 && native->closed == 1);
+        if (mode == 4) {
+            // DEC-115 can sample the authorized session in the background.
+            // Preserve the single session/close contract without fixing the
+            // number of captures to the foreground OCR request alone.
+            MIRAGE_CHECK(native->captured >= 1);
+            MIRAGE_CHECK(native->opened == 1 && native->closed == 1);
+        }
         MIRAGE_CHECK(script && script->exposed && script->saw_result);
         MIRAGE_CHECK(script->result_failed == (mode != 0 && mode != 4));
         MIRAGE_CHECK(script->saw_text == (mode == 0 || mode == 4));

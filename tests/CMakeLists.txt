@@ -1056,6 +1056,13 @@ set_tests_properties(visual_session_test PROPERTIES
     TIMEOUT 120
 )
 
+mirage_add_test(task_perception_test
+    SOURCES integration/task_perception_test.cpp
+    LIBS Mirage::integration_mirador mirador::fusion Mirage::kairo_consumer
+    LABELS "integration;perception"
+    TIMEOUT 60
+    )
+
 mirage_add_test(continuous_capture_test
     SOURCES integration/continuous_capture_test.cpp
     LIBS Mirage::integration_mirador mirador::fusion Mirage::kairo_consumer
@@ -1828,4 +1835,35 @@ mirage_add_test(controlled_input_x11_test
     LIBS Mirage::platform Mirage::integration_mira Mirage::kairo_consumer ${X11_X11_LIB} ${X11_Xtst_LIB}
     LABELS "integration;platform;input"
     TIMEOUT 30)
+endif()
+
+# DEC-110/M7-28: protocol services run only on a private bus. Production
+# observations execute on the same finite Executor path as model tools.
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND GIO_UNIX_FOUND)
+    add_executable(input_method_state_test platform/input_method_state_test.cpp)
+    target_link_libraries(input_method_state_test PRIVATE Mirage::platform Mirage::integration_mira Mirage::kairo_consumer)
+    mirage_enable_warnings(input_method_state_test)
+    if(MIRAGE_GI_PYTHON)
+        add_test(NAME input_method_state_fixture_test COMMAND "${MIRAGE_GI_PYTHON}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/platform/input_method_state_fixture.py"
+            "$<TARGET_FILE:input_method_state_test>")
+        set_tests_properties(input_method_state_fixture_test PROPERTIES
+            LABELS "integration;platform;input" TIMEOUT 45
+            ENVIRONMENT "MIRAGE_TEST_IBUS_DISCOVERY=$<BOOL:${IBUS_FOUND}>;TSAN_OPTIONS=halt_on_error=1:suppressions=${CMAKE_SOURCE_DIR}/tests/support/tsan-glib.supp")
+    endif()
+endif()
+
+mirage_add_test(ime_text_input_test
+    SOURCES integration/ime_text_input_test.cpp
+    LIBS Mirage::integration_mira Mirage::kairo_consumer
+    LABELS "integration;input"
+    TIMEOUT 30)
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND MIRAGE_WITH_PPOCR)
+    add_executable(continuous_perception_acceptance manual/continuous_perception_acceptance.cpp)
+    target_link_libraries(continuous_perception_acceptance PRIVATE Mirage::platform Mirage::integration_mira Mirage::integration_mirador Mirage::kairo_consumer)
+    mirage_enable_warnings(continuous_perception_acceptance)
+    add_executable(ime_fill_acceptance manual/ime_fill_acceptance.cpp)
+    target_link_libraries(ime_fill_acceptance PRIVATE Mirage::platform Mirage::integration_mira Mirage::integration_mirador Mirage::kairo_consumer)
+    mirage_enable_warnings(ime_fill_acceptance)
 endif()

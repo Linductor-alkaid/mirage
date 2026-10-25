@@ -1,4 +1,5 @@
 #pragma once
+#include "ime_pinyin_planner.hpp"
 #include "phase_timing.hpp"
 #include <algorithm>
 #include <map>
@@ -279,6 +280,7 @@ class ObservedProvider final : public mira::IModelProvider {
         : provider_(std::move(provider)) {}
     std::function<mira::Result<void>(const mira::ModelRequest &, const mira::OperationContext &)>
         request_guard;
+    std::function<void(const mira::ModelRequest &, const mira::OperationContext &)> consumed;
     ConversationCapture *capture = nullptr; // scoped to the serialized caller task
     DialogModelActivitySink activity;
     // Diagnostics sink for provider-reported usage (counts only, no
@@ -329,7 +331,15 @@ class ObservedProvider final : public mira::IModelProvider {
             }
         }();
         record_usage_anchor(context, request, result);
-        if (capture && result && result.value().status == mira::ModelCompletionStatus::Completed &&
+        const bool internal_spelling = request.prompt_provenance.system_template_digest ==
+                                           mira::digest_string(ime_pinyin_prompt) &&
+                                       request.tools.empty();
+        if (!internal_spelling && consumed && result &&
+            result.value().status == mira::ModelCompletionStatus::Completed &&
+            !context.cancelled_or_expired(mira::Timestamp::now()))
+            consumed(request, context);
+        if (capture && !internal_spelling && result &&
+            result.value().status == mira::ModelCompletionStatus::Completed &&
             !context.cancelled_or_expired(mira::Timestamp::now())) {
             // DEC-102: the actual request includes system, tools and transformed
             // replay; capture one final-call estimate without changing ModelUsage.
@@ -442,6 +452,7 @@ struct CaptureScope {
     }
     ~CaptureScope() {
         provider.request_guard = {};
+        provider.consumed = {};
         provider.capture = nullptr;
         provider.activity = {};
     }

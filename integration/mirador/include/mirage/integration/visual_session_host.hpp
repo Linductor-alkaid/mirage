@@ -151,6 +151,7 @@ struct VisualContinuousResult {
 
 struct VisualContinuousQuery {
     bool image_session = false;
+    bool background_session = false;
     /// Must match an already established source; a query never resets it.
     std::uint64_t expected_source_revision = 0;
     std::optional<mirador::AttentionPolicy> attention;
@@ -172,6 +173,8 @@ struct VisualContinuousQueryView {
 struct VisualAnalysisRequest {
     /// Product image-space companion on this SAME worker, isolated from display/templates.
     bool image_session = false;
+    /// DEC-115: isolated task history; lower admission priority than explicit work.
+    bool background_session = false;
     /// Required exactly when the host is configured for continuous background
     /// analysis. Fusion then produces kOriented, with no marks/action references.
     std::optional<VisualContinuousRequest> continuous;
@@ -340,6 +343,7 @@ struct VisualAnalysisResult {
 struct VisualSessionConfig {
     /// Native product consumer: isolated continuous image state on the same worker.
     bool enable_image_session = false;
+    bool enable_background_session = false;
     /// M9-05/07/18: consume Experimental relation/attention APIs on this same
     /// worker. A separate source host outputs image-space background observations;
     /// legacy hosts retain display-space behavior. No template or marks paths.

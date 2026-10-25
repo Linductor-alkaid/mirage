@@ -612,3 +612,39 @@ GNOME/KDE 等其他管理器、Portal、Windows 和在线自主模型验收继�
 ApplicationProvider 路径不依赖旧点击；历史失败保留，不改为成功。取消、
 接管、撤权和无法确认释放仍按具体状态阻止受影响路径。此前验证记录保留历史含义，
 不代表当前默认策略；当前实现及限制见 DEC-113 和对应验收记录。
+
+## 2026-10-23：M7-28 部分输入法状态观察
+
+维护者授权按计划推进键盘与输入法。首增量为平台中立 InputMethodProvider 与独立
+只读 `desktop.input.state` 1.0.0，默认不具备 Provider 的环境不注册工具。Linux 在
+显式开启桌面 surface 时提供 GIO 查询，native Wayland 不依赖全局 InputProvider；
+无 GIO 的构建保持无能力。IBus SDK 可选，仅用于取得当前会话的地址文件路径，
+显式 IBUS_ADDRESS 不依赖该 SDK。没有新增 pinned 依赖或平台类型公共泄漏。
+
+一次最多分别返回 Fcitx5/IBus 两项投影，不能据多框架运行推断目标应用的路由。
+每项包括 engine、activation、conversion_mode、layout、focus_context、focused_window、
+preedit_active、candidates_visible；每字段包含 optional value、source、captured_at_ms、
+unknown reason。Fcitx5 State 表示最近输入上下文的 active/inactive/no_context，不等于
+当前窗口的中英文模式；IBus GlobalEngine 和 CurrentInputContext 分别投影引擎及
+输入上下文标识，不将 context path 当 window id，不将引擎声明布局当当前布局。
+无可靠通道的字段保留 unknown；没有预编辑正文、候选正文或已提交文本采集。
+
+仅查询已运行服务，不启动服务，不创建输入上下文、不接管面板、不改变布局/偏好/
+剪贴板。调用目标冻结到 D-Bus unique owner，结束复核 owner；服务变化使本项退役为
+unknown。字段为各次有界读回而非原子焦点快照，无输入授权、动作结算或业务验证效果。
+默认总预算 1000 ms（Provider 合法范围 1..2000 ms），单次查询 200 ms；独立 GLib
+context 仅承载有限平台 continuation，callback 只保存 completion，取消后消费 completion
+才销毁存储。取消/超时整体失败，不返回可误用的部分成功。预算为协作式，未声明硬期限。
+
+切换沿用已有授权的单独 Shift、组合快捷键与候选确认键；每次切换后重新观察，unknown
+时以语义/截图补证。状态查询本身不能证明候选提交或最终目标文字正确。真实引擎、
+候选翻页/提交、切窗及 Windows 门禁保持开放，具体实现证据见专项计划。
+
+同日维护者补充视觉/OCR 使用方式：优先从实际可见的“中/英”标识取得模式证据，
+需要时完整点按 Shift 并重新观察；中文按短拼音段输入，识别当前候选及其显示编号，
+本页无目标时按当前配置用 `=` 下一页、`-` 上一页，每页重新观察，命中后按该页显示
+数字。不得沿用旧页编号、把未读清当不存在，或在页不变/重复/边界后无限翻页。
+若有未解决预编辑，先确认切换会不会提交/丢弃，避免盲目切模式；快捷键依实际
+输入法配置，不强制修改系统偏好。选字提交、输入框最终文字和 Enter 表单提交分别
+验证；切窗后重看焦点与模式。该策略通过 Mira 现有观察/规划循环和既有按键、
+文本及 OCR 工具执行，Platform Backend 只负责派发，不新增宿主 Agent 循环。

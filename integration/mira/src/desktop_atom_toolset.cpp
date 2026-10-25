@@ -266,6 +266,73 @@ AtomRegistration process_execute(AtomPermissionGate gate,
     return registration;
 }
 
+AtomRegistration input_method_state(mirage::desktop::InputMethodProvider &provider,
+                                    const mirage::desktop::CancelToken &cancel = {}) {
+    AtomRegistration registration;
+    registration.spec.wire_name = "desktop.input.state";
+    registration.spec.description =
+        "Reads partial keyboard/input-method state without changing settings or focus. "
+        "Separate frameworks do not establish which handles the target application. "
+        "Unknown conversion/preedit/candidate/layout/window state must remain unknown; "
+        "an engine name does not prove Chinese/English mode or committed text. "
+        "After a configured Shift or input-source shortcut, observe again; confirm candidates "
+        "with ordinary keys. Screenshots/OCR of 中/英 can establish mode; reobserve after "
+        "a Shift tap. For pinyin, read the current candidate numbers, page with -/= when "
+        "configured, select the visible matching number, and verify committed target text. "
+        "This query does not grant an input observation scope or verify previous actions.";
+    registration.spec.parameters_schema = mira::JsonSchema{object_schema({}, {})};
+    registration.handler = [&provider,
+                            cancel](const JsonValue &,
+                                    const mira::OperationContext &context) -> Result<JsonValue> {
+        const mirage::desktop::CancelToken stopped([&context, cancel] {
+            return cancel.cancelled() || context.cancelled_or_expired(mira::Timestamp::now());
+        });
+        if (stopped.cancelled())
+            return cancelled_error();
+        auto outcome = provider.observe({}, stopped);
+        if (stopped.cancelled())
+            return cancelled_error();
+        if (!outcome.ok)
+            return provider_error(outcome.error);
+        if (outcome.input_methods.size() > 2)
+            return provider_error({"result_too_large", "too many input-method projections"});
+        const auto field = [](const mirage::desktop::InputStateField &entry) {
+            return JsonValue{
+                JsonValue::Object{{"status", entry.value ? "known" : "unknown"},
+                                  {"value", entry.value ? JsonValue{*entry.value} : JsonValue{}},
+                                  {"source", entry.source},
+                                  {"captured_at_ms", entry.captured_at_ms},
+                                  {"reason", entry.reason}}};
+        };
+        JsonValue::Array methods;
+        for (const auto &state : outcome.input_methods) {
+            if (state.backend.size() > 32)
+                return provider_error({"result_too_large", "input-method backend exceeds budget"});
+            for (const auto *entry : {&state.engine, &state.activation, &state.conversion_mode,
+                                      &state.layout, &state.focus_context, &state.focused_window,
+                                      &state.preedit_active, &state.candidates_visible}) {
+                if ((entry->value && (entry->value->size() > 256 ||
+                                      !mirage::desktop::is_valid_utf8(*entry->value))) ||
+                    entry->source.size() > 128 || entry->reason.size() > 64 ||
+                    (entry->value && (entry->source.empty() || entry->captured_at_ms <= 0)))
+                    return provider_error({"invalid_reply", "invalid input-method evidence"});
+            }
+            methods.emplace_back(
+                JsonValue::Object{{"backend", state.backend},
+                                  {"engine", field(state.engine)},
+                                  {"activation", field(state.activation)},
+                                  {"conversion_mode", field(state.conversion_mode)},
+                                  {"layout", field(state.layout)},
+                                  {"focus_context", field(state.focus_context)},
+                                  {"focused_window", field(state.focused_window)},
+                                  {"preedit_active", field(state.preedit_active)},
+                                  {"candidates_visible", field(state.candidates_visible)}});
+        }
+        return JsonValue{JsonValue::Object{{"schema", 1}, {"input_methods", std::move(methods)}}};
+    };
+    return registration;
+}
+
 AtomRegistration window_list(mirage::desktop::WindowProvider &window,
                              const mirage::desktop::CancelToken &cancel = {}) {
     AtomRegistration registration;
@@ -1306,6 +1373,8 @@ DesktopAtomToolset::build(mirage::desktop::DesktopEnvironment *environment, Atom
         register_atom(clipboard_read_text(gate, *provider));
         register_atom(clipboard_write_text(gate, *provider));
     }
+    if (auto *provider = environment->input_method())
+        register_atom(input_method_state(*provider));
     if (auto *provider = environment->input()) {
         register_atom(
             input_type_text(gate, *provider, window_provider, feed, false, {}, {}, actions));
@@ -1418,6 +1487,8 @@ void DesktopAtomToolset::register_harness_tools(mira::BuiltinToolRegistry &regis
         if (!result)
             throw std::logic_error("harness desktop registration rejected");
     };
+    if (auto *provider = desktop.environment->input_method())
+        add(input_method_state(*provider, cancel));
     auto *window = desktop.environment->window();
     if (window) {
         add(window_list(*window, cancel), true);

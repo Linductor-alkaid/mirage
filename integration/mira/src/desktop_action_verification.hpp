@@ -68,6 +68,7 @@ class DesktopActionVerification {
         // Digest excludes volatile image scope/epoch; no input plaintext copied.
         std::string attempt_identity, failure_code, failure_field, recovery_hint;
         std::string failure_diagnostic;
+        mira::JsonValue ime_progress;
     };
     void observe(Record &, const mira::OperationContext &);
     static std::string failure_receipt(const Record &, std::string message,

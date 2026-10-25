@@ -303,6 +303,37 @@ activate(element_ref)
 
 ### 5.1 连续输入与设备兼容性提案
 
+2026-10-23 M7-28 首增量：独立 InputMethodProvider 在 Platform Backend 查询输入法
+部分状态，`desktop.input.state` 只读工具分 Fcitx5/IBus 返回字段 known/unknown、
+来源、采集时间与未知原因。它独立于全局 InputProvider，因此 native Wayland 也可
+只读查询；不产生 action scope、不刷新 epoch、不证明目标窗口正在使用该框架。
+转换模式/当前布局/预编辑/候选/窗口归属缺少可靠来源时明确 unknown，不能由引擎名
+推断。各字段为有界逐次采样，非原子焦点快照。
+
+键盘输入的视觉路径复用现有 Mira Harness 与 Mirador OCR：读取中/英标识，必要时
+点按 Shift 后复观，中文输入短拼音、观察当前页候选，以当前配置的 -/= 翻页并逐页
+复观，按可见编号选字，再独立验证目标输入框落字。候选页重复/未改变、标识模糊、
+切窗或预编辑未决时重新取证/规划；不凭旧页编号选字，不把选字当 Enter 提交。
+模型只表达有证据的动作意图，既有完整按键/文本工具执行自然时序与释放；不新增
+宿主 Agent 循环或系统偏好修改。状态读取、视觉策略和真实平台剩余范围详见
+[DEC-110](../decisions/DEC-110-continuous-input-and-device-compatibility.md) 与
+[M7 专项](../plans/m7-continuous-input-and-device-compatibility.md)。
+
+2026-10-23 M7-35 进一步提供 `desktop.input.fill` 1.0.0：Mira 在当前共享交互截图上
+指定目标框、文字与模式/候选 ROI，工具内部完成聚焦、全框替换、模式确认、拼音输入、
+翻页及数字选字，并对每段累计落字做精确 ROI OCR 核对。视觉识别只调用裁剪后的
+Mirador OCR，内部图片不回传模型；模型仅可在任何副作用前通过 ModelGateway 做一次
+纯文本拼音规划。优先常见汉字词组（每段最多 8 字），兼容逐字及可打印 ASCII；总计
+32 字/256 UTF-8 字节、8 页/段、256 动作/观察、120 秒及父任务更短期限。界面刷新可
+至多复读三张新帧，不重发动作。失败保留已验证字节数和阶段，禁止盲目重放整段。
+整个执行持既有单写者 lease，逐步检查权限/取消/authority，按键完整释放后再观察；
+不新建 Skill 发布系统、线程或调度器。`text_verified` 仅证明 ROI OCR 的文本证据，
+不证明应用完整目标或语义值；最终框只接受一条完整 OCR 行并保留空格，不拼接分框。
+首接线仅共享交互 session，真实平台范围与门禁见
+[DEC-114](../decisions/DEC-114-roi-ocr-ime-text-tool.md) 和
+[验收记录](../compatibility/roi-ime-fill-20261023.md)。
+
+
 [DEC-110](../decisions/DEC-110-continuous-input-and-device-compatibility.md)（2026-10-19，
 Proposed）拟扩展 InputProvider：提供从当前位置出发的平滑移动、定时按压、独立
 修饰键及由 Task 所有的跨观察持键会话。Runtime 保持单写者，持键期间可取图并
@@ -1689,3 +1720,11 @@ M7-27 系统切换器首增量通过独立 Provider opt-in 与 desktop.window_sw
 不把普通 input_lag 升级为人工检查。恢复与条件匹配分开，任务结论仍依赖用户目标
 的当前证据。连续输入故障按 episode 停用局部路径，权限/接管与释放守卫保持。
 M9-20 跟踪实现和平台验收，不表示连续后台采样或任意故障通道重建已经交付。
+
+2026-10-23～24 按 [DEC-115](../decisions/DEC-115-task-continuous-perception-feed.md) /
+M9-21 新接任务后台消费者：在已授权共享 session 上由 Mirador OCR/轻量变化读取连续帧，
+自动向下一次 Mira 请求供给有限历史事件；已读事件 60 秒清理，预览按需获取且有
+容量/期限上限。前台动作与 OCR 优先，后台不产生输入引用、不调用 VLM。图标语义
+默认保持按需；权限/接管/释放屏障不取消。详见[接线契约](native-continuous-perception-wiring.md)
+和[真实短提示记录](../compatibility/task-continuous-perception-20261023.md)。首增量不保证
+任意极短提示、既有对象单帧内容变化或实际业务任务的完成率，M9-21 仍为 In Progress。

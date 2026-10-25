@@ -64,3 +64,50 @@ M10-07 的 exec/write/edit 在恢复观察后重新开放；独立 open_uri 可�
 此收敛沿用同一串行 Executor 调用和既有 Mirador worker，不开启后台采样。
 真实模型的下一次 text_only/state 成功记录仍需产品重启后的授权会话验收；
 受控管线测试只证明接线与守卫，不证明真实桌面的识别质量或延迟。
+
+## 2026-10-23～24：任务后台事件消费者（DEC-115 / M9-21）
+
+上述 10-22 接线为按需历史。现在在首次 native capture 成功且 sharing session 可复用后，
+Runtime factory 将原 session 包装为 ContinuousCaptureHost 消费者，不打开第二个 Portal
+会话或请求新的权限。生命周期限于一个 DesktopImageTurn；取消、撤权、关闭即停止并
+释放。前台整个输入/IME/OCR 步骤持有 pause lease，后台让出 session 及在途分析；底层
+capture/pointer/input 另以资源锁串行。后台拒绝不取消显式分析，前台可取代后台。
+
+分析共享现有 VisualSessionHost worker 和后端实例，另设有界 background companion，
+与 display、显式 image/ROI 状态隔离。每个新 sharing session 加入独立实例标识，
+同任务/权限/尺寸也不能继承上一条流的对象状态；同一条流的普通截图不重置来源。帧 ID 同时绑定来源实例，旧 ID 不命中新流同号帧。默认 250 ms 尝试采样；OCR 与 Mirador 的轻量
+变化筛查共同驱动事件。变化后强制一个独立复查帧以推进两帧确认；静态跳过 OCR，
+不能把跳过说成新鲜确认。后台默认不运行慢的图标 detector；非文本变化仅给出
+visual_region_changed，不能宣称已识别对象。显式 mark 继续使用已配置的 detector；
+可选后台 detector 必须继承模型置信度阈值。
+
+通用 OCR、稳定 ID、出现/消失/文本/位置或外观确认使用 pinned Mirador；原生对象
+事件带 source_epoch、instance_generation、实体 ID、源帧和采集完成时间。一帧首见
+可给 observed_unconfirmed，不能当确认生命周期；缺覆盖/遮挡不宣布消失。当前版本
+不保证既有对象单帧内容变化或任意极短提示全部被保留。
+
+Mirage 产品层只保留游标/注意过滤/证据寿命：最多 256 事件、256 KiB 逻辑历史，未读
+120 秒过期；成功模型响应确认实际供给游标后，60 秒回收已读事件。ACK 用容量 64 的
+kairo MpscChannel，拒绝不推进消费水位；拒绝/深度投影 CommStats。焦点与不可变视图
+通过 LatestMailbox 传输，旧视图只含弱预览引用。目标 ROI 内更新优先，外围纯内容/
+移动/像素变化过滤；出现、消失、首见和源重置不因此静音。Mirador 抑制无变化重复事件。
+
+只为保留事件生成至多 640 边、1 MiB 的原始预览，最多 8 张/8 MiB；最长 120 秒，
+对应事件已读后至多 60 秒，消费图片后清理。采集宿主原始帧最多两代、每代 32 MiB；
+分析缩至 1600 边/10 MiB，依赖转换/缓存及 ncnn 工作区另有自身预算。上述数字不是
+整个进程 RSS 上限，真实资源须按专项记录验收。后台不逐帧编码 PNG，也不调用 VLM。
+
+每次模型请求自动附最多 16 条未读事件，以及至多 8 个实体/1 KiB 的已读摘要；整体
+含元数据不超过 8 KiB。pinned supplier 输入只进当轮请求，已读摘要使下一轮仍能关联
+刚看到的对象，而不重放完整日志；不额外唤醒
+模型轮询，内层拼音规划不消费事件。只有成功主响应且实际请求仍含原事件块才 ACK，
+预算裁剪/失败不假读。已成功消费的同一截图停止重复附送；显式 capture 可再次供图。
+原目标意图仍受新鲜局部像素、authority、scope 和 epoch 约束；事件不能创建输入引用。
+
+`desktop.vision.event_frame(frame_id)` 按需发布一张历史预览，明确 available/historical/
+input_actionable=false 与年龄。过期/已消费/容量淘汰为正常 available=false，不能替换
+为一张当前截图冒充旧帧。读预览会退休旧输入图像引用。文本输入优先使用本轮已暴露
+的 fill/type_text；捕获回执给出 ime_fill/session_type_text 可用性。已证实不支持的输入
+可自动选择其他已授权路线，不放开系统授权、接管或释放屏障。
+
+实际证明和未完成门禁见[验收记录](../compatibility/task-continuous-perception-20261023.md)。

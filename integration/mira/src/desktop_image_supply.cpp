@@ -153,12 +153,14 @@ DesktopImageTurn::DesktopImageTurn(std::shared_ptr<DesktopImageSource> source,
 }
 DesktopImageTurn::~DesktopImageTurn() {
     native_session_.reset();
+    perception_.reset();
     clear();
 }
 void DesktopImageTurn::clear() {
     if (image_)
         (void)store_->erase({image_->id, "desktop image retired"});
     image_.reset();
+    consumed_image_digest_.clear();
     continuous_source_key_.clear();
     native_frame_.reset();
     native_input_frame_.reset();
@@ -175,6 +177,7 @@ void DesktopImageTurn::register_tool(mira::BuiltinToolRegistry &registry,
     if (!desktop_.environment || !desktop_.environment->screen() || !desktop_.actions ||
         (!desktop_.gate && !desktop_.authorize))
         return;
+    register_perception_tool(registry, decorate);
     const bool observation_only = desktop_.environment->screen()->desktop_observation_only();
     if (observation_only)
         register_native_ocr(registry, decorate);
@@ -423,6 +426,7 @@ void DesktopImageTurn::register_native_ocr(mira::BuiltinToolRegistry &registry,
 }
 mira::Result<JsonValue> DesktopImageTurn::native_ocr(const JsonValue &args,
                                                      const mira::OperationContext &ctx) {
+    auto priority = perception_ ? perception_->pause() : nullptr;
     const auto *text_arg = args.find("text_only");
     if (!args.as_object() || args.as_object()->size() > (text_arg ? 1u : 0u) ||
         (text_arg && !text_arg->as_boolean().has_value()))
@@ -597,6 +601,7 @@ mira::Result<JsonValue> DesktopImageTurn::native_ocr(const JsonValue &args,
 
 mira::Result<JsonValue> DesktopImageTurn::capture_desktop(const JsonValue &args,
                                                           const mira::OperationContext &ctx) {
+    auto priority = perception_ ? perception_->pause() : nullptr;
     const auto *interactive = args.find("interaction");
     const bool requested = interactive && interactive->as_boolean() && *interactive->as_boolean();
     const auto source_kind = text(args, "source");
@@ -678,6 +683,7 @@ mira::Result<JsonValue> DesktopImageTurn::capture_desktop(const JsonValue &args,
         !native_newer_than_sequence_ && epoch_ == desktop_.actions->epoch() &&
         native_capture_key_ == capture_key &&
         std::chrono::steady_clock::now() - captured_ < image_max_age_) {
+        consumed_image_digest_.clear(); // An explicit capture requests another image offer.
         auto reused = metadata_;
         reused.set("reused_capture", true);
         return reused; // original capture time, reference lifetime and source sequence
@@ -809,6 +815,30 @@ mira::Result<JsonValue> DesktopImageTurn::capture_desktop(const JsonValue &args,
     auto published = finish_native_publish(std::move(frame), out.frame, area, kind, kind_id,
                                            out.frame.source_sequence, epoch);
     if (published) {
+        if (!perception_ && desktop_.continuous_session && native_session_ &&
+            native_session_->reusable()) {
+            PerceptionSessionOptions options;
+            options.source_id =
+                mira::digest_string(owner_.task.to_string() + ":" + std::to_string(authority) +
+                                    ":" + mira::OperationId::generate().to_string())
+                    .to_string();
+            options.cancelled = cancel_;
+            options.presentation = desktop_.exclude_pet;
+            options.authorized = [actions = desktop_.actions, authority] {
+                return actions->authority_epoch() == authority;
+            };
+            auto connected =
+                desktop_.continuous_session(std::move(native_session_), std::move(options));
+            native_session_ = std::move(connected.session);
+            perception_ = std::move(connected.feed);
+        }
+        metadata_.set("continuous_events", bool(perception_));
+        metadata_.set("text_input_routes",
+                      JsonValue{JsonValue::Object{
+                          {"ime_fill", ime_tool_enabled_},
+                          {"session_type_text", native_input_enabled_ && native_session_ &&
+                                                    native_session_->input_supported()}}});
+        published = metadata_;
         native_capture_key_ = capture_key;
         native_capture_args_ = args;
         if (out.presentation_excluded == false) {
@@ -1233,8 +1263,18 @@ DesktopImageTurn::supply(const mira::AgentLoopSpec &spec) {
         native_failed_ = true;
         clear();
     }
+    auto additions = supply_perception();
     if (!supply_images_ || !image_)
-        return std::vector<mira::ModelInputItem>{};
+        return additions;
+    // Only suppress a repeat after a completed provider response consumed it.
+    // The original target intent remains guarded by fresh local pixels.
+    if (perception_ && consumed_image_digest_ == image_->digest.to_string() &&
+        epoch_ == desktop_.actions->epoch() &&
+        std::chrono::steady_clock::now() - captured_ < planning_image_age()) {
+        const auto state = perception_->view().state;
+        if (state == "sampling" || state == "paused" || state == "degraded")
+            return additions;
+    }
     mira::ModelInputItem item;
     item.role = mira::ModelRole::User;
     if (desktop_.actions->epoch() != epoch_ ||
@@ -1287,7 +1327,8 @@ DesktopImageTurn::supply(const mira::AgentLoopSpec &spec) {
             }
         }
     }
-    return std::vector<mira::ModelInputItem>{std::move(item)};
+    additions.push_back(std::move(item));
+    return additions;
 }
 
 void DesktopImageTurn::set_budget_remaining(BudgetRemaining provider) {

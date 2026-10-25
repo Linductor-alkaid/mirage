@@ -10,6 +10,7 @@
 #include <mirage/desktop/screen_provider.hpp>
 #include <mirage/desktop/visual_reference_registry.hpp>
 
+#include <mirage/integration/desktop_perception.hpp>
 #include <mirage/integration/environment_visual_pipeline.hpp>
 #include <mirage/integration/visual_session_host.hpp>
 
@@ -40,6 +41,9 @@ struct VisualObservationPipelineConfig {
     bool run_detector = false;
     /// DEC-097: optional model proposals only for explicit marked observations.
     bool detector_marks = false;
+    /// Slow icon inference is opt-in for background sampling. Default uses
+    /// OCR entities and lightweight pixel change events; explicit marks keep YOLO.
+    bool background_detector = false;
     float detector_min_confidence = 0.25F;
     /// Bypass approximate OCR result reuse through the backend's public Refresh
     /// policy; product OCR enables this for text freshness (DEC-057).
@@ -112,6 +116,10 @@ class VisualObservationPipeline final : public EnvironmentVisualPipeline {
     ImageContinuousState
     query_image_state(const std::string &source_key, const desktop::CancelToken &,
                       const std::optional<std::chrono::steady_clock::time_point> &);
+    PerceptionSample observe_image(const desktop::ImageFrame &, const std::string &,
+                                   const std::optional<desktop::WindowGeometry> &,
+                                   const desktop::CancelToken &,
+                                   const std::optional<std::chrono::steady_clock::time_point> &);
 
     EnvironmentVisualRefresh
     refresh_marked(const std::optional<desktop::WindowGeometry> &crop,
@@ -141,6 +149,11 @@ class VisualObservationPipeline final : public EnvironmentVisualPipeline {
     std::string image_source_key_;
     std::int32_t image_width_ = 0, image_height_ = 0;
     std::uint64_t image_source_revision_ = 0;
+    std::string background_key_;
+    std::int32_t background_width_ = 0, background_height_ = 0;
+    std::uint64_t background_revision_ = 0, background_policy_ = 1;
+    std::optional<desktop::WindowGeometry> background_focus_;
+    bool background_followup_ = true;
 };
 
 } // namespace mirage::integration
