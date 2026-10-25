@@ -41,3 +41,43 @@ BR-08 经维护者明确要求直接删除，不归档、不恢复旧前端。
 
 2026-10-26：fetch 全部远端 heads 并核对祖先图、PR 历史及当前 dirty 清单。
 旧 World 分支 PR #36 为 Closed/unmerged，维护者明确其不属当前工作并要求直接清理。
+
+
+## PR 与本机集成基线
+
+| 工作项 | PR | 合并次序 |
+| --- | --- | --- |
+| BR-01 | [#114](https://github.com/Linductor-alkaid/mirage/pull/114) | 1 |
+| BR-02 | [#115](https://github.com/Linductor-alkaid/mirage/pull/115) | 2 |
+| BR-03 | [#116](https://github.com/Linductor-alkaid/mirage/pull/116) | 3 |
+| BR-04 | [#117](https://github.com/Linductor-alkaid/mirage/pull/117) | 4 |
+| BR-05 | [#118](https://github.com/Linductor-alkaid/mirage/pull/118) | 5 |
+| BR-06 | [#119](https://github.com/Linductor-alkaid/mirage/pull/119) | 6 |
+| BR-07 | [#120](https://github.com/Linductor-alkaid/mirage/pull/120) | 7 |
+
+2026-10-26：BR-08 已按维护者最后指示直接删除远端 head，不归档。BR-07 的
+71 个原始 dirty 文件逐文件 SHA-256 核对后原样保存为 `ff2f0b9`，再合入 Mira
+升级与格式修复；所有代码均在 Git 中。公开 JSON 证据共约 0.5 MiB，无模型、
+运行日志、私有密钥或令牌；签名模式扫描与人工范围检查通过。
+
+Linux x86_64 / GCC 13.3.0 / CMake 3.28.3；Debug 默认选项，Mbed TLS/native/
+PPOCR 未开启。原始工作区与最终集成源码分别执行：
+
+```bash
+cmake --build --preset debug -j4
+ctest --preset debug --output-on-failure -j4
+cmake --build build/debug --target mirage-format-check mirage-boundary-check
+```
+
+原工作区 Debug 113/113（76.55 s）、合入 Mira 68a8bf1 后 Debug 113/113
+（80.36 s），均 0 failed、0 skipped。集成源码全仓格式与 67 个公开头文件
+边界检查通过（0 违规、DEC-096 两条既有缝）。未将本地环境当作 Windows/真机证明。
+
+PR #116 当前 CI 揭示旧 harness 诊断 `fprintf` 换行问题，按仓库 clang-format
+修复并通过完整静态检查；原格式失败保留为历史，不计入成功证据。修复正常非 force
+推送并沿祖先链同步，Mira 的结构化终态判别没有回退为旧文本锚点。
+
+每项合并还须确认最新 head 的八项 CI 全部成功、无未处理 review thread，并以
+`git merge-tree --write-tree <current-master> <head>` 的 tree 与已测 head tree
+逐位一致为准，防止基线改变后误用旧测试。PR retarget master 后才按固定 head SHA
+执行 merge；若合成结果变化或 CI 失败，先同步修复及重新验证，不绕过门禁。
