@@ -130,3 +130,15 @@ UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 \
 退出 0，全仓格式通过，66 个公开头文件层界零违规；`git diff --check` 通过。
 此前格式门禁阻塞已解除，历史失败记录保留。此次仅格式修复，不新增或重跑行为
 测试，前述 Debug 和 sanitizer 记录仍对应升级实现的行为验证。
+
+
+## 2026-10-26：主干 CI 消费验收
+
+升级通过 [PR #119](https://github.com/Linductor-alkaid/mirage/pull/119) 合入 master
+（`a7ec94d`），随后完整 IME/任务感知接线通过 PR #120 合入 `877853f`。
+两个 PR 的最新 head 均为八项 CI 全部 SUCCESS，包含 Linux Debug/Release、
+ASAN/UBSAN/TSAN、Windows MSVC 全树编译及既有运行门禁、native frontend 与
+格式/边界。此前“未执行 Windows”是 2026-10-25 本机记录，现补齐 CI 层证据；
+Windows 新增输入法/真实设备、MinGW 缺口及在线模型等门禁仍保持原范围。
+合成 tree 一致性、精确 head 与检查 URL 见
+[集成验收](../plans/branch-integration-20261026.md)及其结构化证据。
