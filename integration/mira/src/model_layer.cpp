@@ -1525,8 +1525,7 @@ DialogCompletion ModelLayer::complete_harness_turn(
     // lands.
     const bool output_limit_settle =
         value.outcome == mira::ConversationOutcome::Failed && value.output_continuations > 0 &&
-        value.safe_summary.find("output-limit continuation budget exhausted") !=
-            std::string::npos;
+        value.safe_summary.find("output-limit continuation budget exhausted") != std::string::npos;
     // M9-03: the product counters are uint64 end to end. `total_turns` is the
     // true cumulative model-step count; the retained `turns` window is
     // bounded and no longer equals it in Continuous mode.

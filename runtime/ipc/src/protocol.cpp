@@ -3118,10 +3118,8 @@ EventDecode decode_event(std::string_view payload) {
                 return result;
             }
             if (!in_stable_set(*text, kDialogTurnErrorKinds,
-                               sizeof(kDialogTurnErrorKinds) /
-                                   sizeof(kDialogTurnErrorKinds[0]))) {
-                result.error =
-                    "session.chat_updated 'error_kind' is not a known failure category";
+                               sizeof(kDialogTurnErrorKinds) / sizeof(kDialogTurnErrorKinds[0]))) {
+                result.error = "session.chat_updated 'error_kind' is not a known failure category";
                 return result;
             }
             chat.error_kind = *text;
