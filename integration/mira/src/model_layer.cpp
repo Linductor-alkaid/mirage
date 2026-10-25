@@ -1561,14 +1561,12 @@ DialogCompletion ModelLayer::complete_harness_turn(
     completion.ok = !completion.cancelled && value.outcome == mira::ConversationOutcome::Answered;
     completion.failed = !completion.ok && !completion.cancelled;
     completion.error = value.safe_summary;
-    // MIRA-20261022-001 (interim): the pinned loop settles continuation
-    // exhaustion through the safe_summary text only; the ledger entry asks
-    // upstream for a structured terminal reason. Match the pinned summary
-    // inside this adapter boundary and drop the text anchor once the field
-    // lands.
+    // MIRA-20261022-001 / upstream DEC-065/066: only the terminal reason
+    // classifies this failure. Earlier cutoffs may have recovered, and other
+    // incomplete reasons (context window, Other) are not output-token limits.
     const bool output_limit_settle =
-        value.outcome == mira::ConversationOutcome::Failed && value.output_continuations > 0 &&
-        value.safe_summary.find("output-limit continuation budget exhausted") != std::string::npos;
+        value.outcome == mira::ConversationOutcome::Failed &&
+        value.terminal_incomplete_reason == mira::IncompleteReason::MaxOutputTokens;
     // M9-03: the product counters are uint64 end to end. `total_turns` is the
     // true cumulative model-step count; the retained `turns` window is
     // bounded and no longer equals it in Continuous mode.

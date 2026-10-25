@@ -19,9 +19,10 @@
    `output_limit_truncated` 标记。dialog 路径对
    `Incomplete(MaxOutputTokens)` 单列分支——以专用错误结算，并按 DEC-104 的
    原则保留截断部分正文（`reply_text` 携带，经既有 terminal text Part 通道
-   展示）；harness 路径在适配边界内以 `outcome == Failed`、
-   `output_continuations > 0` 与 pinned 耗尽 summary 文本锚点联合判别（临时
-   方案，见 MIRA-20261022-001，上游结构化字段落地后移除）。
+   展示）；harness 路径在适配边界内以 `outcome == Failed` 与
+   `terminal_incomplete_reason == MaxOutputTokens` 联合判别（2026-10-25
+   消费上游 DEC-065/066，移除原 summary 文本锚点）。累计续写次数不用于终态
+   分类，ContextWindow/Other/未报告原因保持未分类失败。
 2. IPC 面：`DialogTurnEntry` 与 `ChatTurnUpdatedEvent` 增加 encode-when-set 的
    `error_kind`（存在当且仅当 `status == "failed"`），封闭词表
    `{"output_limit"}`，新类别按 DEC-012 增量加入；decode 校验词表与
@@ -37,5 +38,11 @@
 验证覆盖：harness 续写耗尽场景的结构化标记、dialog 截断的专用错误与部分正文
 保留（有正文/无正文两态）、IPC 事件与 history 快照的 `error_kind` 往返、
 decode 对未知类别与 present-exactly-when 违例的拒绝、既有失败路径不携带类别。
-类别字段只覆盖截断一类；其余失败仍为未分类。上游 MIRA-20261022-001 落地前，
-harness 判别依赖 pinned summary 文案，属已知临时边界。
+类别字段只覆盖输出 token 截断一类；其余失败仍为未分类。
+
+2026-10-25：按维护者上游同步要求消费 Mira `68a8bf1`，依赖反馈
+MIRA-20261022-001 的移除条件已满足。上游 DEC-066 同时保证其它不完整回复不再
+成为最终答案；DEC-067 将方言过滤/拒绝归入各自终态。Mirage 不把这些原因扩为
+`output_limit`，不改 IPC 词表。工作项与证据见
+[同步计划](../plans/mira-upstream-sync-20261025.md)及
+[消费审计](../supply-chain/mira-upstream-sync-20261025.md)。

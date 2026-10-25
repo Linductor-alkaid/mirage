@@ -2,12 +2,21 @@
 
 > 状态：Active
 > 负责人：Mirage维护者
-> 更新日期：2026-10-22
+> 更新日期：2026-10-25
 > 维护规则：[工程规范9.4](../project/project-standards.md)
-> 本轮工作项：[依赖复用整改](../plans/dependency-reuse-remediation.md)（REUSE-16/17/18
+> 本轮工作项：[Mira 同步维护](../plans/mira-upstream-sync-20261025.md)（MNT-MIRA-01～04）；既有[依赖复用整改](../plans/dependency-reuse-remediation.md)（REUSE-16/17/18
 > 台账一致性收口）；既有条目分别溯源至 M6、M7-06、M8/M9 各工作项
 
 ## 分依赖台账
+
+2026-10-25：同步 Mira master `68a8bf1`，消费上游 PR#108/109/110。
+[MIRA-20261022-001](mira.md#mira-20261022-001) 转 Resolved（Linux 消费范围）：
+结果字段/终态事件可观测，harness 删除 summary 文本锚点，按 MaxOutputTokens
+精确分类。其它 incomplete 不再作为答案；过滤/拒绝直接终止。
+记忆前瞻 [MIRA-20261016-001](mira.md#mira-20261016-001) 转 Accepted（部分交付）：
+已有 embedding 生产者/可重建索引契约，产品供给与质量仍开放。
+[升级审计](../supply-chain/mira-upstream-sync-20261025.md)记录适用测试与限制。
+旧记录保留历史状态，当前状态以本段与详情为准。
 
 2026-10-22：截断观测收口新增 [MIRA-20261022-001](mira.md#mira-20261022-001)
 （Open，已提报上游
@@ -81,7 +90,7 @@ DEC-088 能力 4 新增 [MIRA-20261015-001](mira.md#mira-20261015-001)：部分�
 
 | 依赖 | 详细台账 | 已确认问题 | 说明 |
 | --- | --- | --- | --- |
-| Mira | [Mira台账](mira.md) | 既有状态见详细台账；Open 6 项：MIRA-20260922-001（MinGW 构建）、MIRA-20261008-002（-Wuseless-cast）、MIRA-20261012-002（ProviderCircuit cooldown）、MIRA-20261013-001（`Result::value()` 防线）、MIRA-20261016-003（kairo 0.7.0 延期能力跟踪）、MIRA-20261022-001（截断终态结构化）；另有 MIRA-20261016-004（PNG 编码缝）与 20261016-001（前瞻 Proposed）；MIRA-20261016-002 为追记 Resolved | Runtime/模型/工具/workflow及随Mira交付的Executor；PR#86 已消费，三方言 fixture 与 MiniMax 截图工具在线 2/2 |
+| Mira | [Mira台账](mira.md) | 既有状态见详细台账；Open 6 项：MIRA-20260922-001（MinGW 构建）、MIRA-20261008-002（-Wuseless-cast）、MIRA-20261012-002（ProviderCircuit cooldown）、MIRA-20261013-001（`Result::value()` 防线）、MIRA-20261016-003（kairo 0.7.0 延期能力跟踪）、MIRA-20261016-004（PNG 编码缝）；20261016-001 为 Accepted（部分交付）、20261022-001 为 Resolved；MIRA-20261016-002 为追记 Resolved | Runtime/模型/工具/workflow及随Mira交付的Executor；PR#86 已消费，三方言 fixture 与 MiniMax 截图工具在线 2/2 |
 | Mirador | [Mirador台账](mirador.md) | 既有 M7-06 三项 Resolved；20261016-001 Proposed、20261016-002 In Progress；20261018-001 Open、20261019-001 Proposed | PR#35 三项本地消费已收口；#41 的密集 OCR 性能及连续感知/注意契约分别跟踪，其他状态及平台/权重限制见详细台账 |
 
 executor经pinned Mira传递引入，编号使用`MIRA-YYYYMMDD-NNN`，不直接向Executor提交。
