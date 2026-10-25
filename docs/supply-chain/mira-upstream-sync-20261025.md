@@ -1,10 +1,10 @@
 # Mira 上游同步与终态消费审计
 
-> 状态：Completed（Linux 消费范围；全仓格式基线问题及未验平台见下文）
+> 状态：Completed（Linux 消费范围；基线格式问题已修复，未验平台见下文）
 > 日期：2026-10-25
 > 负责人：Mirage 维护者
 > 授权：维护者要求“上游 mira 近期更新了很多，同步一下，以及顺便利用上 mira 解决的 mirage 的台账问题”。
-> 工作项：[MNT-MIRA-01～04](../plans/mira-upstream-sync-20261025.md)
+> 工作项：[MNT-MIRA-01～05](../plans/mira-upstream-sync-20261025.md)
 
 ## 锁定与来源
 
@@ -118,3 +118,15 @@ UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 \
 **5/5 通过**（三个行为测试及两个隔离 setup/cleanup；110.07 s），无 sanitizer
 错误；harness 包含新增分类反例及既有长程循环、取消与供给回归，94.96 s 完成。
 变更文档相对链接/围栏与全部直接/嵌套依赖 pin 一致性校验通过。
+
+
+## 2026-10-25：基线格式门禁修复
+
+按维护者后续授权，在同一升级分支修复 `protocol.cpp` 两处换行问题；全仓检查
+继续发现 `tests/runtime/ipc_protocol_test.cpp:1362/1427/1493` 三处既有格式问题，
+一并按仓库 clang-format 修复。两个文件与 HEAD 去空白后完全一致，无行为变化。
+
+`cmake --build build/debug --target mirage-format-check mirage-boundary-check`
+退出 0，全仓格式通过，66 个公开头文件层界零违规；`git diff --check` 通过。
+此前格式门禁阻塞已解除，历史失败记录保留。此次仅格式修复，不新增或重跑行为
+测试，前述 Debug 和 sanitizer 记录仍对应升级实现的行为验证。

@@ -1,6 +1,6 @@
 # Mira 上游同步与台账消费（2026-10-25）
 
-> 状态：Completed（Linux 消费范围；未验平台与基线格式限制见审计）
+> 状态：Completed（Linux 消费范围；未验平台见审计）
 > 负责人：Mirage 维护者
 > 所属计划：[实施总计划](mirage-implementation-plan.md)
 > 更新日期：2026-10-25
@@ -19,6 +19,7 @@ DEC-065/066/067 与公开 ConversationLoop / memory_embedding 契约；不修改
 - [x] MNT-MIRA-02：harness 按终态原因精确识别 MaxOutputTokens，移除 summary 锚点。
 - [x] MNT-MIRA-03：消费侧验证截断耗尽、恢复成功、其它 incomplete、过滤/拒绝与取消；执行 Linux 回归和 sanitizer。
 - [x] MNT-MIRA-04：同步台账、DEC-112、记忆前置清单与供应链证据，未交付缺口保持开放。
+- [x] MNT-MIRA-05：按维护者后续要求修复基线 IPC 格式问题，全仓格式与层界门禁通过。
 
 ## 验收与限制
 
@@ -40,3 +41,12 @@ PNG 编码缝变更，因此相应未解决条目不关闭。
 MIRA-20261022-001 转 Resolved，MIRA-20261016-001 为 Accepted（部分交付）。
 全仓格式检查受基线 protocol.cpp:3121/3123 既有换行阻塞，未当作通过；
 未验平台与负责人/补跑条件见[升级审计](../supply-chain/mira-upstream-sync-20261025.md)。
+
+
+2026-10-25 后续（MNT-MIRA-05）：按维护者“修复基线问题”要求，对
+`runtime/ipc/src/protocol.cpp` 两处及全仓门禁继续发现的
+`tests/runtime/ipc_protocol_test.cpp` 三处进行 clang-format 调整。
+逐文件与 HEAD 去空白比较一致，无行为变化，未新增或重跑行为测试。
+`cmake --build build/debug --target mirage-format-check mirage-boundary-check`
+退出 0：全仓格式通过，66 个公开头文件层界零违规；`git diff --check` 通过。
+前述全仓格式阻塞至此解除，原失败记录保留。Windows/真实模型等限制不变。
