@@ -3,6 +3,7 @@
 #include <mirage/runtime/basic_output_store.hpp>
 
 #include <mirage/desktop/observation_assembler.hpp>
+#include <mirage/integration/continuous_desktop_session.hpp>
 #include <mirage/integration/model_catalog.hpp>
 #include <mirage/integration/session_journal.hpp>
 #include <mirage/runtime/ipc/endpoint.hpp>
@@ -739,6 +740,15 @@ struct RuntimeService::Impl {
                                                       const auto &cancel, const auto &deadline) {
                     return pipeline->read_image_ocr(image, cancel, deadline, key);
                 };
+            desktop.continuous_session = [pipeline = core->ocr_pipeline.get(),
+                                          executor = &core->executor](auto session, auto options) {
+                return integration::connect_continuous_desktop(
+                    *executor, std::move(session), std::move(options),
+                    [pipeline](const auto &image, const auto &key, const auto &focus,
+                               const auto &cancel, const auto &deadline) {
+                        return pipeline->observe_image(image, key, focus, cancel, deadline);
+                    });
+            };
             desktop.query_image_state =
                 [pipeline = core->ocr_pipeline.get()](const auto &key, const auto &cancel,
                                                       const auto &deadline) {

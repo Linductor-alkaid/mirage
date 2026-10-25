@@ -83,7 +83,11 @@ void DesktopImageTurn::register_shared_input(mira::BuiltinToolRegistry &registry
             "latest actionable image, including for key and type_text. "
             "click/scroll use rectangle center. key uses canonical lowercase key_name (e.g. "
             "ctrl+l, enter, shift; bare ctrl/alt/shift/meta tap and release; meta+ for "
-            "Super chords); type_text "
+            "Super chords). For visual Chinese IME input, observe 中/英; tap shift to switch "
+            "and reobserve, type pinyin, read current candidate labels, use -/= for "
+            "previous/next page if configured, and select the visible matching number. "
+            "Reobserve after each page; verify committed target text before form submission. "
+            "type_text "
             "uses text (printable ASCII, <=4096 bytes, no controls; arbitrary UTF-8 returns "
             "text_transport_unavailable before dispatch on this legacy Portal transport); scroll "
             "uses "
@@ -165,6 +169,7 @@ void DesktopImageTurn::register_shared_input(mira::BuiltinToolRegistry &registry
 
 mira::Result<Json> DesktopImageTurn::shared_input(const std::string &operation, const Json &args,
                                                   const mira::OperationContext &ctx) {
+    auto priority = perception_ ? perception_->pause() : nullptr;
     if (ctx.task != owner_.task || ctx.session != owner_.session ||
         ctx.task_epoch != owner_.task_epoch)
         return rejected("owner_mismatch");
@@ -366,6 +371,8 @@ mira::Result<Json> DesktopImageTurn::shared_input(const std::string &operation, 
     const int top = static_cast<int>(monitor_top);
     const int right = static_cast<int>(monitor_right);
     const int bottom = static_cast<int>(monitor_bottom);
+    if (perception_)
+        perception_->focus({left, top, right - left, bottom - top});
     if (bounded.cancelled())
         return rejected("cancelled");
     // M7-16 / DEC-082: the target must be stable, not byte-identical. Edge

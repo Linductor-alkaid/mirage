@@ -1,5 +1,7 @@
 add_library(mirage_integration_mirador STATIC
     src/continuous_capture_host.cpp
+    src/continuous_desktop_session.cpp
+    src/continuous_image_observation.cpp
     src/fake_visual_backend.cpp
     src/mirador_service.cpp
     src/ppocr_pipeline.cpp

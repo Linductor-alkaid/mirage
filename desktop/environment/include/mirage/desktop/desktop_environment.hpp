@@ -7,6 +7,7 @@
 #include <mirage/desktop/clipboard_provider.hpp>
 #include <mirage/desktop/desktop_observation.hpp>
 #include <mirage/desktop/filesystem_provider.hpp>
+#include <mirage/desktop/input_method_provider.hpp>
 #include <mirage/desktop/input_provider.hpp>
 #include <mirage/desktop/notification_provider.hpp>
 #include <mirage/desktop/process_provider.hpp>
@@ -61,6 +62,7 @@ class DesktopEnvironment {
     virtual AccessibilityProvider *accessibility() { return nullptr; }
     virtual ScreenProvider *screen() { return nullptr; }
     virtual InputProvider *input() { return nullptr; }
+    virtual InputMethodProvider *input_method() { return nullptr; }
     virtual ClipboardProvider *clipboard() { return nullptr; }
     virtual NotificationProvider *notification() { return nullptr; }
 

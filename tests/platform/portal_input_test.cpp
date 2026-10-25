@@ -199,6 +199,17 @@ int main() {
         MIRAGE_CHECK(events[3].value == 't' && events[4].value == 0xffe1 &&
                      events[5].value == 0xffe3);
         events.clear();
+        for (const auto *key : {"-", "=", "1", "3", "9"}) {
+            events.clear();
+            action.kind = Kind::Key;
+            action.value = key;
+            result = dispatch_portal_input(context, action, {}, {});
+            MIRAGE_CHECK(result.ok && result.input_released && events.size() == 2);
+            if (events.size() == 2)
+                MIRAGE_CHECK(events[0].value == key[0] && events[0].state == 1 &&
+                             events[1].value == key[0] && events[1].state == 0);
+        }
+        events.clear();
         action.kind = Kind::Text;
         action.value = "a中😀";
         result = dispatch_portal_input(context, action, {}, {});

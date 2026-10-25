@@ -1,4 +1,5 @@
 #pragma once
+#include "ime_text_input.hpp"
 #include "phase_timing.hpp"
 #include <kairo/comm/mailbox.hpp>
 #include <mira/conversation_loop.hpp>
@@ -75,12 +76,17 @@ class DesktopImageTurn {
     mira::Result<void> validate_request(const mira::ModelRequest &, const mira::OperationContext &);
     mira::Result<mira::JsonValue> observe_shared(const std::string &, const std::string &,
                                                  const mira::OperationContext &);
+    void register_ime_tool(mira::BuiltinToolRegistry &, ImePlanner,
+                           const DesktopAtomToolset::Decorator &);
+    void perception_consumed(const mira::ModelRequest &, const mira::OperationContext &);
     bool supplied_image() const { return supplied_image_; }
     // DEC-069: workflow-local fresh target resolution through the same numbered action path.
     mira::Result<mira::JsonValue> local_click(const mira::JsonValue &,
                                               const mira::OperationContext &);
 
   private:
+    mira::Result<mira::JsonValue> fill_text(const mira::JsonValue &, const mira::OperationContext &,
+                                            const ImePlanner &);
     mira::Result<mira::JsonValue> capture(const mira::JsonValue &, const mira::OperationContext &);
     mira::Result<mira::JsonValue> mark(const mira::JsonValue &, const mira::OperationContext &);
     mira::Result<mira::JsonValue> click_mark(const mira::JsonValue &,
@@ -124,6 +130,14 @@ class DesktopImageTurn {
     mira::Result<mira::JsonValue> native_ocr(const mira::JsonValue &,
                                              const mira::OperationContext &);
     void clear();
+    std::vector<mira::ModelInputItem> supply_perception();
+    void register_perception_tool(mira::BuiltinToolRegistry &,
+                                  const DesktopAtomToolset::Decorator &);
+    std::shared_ptr<DesktopPerceptionFeed> perception_;
+    std::uint64_t perception_cursor_ = 0, perception_offered_ = 0;
+    std::string perception_text_, consumed_image_digest_;
+    bool ime_tool_enabled_ = false;
+
     std::chrono::milliseconds planning_image_age() const {
         // A supplied native target intent already supports local revalidation
         // for 60 seconds (DEC-081). It is not fresh completion evidence.

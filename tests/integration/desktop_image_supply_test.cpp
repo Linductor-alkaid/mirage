@@ -155,6 +155,7 @@ class NativeEnvironment final : public mirage::desktop::DesktopEnvironment,
     double last_action_x = -1, last_action_y = -1;
     std::uint32_t last_click_count = 0;
     mirage::desktop::SharedInputAction last_input;
+    std::function<void(const mirage::desktop::SharedInputAction &)> accepted_input;
     class NativeWindow final : public mirage::desktop::WindowProvider {
       public:
         explicit NativeWindow(NativeEnvironment &env) : env_(env) {}
@@ -278,6 +279,8 @@ class NativeEnvironment final : public mirage::desktop::DesktopEnvironment,
                         {"fixture_input_failed", "failure"},
                         true,
                         !env.release_failed};
+            if (env.accepted_input)
+                env.accepted_input(action);
             return {true, false, {}, true, true};
         }
         ~Session() override { ++env.closed; }
@@ -2262,6 +2265,168 @@ class NativeOcrScript final : public mira::IModelProvider {
         return response;
     }
 };
+class TaskFeedFixture final : public integration::DesktopPerceptionFeed {
+  public:
+    integration::PerceptionView state;
+    std::shared_ptr<integration::PerceptionPreview> preview;
+    std::uint64_t acknowledged = 0;
+    int frame_reads = 0, pause_depth = 0;
+    TaskFeedFixture() {
+        state.state = "sampling";
+        preview = std::make_shared<integration::PerceptionPreview>();
+        preview->id = "event-frame-fixture";
+        preview->image.width = 4;
+        preview->image.height = 2;
+        preview->image.stride = 16;
+        preview->image.pixels.assign(32, std::uint8_t{1});
+        preview->observed_at = std::chrono::steady_clock::now();
+        state.previews.emplace_back(preview->id, preview);
+        append();
+    }
+    void append() {
+        integration::PerceptionEvent event;
+        event.sequence = ++state.newest;
+        event.entity = 9;
+        event.kind = "observed_unconfirmed";
+        event.text = "temporary fixture notice " + std::to_string(event.sequence);
+        event.frame_id = preview->id;
+        event.observed_at = std::chrono::steady_clock::now();
+        state.events.push_back(std::move(event));
+    }
+    integration::PerceptionView view() const override { return state; }
+    bool acknowledge(std::uint64_t cursor) override {
+        acknowledged = cursor;
+        return true;
+    }
+    bool acknowledge_frame(const std::string &id) override {
+        check(id == preview->id);
+        ++frame_reads;
+        state.previews.clear();
+        return true;
+    }
+    void focus(const mirage::desktop::WindowGeometry &) override {}
+    struct Pause final : integration::PerceptionPause {
+        int &depth;
+        explicit Pause(int &value) : depth(value) { ++depth; }
+        ~Pause() override { --depth; }
+    };
+    std::unique_ptr<integration::PerceptionPause> pause() override {
+        return std::make_unique<Pause>(pause_depth);
+    }
+};
+class TaskFeedScript final : public mira::IModelProvider {
+  public:
+    mira::ModelProfile profile_;
+    std::shared_ptr<TaskFeedFixture> feed;
+    unsigned calls = 0, images = 0;
+    bool missing_frame = false;
+    explicit TaskFeedScript(mira::ModelProfile profile, std::shared_ptr<TaskFeedFixture> value)
+        : profile_(std::move(profile)), feed(std::move(value)) {}
+    const mira::ModelProfile &profile() const override { return profile_; }
+    mira::Result<mira::ModelResponse> infer(const mira::ModelRequest &request,
+                                            const mira::OperationContext &,
+                                            const mira::ProviderInferOptions &) override {
+        std::string current;
+        unsigned attached = 0;
+        for (const auto &item : request.input)
+            for (const auto &part : item.content) {
+                attached += std::holds_alternative<mira::ImagePart>(part);
+                if (const auto *text = std::get_if<mira::TextPart>(&part);
+                    text && text->text.starts_with("Untrusted continuous desktop observations"))
+                    current = text->text;
+            }
+        check(current.size() <= 8192);
+        images += attached;
+        if (calls == 1) {
+            check(attached == 1 && current.find("temporary fixture notice 1") != std::string::npos);
+            check(feed->acknowledged == 0);
+            feed->append(); // arrives while the provider is thinking
+        }
+        if (calls == 2) {
+            check(attached == 0 && current.find("temporary fixture notice 2") != std::string::npos);
+            const auto body = mira::parse_json(current.substr(current.find('{')));
+            check(body && mira::to_json_string(*body.value().find("events"))
+                                  .find("temporary fixture notice 1") == std::string::npos);
+            check(mira::to_json_string(*body.value().find("recent_read_context"))
+                      .find("temporary fixture notice 1") != std::string::npos);
+            check(feed->acknowledged == 1);
+        }
+        if (calls == 3) {
+            check(attached == (missing_frame ? 0u : 1u) && feed->acknowledged == 2);
+            const auto body = mira::parse_json(current.substr(current.find('{')));
+            check(body && body.value().find("events")->as_array()->empty());
+            check(mira::to_json_string(*body.value().find("recent_read_context"))
+                      .find("temporary fixture notice 2") != std::string::npos);
+        }
+        mira::ModelResponse response;
+        response.request_id = request.request_id;
+        response.operation_id = request.operation_id;
+        response.profile_id = profile_.id;
+        response.status = mira::ModelCompletionStatus::Completed;
+        if (calls < 3) {
+            const std::string name = calls == 0   ? "desktop.screen.capture"
+                                     : calls == 1 ? "wait"
+                                                  : "desktop.vision.event_frame";
+            const auto spec =
+                std::find_if(request.tools.begin(), request.tools.end(), [&](const auto &tool) {
+                    return tool.wire_name == mirage::testing::fixture_tool_name(name);
+                });
+            check(spec != request.tools.end());
+            mira::ToolCallOutput call;
+            call.tool_id = spec->tool_id;
+            call.provider_name = spec->wire_name;
+            call.provider_call_id.value = "feed-" + std::to_string(calls);
+            call.arguments =
+                calls == 0   ? JsonValue{JsonValue::Object{{"source", "desktop"}}}
+                : calls == 1 ? JsonValue{JsonValue::Object{{"duration_ms", std::int64_t{0}}}}
+                             : JsonValue{JsonValue::Object{
+                                   {"frame_id", missing_frame ? "evicted" : feed->preview->id}}};
+            call.arguments_digest = mira::canonical_json_digest(call.arguments);
+            response.output.emplace_back(std::move(call));
+        } else {
+            mira::MessageOutput message;
+            message.content.emplace_back(mira::OutputTextPart{"fixture observed", {}});
+            response.output.emplace_back(std::move(message));
+        }
+        ++calls;
+        return response;
+    }
+};
+void task_feed_model_layer(kairo::Executor &executor, bool missing_frame = false) {
+    auto tools = desktop();
+    auto env = std::make_shared<NativeEnvironment>();
+    tools.environment = env;
+    auto feed = std::make_shared<TaskFeedFixture>();
+    unsigned connections = 0;
+    tools.continuous_session = [&](auto session, const auto &options) {
+        check(env->captures == 1 && env->created == 1 && !options.source_id.empty());
+        ++connections;
+        return integration::PerceptionConnection{std::move(session), feed};
+    };
+    std::shared_ptr<TaskFeedScript> script;
+    integration::ModelProviderOverride provider([&](const auto &profile) {
+        script = std::make_shared<TaskFeedScript>(profile, feed);
+        script->missing_frame = missing_frame;
+        return script;
+    });
+    integration::ModelLayerConfig config;
+    config.enabled = config.supports_images = true;
+    config.model_selector = "feed-fixture";
+    integration::ModelLayer model(executor, config, &provider, tools);
+    const auto result =
+        executor
+            .submit_auto([&] {
+                return model.complete_harness_turn("", "observe fixture transient", context());
+            })
+            .get();
+    if (!result.ok)
+        std::cerr << "feed fixture: " << result.error << "\n";
+    check(result.ok && script->calls == 4 && script->images == (missing_frame ? 1u : 2u));
+    check(connections == 1 && env->captures == 1 && env->created == env->closed);
+    check(feed->acknowledged == 2 && feed->frame_reads == (missing_frame ? 0 : 1));
+    model.shutdown();
+}
+
 class SharedScript final : public mira::IModelProvider {
   public:
     mira::ModelProfile profile_;
@@ -2414,6 +2579,444 @@ void shared_loop(kairo::Executor &executor) {
         check(part.output.find("private-wayland-input") == std::string::npos);
     }
     model.shutdown();
+}
+
+// Controlled visual/OCR fixture: the model stub chooses keys from the latest
+// OCR observation, while production ModelLayer owns tool routing, image scopes,
+// epochs, action execution and refresh. This is not a real IME/OCR accuracy claim.
+class VisualImeScript final : public mira::IModelProvider {
+  public:
+    mira::ModelProfile profile_;
+    std::string target;
+    int calls = 0;
+    bool finished = false;
+    VisualImeScript(const mira::ModelProfile &profile, std::string text)
+        : profile_(profile), target(std::move(text)) {}
+    const mira::ModelProfile &profile() const override { return profile_; }
+    mira::Result<mira::ModelResponse> infer(const mira::ModelRequest &request,
+                                            const mira::OperationContext &,
+                                            const mira::ProviderInferOptions &) override {
+        mira::ModelResponse response;
+        response.request_id = request.request_id;
+        response.operation_id = request.operation_id;
+        response.profile_id = profile_.id;
+        response.status = mira::ModelCompletionStatus::Completed;
+        const mira::ToolResultPart *latest = nullptr;
+        std::string host;
+        for (const auto &item : request.input)
+            for (const auto &part : item.content) {
+                if (const auto *text = std::get_if<mira::TextPart>(&part))
+                    host += text->text;
+                if (const auto *result = std::get_if<mira::ToolResultPart>(&part))
+                    latest = result;
+            }
+        check(host.find("中/英") != std::string::npos);
+        check(host.find("CURRENT page") != std::string::npos);
+        check(host.find("Candidate commit and form submission are separate") != std::string::npos);
+        std::string name = "desktop.vision.ocr";
+        JsonValue args{JsonValue::Object{}};
+        if (calls++ == 0) {
+            name = "desktop.screen.capture";
+            args.set("source", "desktop");
+            args.set("interaction", true);
+        } else if (latest && latest->result.find("regions")) {
+            check(!latest->failed);
+            const auto &read = latest->result;
+            const auto &regions = *read.find("regions")->as_array();
+            check(regions.size() == 1);
+            const auto text = *regions.front().find("text")->as_string();
+            if (text == "输入框: " + target) {
+                finished = true;
+                mira::MessageOutput message;
+                message.content.emplace_back(mira::OutputTextPart{"已核对输入框文字", {}});
+                response.output.emplace_back(std::move(message));
+                return response;
+            }
+            name = "desktop.session.key";
+            std::string key;
+            if (text == "英")
+                key = "shift";
+            else if (text == "中")
+                name = "desktop.session.type_text";
+            else if (const auto pos = text.find(". " + target); pos != std::string::npos) {
+                check(pos > 0);
+                key = text.substr(pos - 1, 1);
+            } else if (text.find("下一页") != std::string::npos)
+                key = "=";
+            else if (text.find("上一页") != std::string::npos)
+                key = "-";
+            else
+                check(false);
+            check(read.find("input_actionable")->as_boolean() == true);
+            args.set("image_scope", *read.find("image_scope"));
+            args.set("environment_epoch", *read.find("environment_epoch"));
+            for (const auto *axis : {"x", "y"})
+                args.set(axis, 0);
+            args.set("width", 2);
+            args.set("height", 1);
+            if (name == "desktop.session.type_text")
+                args.set("text", "han");
+            else
+                args.set("key_name", key);
+        }
+        const auto tool =
+            std::find_if(request.tools.begin(), request.tools.end(), [&](const auto &t) {
+                return t.wire_name == mirage::testing::fixture_tool_name(name);
+            });
+        check(tool != request.tools.end());
+        mira::ToolCallOutput call;
+        call.tool_id = tool->tool_id;
+        call.provider_name = tool->wire_name;
+        call.provider_call_id.value = "visual-ime-" + std::to_string(calls);
+        call.arguments = std::move(args);
+        call.arguments_digest = mira::digest_string(mira::to_json_string(call.arguments));
+        response.output.emplace_back(std::move(call));
+        return response;
+    }
+};
+
+void visual_ime_loop(kairo::Executor &executor, bool backward) {
+    auto env = std::make_shared<NativeEnvironment>();
+    env->interactive = true;
+    int phase = 0, page = backward ? 1 : 0;
+    const std::string target = backward ? "汉" : "翰";
+    std::vector<std::string> keys;
+    env->accepted_input = [&](const auto &action) {
+        using Kind = mirage::desktop::SharedInputAction::Kind;
+        keys.push_back(action.value);
+        if (phase == 0) {
+            check(action.kind == Kind::Key && action.value == "shift");
+            phase = 1;
+        } else if (phase == 1) {
+            check(action.kind == Kind::Text && action.value == "han");
+            phase = 2;
+        } else if (action.value == "=") {
+            check(page == 0);
+            page = 1;
+        } else if (action.value == "-") {
+            check(page == 1);
+            page = 0;
+        } else {
+            check(action.value == (backward ? "1" : "3"));
+            phase = 3;
+        }
+    };
+    auto tools = desktop();
+    tools.environment = env;
+    tools.gate = [](const auto &, const auto &, const auto &cancel) { return !cancel(); };
+    tools.ocr_image = [&](const auto &, const auto &, const auto &) {
+        integration::ImageOcrOutcome out;
+        out.ok = true;
+        out.model_revision = "controlled-ime-ocr";
+        const auto text = phase == 0   ? "英"
+                          : phase == 1 ? "中"
+                          : phase == 3 ? "输入框: " + target
+                          : page == 0  ? "中 拼音: han 1. 汉 2. 汗 下一页"
+                                       : "中 拼音: han 1. 涵 3. 翰 上一页";
+        out.regions = {{text, 0.99, 0, 0, 2, 1}};
+        return out;
+    };
+    std::shared_ptr<VisualImeScript> script;
+    integration::ModelProviderOverride provider([&](const auto &profile) {
+        script = std::make_shared<VisualImeScript>(profile, target);
+        return script;
+    });
+    integration::ModelLayerConfig config;
+    config.enabled = config.supports_images = true;
+    config.model_selector = "visual-ime-fixture";
+    integration::ModelLayer model(executor, config, &provider, tools);
+    const auto result =
+        executor
+            .submit_auto(
+                [&] { return model.complete_harness_turn("", "通过视觉输入" + target, context()); })
+            .get();
+    if (!result.ok)
+        std::cerr << "visual IME: " << result.error << "\n";
+    check(result.ok && script->finished && phase == 3);
+    check(keys ==
+          std::vector<std::string>{"shift", "han", backward ? "-" : "=", backward ? "1" : "3"});
+    check(env->created == env->closed);
+    model.shutdown();
+}
+
+class ImeFillScript final : public mira::IModelProvider {
+  public:
+    mira::ModelProfile profile_;
+    int outer_calls = 0, planning_calls = 0;
+    bool finished = false;
+    explicit ImeFillScript(mira::ModelProfile profile) : profile_(std::move(profile)) {}
+    const mira::ModelProfile &profile() const override { return profile_; }
+    mira::Result<mira::ModelResponse> infer(const mira::ModelRequest &request,
+                                            const mira::OperationContext &,
+                                            const mira::ProviderInferOptions &) override {
+        mira::ModelResponse response;
+        response.request_id = request.request_id;
+        response.operation_id = request.operation_id;
+        response.profile_id = profile_.id;
+        response.status = mira::ModelCompletionStatus::Completed;
+        const auto answer = [&](const std::string &text) {
+            mira::MessageOutput message;
+            message.content.emplace_back(mira::OutputTextPart{text, {}});
+            response.output.emplace_back(std::move(message));
+        };
+        if (request.prompt_provenance.system_template_digest ==
+            mira::digest_string(detail::ime_pinyin_prompt)) {
+            ++planning_calls;
+            check(request.tools.empty() && request.input.size() == 2);
+            for (const auto &item : request.input)
+                for (const auto &part : item.content)
+                    check(std::holds_alternative<mira::TextPart>(part));
+            check(std::get<mira::TextPart>(request.input.back().content.front()).text == "\"你\"");
+            answer("{\"units\":[{\"text\":\"你\",\"pinyin\":\"ni\"}]}");
+            return response;
+        }
+        const mira::ToolResultPart *latest = nullptr;
+        bool image = false;
+        for (const auto &item : request.input)
+            for (const auto &part : item.content) {
+                if (const auto *result = std::get_if<mira::ToolResultPart>(&part))
+                    latest = result;
+                if (std::holds_alternative<mira::ImagePart>(part))
+                    image = true;
+            }
+        std::string name = "desktop.screen.capture";
+        JsonValue args{JsonValue::Object{{"source", "desktop"}, {"interaction", true}}};
+        if (outer_calls == 1) {
+            check(image && latest && !latest->failed);
+            name = "desktop.input.fill";
+            args = JsonValue::Object{
+                {"text", "你"},
+                {"image_scope", *latest->result.find("image_scope")},
+                {"environment_epoch", *latest->result.find("environment_epoch")},
+                {"target", JsonValue::Object{{"x", 0}, {"y", 2}, {"width", 4}, {"height", 2}}},
+                {"mode_roi", JsonValue::Object{{"x", 0}, {"y", 0}, {"width", 4}, {"height", 2}}},
+                {"candidates_roi",
+                 JsonValue::Object{{"x", 0}, {"y", 4}, {"width", 4}, {"height", 2}}}};
+        } else if (outer_calls == 2) {
+            if (image || !latest || latest->failed)
+                std::cerr << "IME outer result image=" << image
+                          << " result=" << (latest ? latest->safe_error_summary : "missing")
+                          << "\n";
+            check(!image && latest && !latest->failed);
+            check(latest->result.find("text_verified")->as_boolean() == true);
+            finished = true;
+            answer("已核对输入文字");
+            ++outer_calls;
+            return response;
+        }
+        ++outer_calls;
+        const auto tool =
+            std::find_if(request.tools.begin(), request.tools.end(), [&](const auto &entry) {
+                return entry.wire_name == mirage::testing::fixture_tool_name(name);
+            });
+        check(tool != request.tools.end());
+        mira::ToolCallOutput call;
+        call.tool_id = tool->tool_id;
+        call.provider_name = tool->wire_name;
+        call.provider_call_id.value = "ime-fill-" + std::to_string(outer_calls);
+        call.arguments = std::move(args);
+        call.arguments_digest = mira::digest_string(mira::to_json_string(call.arguments));
+        response.output.emplace_back(std::move(call));
+        return response;
+    }
+};
+
+void ime_fill_tool(const std::string &fault = {}, kairo::Executor *executor = nullptr) {
+    auto feed = std::make_shared<TaskFeedFixture>();
+    auto env = std::make_shared<NativeEnvironment>();
+    env->interactive = true;
+    env->frame_width = 12;
+    env->frame_height = 8;
+    bool chinese = false, composed = false, allowed = true;
+    int page = 0, ocr_calls = 0, plans = 0;
+    std::string actual;
+    env->session_pixels = [&] {
+        std::vector<std::uint8_t> pixels(12 * 8 * 4, 255);
+        for (int y = 0; y < 8; ++y)
+            for (int x = 0; x < 12; ++x)
+                pixels[(y * 12 + x) * 4] = y < 2 ? 11 : y < 4 ? 22 : 33;
+        return pixels;
+    };
+    env->accepted_input = [&](const auto &action) {
+        check(feed->pause_depth > 0);
+        using Kind = mirage::desktop::SharedInputAction::Kind;
+        if (action.kind == Kind::Click)
+            return;
+        if (action.value == "ctrl+a" || action.value == "backspace") {
+            actual.clear();
+            return;
+        }
+        if (action.value == "shift") {
+            chinese = !chinese;
+            return;
+        }
+        if (action.value == "ni") {
+            composed = true;
+            if (fault == "deny")
+                allowed = false;
+            if (fault == "release")
+                env->release_failed = true;
+            if (fault == "lag")
+                env->lag_phase = "click";
+            if (fault == "throw")
+                throw std::runtime_error("fixture input exception");
+            return;
+        }
+        if (action.value == "=") {
+            if (fault != "repeat")
+                page = 1;
+            return;
+        }
+        if (action.value == "3") {
+            check(page == 1);
+            actual = fault == "wrong" ? "尼" : "你";
+            composed = false;
+            return;
+        }
+        check(false);
+    };
+    auto desktop = ::desktop();
+    desktop.environment = env;
+    desktop.continuous_session = [feed](auto session, const auto &) {
+        return integration::PerceptionConnection{std::move(session), feed};
+    };
+    desktop.gate = [&](const auto &, const auto &, const auto &cancel) {
+        return allowed && !cancel();
+    };
+    desktop.ocr_image = [&](const auto &image, const auto &, const auto &) {
+        ++ocr_calls;
+        check(image.width == 4 && image.height == 2); // Never full-frame OCR.
+        integration::ImageOcrOutcome out;
+        out.ok = true;
+        const int marker = image.pixels.front();
+        const std::string text = marker == 11   ? (chinese ? "中" : "英")
+                                 : marker == 22 ? actual
+                                 : composed     ? page == 0 ? "1. 尼 2. 泥" : "1. 拟 3. 你"
+                                                : "";
+        if (!text.empty())
+            out.regions = {{text, 0.99, 0, 0, 2, 1}};
+        return out;
+    };
+    if (executor) {
+        std::shared_ptr<ImeFillScript> script;
+        integration::ModelProviderOverride provider([&](const auto &profile) {
+            script = std::make_shared<ImeFillScript>(profile);
+            return script;
+        });
+        integration::ModelLayerConfig config;
+        config.enabled = config.supports_images = true;
+        config.model_selector = "ime-fill-fixture";
+        integration::ModelLayer model(*executor, config, &provider, desktop);
+        const auto result =
+            executor
+                ->submit_auto(
+                    [&] { return model.complete_harness_turn("", "在输入框中输入你", context()); })
+                .get();
+        if (!result.ok)
+            std::cerr << "IME fill model: " << result.error << "\n";
+        check(result.ok && result.reply_text.find("已核对输入文字") != std::string::npos);
+        check(result.reply_text.find("\"units\"") == std::string::npos);
+        for (const auto &part : result.parts)
+            if (part.kind == "text")
+                check(part.text.find("\"units\"") == std::string::npos);
+        check(script->finished && script->planning_calls == 1 && script->outer_calls == 3);
+        check(actual == "你" && ocr_calls > 3);
+        model.shutdown();
+        return;
+    }
+    const auto ctx = context();
+    auto source = std::make_shared<integration::detail::DesktopImageSource>();
+    integration::detail::DesktopImageTurn turn(source, desktop, ctx, {});
+    mira::BuiltinToolRegistry registry;
+    integration::detail::DesktopActionVerification verification(desktop, ctx, {});
+    const auto decorate = [&](const auto &name, auto handler) -> mira::BuiltinToolHandler {
+        return [&, name, handler](const auto &args, const auto &owner) {
+            return integration::detail::DesktopActionVerification::mutation(name)
+                       ? verification.execute(name, args, owner, handler)
+                       : handler(args, owner);
+        };
+    };
+    turn.register_tool(registry, decorate, true);
+    turn.register_ime_tool(
+        registry,
+        [&](const auto &, const auto &) -> std::optional<integration::detail::ImePlan> {
+            ++plans;
+            if (fault == "takeover")
+                desktop.actions->takeover();
+            return integration::detail::ImePlan{{"你", fault == "plan" ? "BAD" : "ni"}};
+        },
+        decorate);
+    const auto invoke = [&](const std::string &name, JsonValue args) {
+        const auto tools = registry.exposed_tools();
+        const auto tool = std::find_if(tools.begin(), tools.end(),
+                                       [&](const auto &entry) { return entry.wire_name == name; });
+        check(tool != tools.end());
+        mira::ToolProposal call;
+        call.tool_id = tool->tool_id;
+        call.wire_name = name;
+        call.tool_version = tool->version;
+        call.provider_call_id.value = "ime-" + mira::OperationId::generate().to_string();
+        call.operation_id = mira::OperationId::generate();
+        call.has_side_effects = tool->has_side_effects;
+        call.arguments = std::move(args);
+        call.arguments_digest = mira::canonical_json_digest(call.arguments);
+        return registry.execute(call, ctx);
+    };
+    const auto capture =
+        invoke("desktop.screen.capture",
+               JsonValue{JsonValue::Object{{"source", "desktop"}, {"interaction", true}}});
+    check(capture && !capture.value().failed);
+    mira::AgentLoopSpec owner;
+    owner.task_id = ctx.task;
+    owner.session_id = ctx.session;
+    owner.task_epoch = ctx.task_epoch;
+    const auto offered = turn.supply(owner);
+    check(bool(offered));
+    mira::ModelRequest model_request;
+    model_request.task_id = ctx.task;
+    model_request.task_epoch = ctx.task_epoch;
+    model_request.input = offered.value();
+    check(bool(turn.validate_request(model_request, ctx)));
+    JsonValue rectangle{JsonValue::Object{{"x", 0}, {"y", 2}, {"width", 4}, {"height", 2}}};
+    JsonValue args{JsonValue::Object{
+        {"text", "你"},
+        {"target", rectangle},
+        {"mode_roi", JsonValue::Object{{"x", 0}, {"y", 0}, {"width", 4}, {"height", 2}}},
+        {"candidates_roi", JsonValue::Object{{"x", 0}, {"y", 4}, {"width", 4}, {"height", 2}}},
+        {"image_scope", *capture.value().result.find("image_scope")},
+        {"environment_epoch", *capture.value().result.find("environment_epoch")}}};
+    if (fault == "overlap")
+        args.set("candidates_roi", rectangle);
+    const auto filled = invoke("desktop.input.fill", args);
+    check(feed->pause_depth == 0);
+    if (!filled || filled.value().failed)
+        std::cerr << "IME fill " << fault << ": "
+                  << (filled ? filled.value().safe_error_summary : filled.error().safe_message)
+                  << "\n";
+    if (fault.empty()) {
+        check(filled && !filled.value().failed && actual == "你");
+        check(filled.value().result.find("text_verified")->as_boolean() == true);
+        check(ocr_calls > 3 && plans == 1);
+        check(verification.settle());
+        const auto supplied = turn.supply(owner);
+        check(supplied &&
+              std::all_of(supplied.value().begin(), supplied.value().end(), [](const auto &item) {
+                  return std::none_of(item.content.begin(), item.content.end(),
+                                      [](const auto &part) {
+                                          return std::holds_alternative<mira::ImagePart>(part);
+                                      });
+              })); // Only advisory feed text, never the private ROI pixels.
+    } else {
+        check(!filled || filled.value().failed);
+        if (fault == "overlap" || fault == "plan" || fault == "takeover")
+            check(env->inputs == 0 && ocr_calls == 0);
+        if (fault == "repeat" || fault == "wrong") {
+            const auto receipt = mira::parse_json(filled.value().safe_error_summary);
+            check(receipt && receipt.value().find("ime_progress"));
+        }
+        if (fault == "release" || fault == "throw")
+            check(!desktop.actions->input_released() && desktop.actions->authority_epoch() == 0);
+    }
 }
 
 void native_ocr_loop(kairo::Executor &executor, const std::string &mode) {
@@ -3705,6 +4308,16 @@ int main() {
         input_reuse_contention(executor);
         shared_long_press_contract();
         shared_loop(executor);
+        visual_ime_loop(executor, false);
+        visual_ime_loop(executor, true);
+        ime_fill_tool({}, &executor);
+        for (int trial = 0; trial < 20; ++trial)
+            executor.submit_auto([&] { ime_fill_tool(); }).get();
+        for (const auto *fault :
+             {"overlap", "plan", "repeat", "wrong", "deny", "release", "takeover", "lag", "throw"})
+            executor.submit_auto([&] { ime_fill_tool(fault); }).get();
+        task_feed_model_layer(executor);
+        task_feed_model_layer(executor, true);
         contracts(executor);
         budget_degradation();
         anchored_remaining_unit();

@@ -22,6 +22,8 @@ struct PresentationContext;
 }
 namespace mirage::platform::linux_backend {
 
+class InputMethodBackend;
+
 class X11Backend;          // private in src/: no X11 types may appear here (RULE-01)
 class AtspiBackend;        // ditto for the AT-SPI2 frontend (M2-03)
 class ApplicationBackend;  // ditto for the GIO application frontend (M2-05)
@@ -131,6 +133,7 @@ class LinuxDesktopEnvironment final : public mirage::desktop::DesktopEnvironment
     mirage::desktop::WindowProvider *window() override;
     mirage::desktop::ScreenProvider *screen() override;
     mirage::desktop::InputProvider *input() override;
+    mirage::desktop::InputMethodProvider *input_method() override;
     mirage::desktop::AccessibilityProvider *accessibility() override;
     mirage::desktop::ClipboardProvider *clipboard() override;
     mirage::desktop::ApplicationProvider *application() override;
@@ -204,6 +207,7 @@ class LinuxDesktopEnvironment final : public mirage::desktop::DesktopEnvironment
     execute_common(const std::string &command, const mirage::desktop::ProcessLimits &limits,
                    const mirage::desktop::CancelToken &cancel, int working_dir_fd,
                    mirage::desktop::ProcessOutputSink *output_sink);
+    std::unique_ptr<InputMethodBackend> input_method_;
     std::unique_ptr<X11Backend> x11_;
     /// M7-18: Wayland fallback window enumeration over the accessibility tree.
     std::unique_ptr<::mirage::desktop::WindowProvider> atspi_windows_;

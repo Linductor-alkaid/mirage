@@ -1,0 +1,155 @@
+{
+  "date": "2026-10-24",
+  "source_head": "2af42c51b1f8f8804cf6ae156dc2822d885b5bae",
+  "eui": "19acab66aba45020fced22c9bd5ae5cd0ae54923",
+  "package": "/home/linductor/mirage/out/packages/mirage_0.1.0_amd64.deb",
+  "sha256": "6373615d252f7bfd43203dd04be121490717e851acbb8a195e2f752c8f724621",
+  "bytes": 126622334,
+  "control": {
+    "Package": "mirage",
+    "Version": "0.1.0",
+    "Architecture": "amd64",
+    "Depends": "libgl1, libglx0, libxcursor1, libxi6, libxinerama1, libatspi2.0-0t64 (>= 2.9.90), libc6 (>= 2.38), libcurl4t64 (>= 7.16.2), libgcc-s1 (>= 3.4), libglib2.0-0t64 (>= 2.66.0), libgomp1 (>= 4.9), libibus-1.0-5 (>= 1.2.99.20100202), libpipewire-0.3-0t64 (>= 0.3.6), libssl3t64 (>= 3.0.0), libstdc++6 (>= 13.1), libx11-6 (>= 2:1.2.99.901), libxext6, libxi6 (>= 2:1.2.99.4), libxrandr2 (>= 2:1.5.0), libxtst6",
+    "Installed-Size": "195145"
+  },
+  "binaries": {
+    "mirage": {
+      "sha256": "0ba0a90a7939902251697ce38a82fda774597a902f96a10c75638dbc26a73725",
+      "matches_release": true,
+      "dependencies_resolved": true
+    },
+    "mirage-service": {
+      "sha256": "caaa1453f48dc4ffcf204daab2933047b6e42306381dd10fe8c38329ee857993",
+      "matches_release": true,
+      "dependencies_resolved": true
+    },
+    "mirage-tray": {
+      "sha256": "9401af825f8023f9183c51c4a276207f50733e0cc6bb6096fb19cec0007afcd4",
+      "matches_release": true,
+      "dependencies_resolved": true
+    },
+    "mirage-native": {
+      "sha256": "51c3dd1c72d727d48edae07014981bd26a9fcc65756f3de185ae70948964e646",
+      "matches_release": true,
+      "dependencies_resolved": true
+    }
+  },
+  "ui_assets": {
+    "mira.png": "e615d7e768c532e9966e97fbbaeefc4b7212ef386521bef6be680ed3d250bbed",
+    "mira-ui.png": "c6756133885ecd1ce9bcf01657380a6d13a52c83315914b0dd707fbfa30a047d",
+    "Phosphor-Regular.ttf": "06b91e022b7ee899a63efced879392a74f0bacbda54e4467e9f663220d173a10",
+    "NotoSansSC-Regular.otf": "faa6c9df652116dde789d351359f3d7e5d2285a2b2a1f04a2d7244df706d5ea9",
+    "OFL-NotoSansSC.txt": "6a73f9541c2de74158c0e7cf6b0a58ef774f5a780bf191f2d7ec9cc53efe2bf2",
+    "MIT-Phosphor.txt": "6918b72504641180600cbbd4a86b0dfa9dfccf788775694325b71b9a029f6eb4",
+    "Font Awesome 7 Free-Solid-900.otf": "8a2db53f7927abee48e52262090d99ced56a22d46752fba13c8f8782ce632d73",
+    "providers/model-provider-minimax.png": "55169f0e4796d9a2ed52250426c593201bc3768604823c817037185d3ffd71cd",
+    "providers/logo-bigmodel.svg": "63d72de1b988ab15000f8e5c495d9a9da39272748c8fef103a4b39fda6605847",
+    "providers/model-provider-deepseek.png": "d230d76fb02be92a84f2b634896a358db5399632ab671af738751b45690af863",
+    "providers/model-provider-anthropic.png": "4161ba60dfd4ba79c7fd1cffdc1153a38504b1f0da201b717a71cc17ba7cf22c",
+    "providers/LICENSE-ZCode-Apache-2.0.txt": "606c36baf38b973227273df12a74930e4b4137280eea835c5cd623aa4553c13b",
+    "providers/model-provider-moonshot-kimi.png": "4fe1f8f64defd29b267f9396705f723a15191717bdb55705dc15b3a5260970f8",
+    "providers/model-provider-xiaomi-mimo.png": "ba518bd54bbb067bd85edf5ee9c14c5c191c00b2b23c33abe9528e664588bdea",
+    "providers/model-provider-openai.png": "5eda220a8219ecbbd571e6132702e91c8d85194c6b4e39b1921356789e6a9c5d",
+    "providers/provenance.json": "71abd7443a286c22d13ef5e542d890fcb5e1bb8587c870d98fdf724886703d1b",
+    "providers/model-provider-alibaba-cloud.png": "2b272099aa7f8815b63bb070fde4fd2340b2214d14d33e5aa815c0584c834996",
+    "providers/model-provider-zai.png": "9fd3cb324dcace295da0069949065c3d2919eb76140d2c20201583de47c8eb8d"
+  },
+  "vision_assets": {
+    "rec_bin": "49d9907a55ba20fa6637f9f788f66ab00793bc8ce57a733a09dbe86b9a2e3db0",
+    "manifest.json": "ec703acaba9325c40d4e34c5ef542df63941481f9af4a6b2339aa5aee8545097",
+    "resources.lock.json": "2f8ecba090ba3744f7ac357a149d157750d664490fdb23a3f3282d5cfea00e97",
+    "det_bin": "75acc15cc388e52c6278e7b77c9af1345292ad5405ee1c57f853dcfa3770b462",
+    "conversion.json": "1f29100c1045f223f39447bcac5dccfc92f52e17d7345ac45bcf1038c87ef7d7",
+    "charset": "e5f8ca61ba03d3a247d06b013119982fa6de2bd48a846018b67bca57ffc56de1",
+    "det_param": "7e0aaccc1da4181ce793536f2bb6e8ee854204997974b6be4a26cce4769be2dc",
+    "rec_param": "cc0165c63b9017f287e56c1c2073d57184fd8777053c6e14163f3d32637adfdf",
+    "notices/YOLO-model.txt": "f8ca30dce31f1ef8d0830ab0708f6d0efe0c0d9a142032a14fa76e0aae56446c",
+    "notices/NOTICE.txt": "88aad1f218ca43e96df5e86900d76e79c6f6119a9020740884d813033f9e5f7a",
+    "notices/Mirador-MIT.txt": "3b86153ad6c475fb26007920df01ba1b5d74587c1b23b55816a47e671bfa3fb9",
+    "notices/YOLO-AGPL-3.0.txt": "0d96a4ff68ad6d4b6f1f30f713b18d5184912ba8dd389f86aa7710db079abcb0",
+    "notices/Apache-2.0.txt": "3840c5c0c61c294264d2dd77b8777be6ddd90121ef4e0e64abcd22edea581d6e",
+    "notices/ncnn-BSD-3-Clause.txt": "7c974bac98848df46be1af5bdaa3c3c9c01f6082a90f55caeb7f60c6208aa255",
+    "yolo/validated_ui.bin": "f68f7b96f4b3c20ae4e187cd5b6c6e04de517f0661d75f830b1071d14369b67b",
+    "yolo/resources.lock.json": "6afa5ad9ba0ab4a88b0c1074da4367e818530ea1b80cccfabe7ecf0764cbd16d",
+    "yolo/validated_ui.param": "dbafbf5e5356415f59754d1fcbbae4fd600ff3fb8d592bf6a84dc5dbb7bcaaed"
+  },
+  "ocr_manifest_and_lock": "5 artifacts match size and sha256",
+  "yolo_manifest_and_lock": {
+    "model_id": "OmniParser-v2-icon-ncnn-contract-v1",
+    "artifacts": {
+      "param": {
+        "path": "yolo/validated_ui.param",
+        "sha256": "dbafbf5e5356415f59754d1fcbbae4fd600ff3fb8d592bf6a84dc5dbb7bcaaed",
+        "bytes": 18910
+      },
+      "bin": {
+        "path": "yolo/validated_ui.bin",
+        "sha256": "f68f7b96f4b3c20ae4e187cd5b6c6e04de517f0661d75f830b1071d14369b67b",
+        "bytes": 80258064
+      }
+    },
+    "license": "AGPL-3.0",
+    "notices_verified": true
+  },
+  "control_scripts_syntax": "passed",
+  "desktop_file_validate": "passed",
+  "cli_version": "mirage 0.1.0\nmira core 0.1.0\nplatform linux\nruntime service mirage-runtime (background: yes)",
+  "tests": {
+    "preset": "native-release",
+    "passed": 123,
+    "failed": 0,
+    "skipped": 0,
+    "seconds": 149.63,
+    "log": "/home/linductor/mirage/out/native-package-20261024/ctest.log",
+    "junit": "/home/linductor/mirage/out/native-package-20261024/ctest.xml"
+  },
+  "build_context": {
+    "head": "2af42c51b1f8f8804cf6ae156dc2822d885b5bae",
+    "branch": "feat/keyboard-ime-state",
+    "worktree_status": "M README.md\n M desktop/environment/include/mirage/desktop/desktop_environment.hpp\n M docs/compatibility/native-package-refresh-20261023.md\n M docs/decisions/DEC-110-continuous-input-and-device-compatibility.md\n M \"docs/design/Mirage\\357\\274\\232Linux - Windows \\346\\241\\214\\351\\235\\242\\347\\253\\257\\350\\256\\276\\350\\256\\241\\346\\226\\271\\346\\241\\210.md\"\n M docs/design/native-continuous-perception-wiring.md\n M docs/design/visual-scene-incremental-state.md\n M docs/plans/m7-continuous-input-and-device-compatibility.md\n M docs/plans/m7-visual-tools-and-input.md\n M docs/plans/m7-yolo-integration.md\n M docs/plans/m9-continuous-tasks-and-local-perception.md\n M docs/plans/mirage-implementation-plan.md\n M integration/mira/CMakeLists.txt\n M integration/mira/include/mirage/integration/desktop_tool_context.hpp\n M integration/mira/src/conversation_capture.hpp\n M integration/mira/src/desktop_action_verification.cpp\n M integration/mira/src/desktop_action_verification.hpp\n M integration/mira/src/desktop_atom_toolset.cpp\n M integration/mira/src/desktop_image_supply.cpp\n M integration/mira/src/desktop_image_supply.hpp\n M integration/mira/src/desktop_shared_input.cpp\n M integration/mira/src/model_layer.cpp\n M integration/mirador/CMakeLists.txt\n M integration/mirador/include/mirage/integration/visual_observation_pipeline.hpp\n M integration/mirador/include/mirage/integration/visual_session_host.hpp\n M integration/mirador/src/continuous_capture_host.cpp\n M integration/mirador/src/ppocr_pipeline.cpp\n M integration/mirador/src/ppocr_pipeline.hpp\n M integration/mirador/src/visual_session_host.cpp\n M platform/CMakeLists.txt\n M platform/linux/include/mirage/platform/linux/linux_desktop_environment.hpp\n M platform/linux/src/linux_desktop_environment.cpp\n M runtime/service/src/runtime_service.cpp\n M tests/CMakeLists.txt\n M tests/integration/desktop_image_supply_test.cpp\n M tests/integration/ppocr_pipeline_test.cpp\n M tests/platform/portal_input_test.cpp\n M tests/platform/x11_pointer_actions_test.cpp\n?? desktop/environment/include/mirage/desktop/input_method_provider.hpp\n?? docs/compatibility/data/roi-ime-fill-20261023.json\n?? docs/compatibility/data/task-continuous-perception-20261023.json\n?? docs/compatibility/data/yolo-native-package-20261023.json\n?? docs/compatibility/keyboard-ime-state-20261023.md\n?? docs/compatibility/roi-ime-fill-20261023.md\n?? docs/compatibility/task-continuous-perception-20261023.md\n?? docs/compatibility/yolo-native-package-20261023.md\n?? docs/decisions/DEC-114-roi-ocr-ime-text-tool.md\n?? docs/decisions/DEC-115-task-continuous-perception-feed.md\n?? integration/mira/include/mirage/integration/desktop_perception.hpp\n?? integration/mira/src/desktop_ime_input.cpp\n?? integration/mira/src/desktop_perception.cpp\n?? integration/mira/src/ime_pinyin_planner.cpp\n?? integration/mira/src/ime_pinyin_planner.hpp\n?? integration/mira/src/ime_text_input.cpp\n?? integration/mira/src/ime_text_input.hpp\n?? integration/mirador/include/mirage/integration/continuous_desktop_session.hpp\n?? integration/mirador/src/continuous_desktop_session.cpp\n?? integration/mirador/src/continuous_image_observation.cpp\n?? integration/mirador/src/perception_journal.hpp\n?? platform/linux/src/input_method_backend.cpp\n?? platform/linux/src/input_method_backend.hpp\n?? tests/integration/ime_text_input_test.cpp\n?? tests/integration/task_perception_test.cpp\n?? tests/manual/continuous_perception_acceptance.cpp\n?? tests/manual/continuous_perception_acceptance.py\n?? tests/manual/ime_fill_acceptance.cpp\n?? tests/manual/ime_fill_acceptance.py\n?? tests/platform/input_method_state_fixture.py\n?? tests/platform/input_method_state_test.cpp",
+    "source_file_count": 625,
+    "source_fingerprint_sha256": "32807f3b48d108fd61e8d509733dbb46886bc293c722c5abd3d7350f07575ac9",
+    "dependencies": {
+      "mira": "a29374aaf05b956cbd5ceeafc65bba4c6172675e",
+      "mirador": "2a9f4830f4727498ed4cbad568a1d3ec357ece7e",
+      "eui-neo": "19acab66aba45020fced22c9bd5ae5cd0ae54923"
+    },
+    "environment": {
+      "os_release": "PRETTY_NAME=\"Ubuntu 24.04.5 LTS\"\nNAME=\"Ubuntu\"\nVERSION_ID=\"24.04\"\nVERSION=\"24.04.5 LTS (Noble Numbat)\"\nVERSION_CODENAME=noble\nID=ubuntu\nID_LIKE=debian\nHOME_URL=\"https://www.ubuntu.com/\"\nSUPPORT_URL=\"https://help.ubuntu.com/\"\nBUG_REPORT_URL=\"https://bugs.launchpad.net/ubuntu/\"\nPRIVACY_POLICY_URL=\"https://www.ubuntu.com/legal/terms-and-policies/privacy-policy\"\nUBUNTU_CODENAME=noble\nLOGO=ubuntu-logo\n",
+      "kernel": "7.0.0-38-generic",
+      "machine": "x86_64",
+      "compiler": "c++ (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0",
+      "cmake": "cmake version 3.28.3"
+    },
+    "refresh_test_correction": "ppocr_pipeline_test now allows continuous samples while requiring one capture session and one close; repeated 10/10"
+  },
+  "initial_regression": {
+    "passed": 122,
+    "failed": 1,
+    "test": "ppocr_pipeline_test",
+    "reason": "obsolete exact-one-capture assertion after DEC-115 continuous sampling",
+    "initial_log": "/home/linductor/mirage/out/native-package-20261024/ctest-initial.log",
+    "before_repeat_log": "/home/linductor/mirage/out/native-package-20261024/ppocr-before.log",
+    "after_repeat_log": "/home/linductor/mirage/out/native-package-20261024/ppocr-after.log",
+    "business_test_repeat_passed": 10,
+    "fix": "test-only: allow foreground/background captures; require one session creation and one close"
+  },
+  "previous_package_sha256": "fc928ac34471214aadf8e0af8b847c355692db9a0eb26d28e0dc634591d14ede",
+  "previous_package_backup": "/home/linductor/mirage/out/native-package-20261024/previous-fc928ac34471.deb",
+  "delivered": true,
+  "features": {
+    "native_frontend": true,
+    "pet_preview": true,
+    "ppocr": true,
+    "yolo": true,
+    "bundled_vision": true,
+    "packaging": true,
+    "yolo_model_dir": "/home/linductor/mirage-yolo-conversion/model-dir"
+  },
+  "limitations": {
+    "system_install": "not executed",
+    "session_restart": "not executed",
+    "Windows/Wayland/long_tasks": "not executed; feature gates remain open",
+    "sanitizers": "not rerun for this package refresh; see task-continuous-perception-20261023.md"
+  }
+}

@@ -162,6 +162,12 @@ class CaptureWorker final : public kairo::IBlockingIoWorker {
                 core_->report_locked();
                 continue;
             }
+            if (result.error.code == "capture_busy") {
+                ++core_->counters.backpressure_count;
+                core_->counters.state = Stats::State::Backpressured;
+                core_->report_locked();
+                continue; // Foreground owns the session; try the next admitted tick.
+            }
             if (received_at >= deadline) {
                 ++core_->counters.timed_out_frames;
                 core_->fail_locked(

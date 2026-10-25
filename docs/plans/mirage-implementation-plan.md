@@ -1,5 +1,9 @@
 # Mirage 实施总计划
 
+2026-10-23：[M7-23](m7-yolo-integration.md) 本机构建补充已锁定 YOLO 权重，
+native-release 与 DEB 交付完成；Release 120/120、真实推理与包校验通过，
+见[验收记录](../compatibility/yolo-native-package-20261023.md)。既有跨平台收尾状态不变。
+
 2026-10-16：[M7-23](m7-yolo-integration.md) 接入真实 YOLO 与 Mirador 修复，In Progress，DEC-097。
 
 > 状态：Planned
@@ -567,6 +571,11 @@ Executor 由 pinned `third_party/mira/third_party/executor` 提供，能力路�
 
 ## 尚未冻结的决策（暂定默认值）
 
+2026-10-23 已接受 [DEC-114](../decisions/DEC-114-roi-ocr-ime-text-tool.md)，由
+[M7-35](m7-continuous-input-and-device-compatibility.md) 交付 ROI OCR 输入法复合工具。
+工具实现与限定环境重复统计不关闭共享 Portal/Windows、实际模式切换及在线语言规划
+验收；范围、命令及失败证据见[专项验收记录](../compatibility/roi-ime-fill-20261023.md)。
+
 | 编号 | 主题 | 暂定默认值 | 负责人 | 最迟冻结 |
 | --- | --- | --- | --- | --- |
 | DEC-110 | 连续输入与设备兼容性 | Proposed：M7-25 已有契约冻结稿；2026-10-20 补全量键鼠默认本地自然时序、无模型时间参数与完整执行后返回/验证要求，契约及兼容迁移待修订；M7-26 已交付 X11/Portal 完整动作默认自然时序与裸修饰键 tap；持键/IME/设备及真实平台验收未完成 | Mirage 维护者 | M7-25 修订/评审；设备原型前 M7-29/30，任务阈值执行前 M7-31 |
@@ -970,3 +979,24 @@ pet、OCR/YOLO 和资源打包），Release 定向回归 19/19、39.57 s，公�
 不确定默认人工复核：保留失败、重新观察、独立路径和重规划；input_lag 等待新源帧
 后恢复，连续故障停用局部路径。计划/设计/安全及证据同步，M9 保持 In Progress，
 真实平台长任务和释放失败通道重建不由受控回归关闭。
+
+2026-10-23 / M7-28 In Progress：键盘/输入法首增量接通只读 InputMethodProvider、
+`desktop.input.state` 1.0.0 的 Fcitx5/IBus 部分状态，并按维护者要求接入视觉/OCR
+中英判定、Shift 复观、-/= 翻页、按当前页编号选字与最终输入框验字策略。
+受控正反翻页工具链、状态/错误/取消/预算回归与目标环境限制见
+[增量验证](../compatibility/keyboard-ime-state-20261023.md)。真实候选 OCR、
+在线自主模型、切窗及 Windows 未完成，不关闭 M7-28/31 或整体 M7。
+
+
+2026-10-23：[DEC-115](../decisions/DEC-115-task-continuous-perception-feed.md) 与 M9-21
+接入任务连续感知：Mirador OCR/轻量变化自动供给有限事件流，按需读历史预览，已读
+60 秒清理，前台输入/OCR 优先；默认图标语义保持按需。后台不请求模型、不编码 PNG，
+已消费的同一截图不重复附送。打字优先路线与能力回执同步，已授权替代路线仍可自主
+选择。实现与私有显示证据见[专项记录](../compatibility/task-continuous-perception-20261023.md)；
+极短提示、真实 Portal/Windows、在线完成率和低端资源门禁未关闭，M9-21 In Progress。
+
+2026-10-24：维护者要求更新 native-release；完整 Release/产品目标、DEB 打包和
+包内程序/资源/模型核对通过，最终 CTest 123/123（0 skip）。首次旧 OCR 单次
+采集断言失败及测试修正、10 轮专项复验均留证，见
+[交付记录](../compatibility/native-package-refresh-20261024.md)。新包已替换交付目录并
+备份旧包，未安装/重启；M7-35/M9-21 原有功能和平台验收状态不变。

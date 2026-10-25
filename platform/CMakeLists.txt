@@ -27,6 +27,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
         linux/src/linux_desktop_environment.cpp
         linux/src/linux_file_actions.cpp
         linux/src/credential_store.cpp
+        linux/src/input_method_backend.cpp
         linux/src/portal_screen_backend.cpp
         linux/src/portal_input.cpp
         linux/src/portal_authorization.cpp
@@ -103,6 +104,14 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
         pkg_check_modules(GIO_UNIX QUIET IMPORTED_TARGET gio-unix-2.0)
     endif()
     if(GIO_UNIX_FOUND)
+        # Optional OS SDK for IBus address-file discovery only. No IBus bus,
+        # watcher or event-loop owner is created. Explicit IBUS_ADDRESS works
+        # with GIO alone.
+        pkg_check_modules(IBUS QUIET IMPORTED_TARGET ibus-1.0)
+        if(IBUS_FOUND)
+            target_link_libraries(mirage_platform PRIVATE PkgConfig::IBUS)
+            target_compile_definitions(mirage_platform PRIVATE MIRAGE_LINUX_IBUS_DISCOVERY=1)
+        endif()
         find_package(PNG QUIET)
         if(PNG_FOUND)
             target_link_libraries(mirage_platform PRIVATE PNG::PNG)

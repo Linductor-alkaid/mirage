@@ -46,8 +46,8 @@ bool DesktopActionVerification::mutation(const std::string &name) {
            name == "desktop.vision.click" || name == "desktop.vision.scroll" ||
            name == "desktop.vision.drag" || name == "desktop.window.activate" ||
            name == "desktop.input.click" || name == "desktop.input.key" ||
-           name == "desktop.input.type_text" || name == "desktop.application.launch" ||
-           name == "desktop.application.open_uri";
+           name == "desktop.input.type_text" || name == "desktop.input.fill" ||
+           name == "desktop.application.launch" || name == "desktop.application.open_uri";
 }
 bool DesktopActionVerification::settled(const Record &record) {
     return record.status == "verified" || record.status == "not_requested" ||
@@ -151,6 +151,8 @@ JsonValue DesktopActionVerification::summary(const Record &r) const {
         {"environment_epoch", static_cast<std::int64_t>(r.epoch)}}};
     if (!r.failure_diagnostic.empty())
         result.set("input_diagnostic", r.failure_diagnostic);
+    if (r.ime_progress.as_object())
+        result.set("ime_progress", r.ime_progress);
     return result;
 }
 
@@ -600,6 +602,10 @@ std::string DesktopActionVerification::failure_receipt(const Record &r, std::str
     conversation::truncate_text(bounded_hint, 160);
     if (!bounded_hint.empty())
         receipt.set("hint", bounded_hint);
+    if (r.ime_progress.as_object()) {
+        receipt.set("ime_progress", r.ime_progress);
+        receipt.set("message", "Read action_id for failure details.");
+    }
     auto encoded = mira::to_json_string(receipt);
     if (encoded.size() > 512) {
         // Preserve the actionable code/field before spending bytes on prose.
@@ -745,7 +751,7 @@ DesktopActionVerification::execute(const std::string &name, const JsonValue &arg
     r.display_id = field(args, "display_id");
     const bool display_region =
         name == "desktop.vision.click_region" && field(args, "target_context") == "display";
-    const bool shared_action = name.starts_with("desktop.session.");
+    const bool shared_action = name.starts_with("desktop.session.") || name == "desktop.input.fill";
     const bool application_action =
         name == "desktop.application.launch" || name == "desktop.application.open_uri";
     r.application_id = application_action ? field(args, "application_id") : "";
@@ -967,6 +973,12 @@ DesktopActionVerification::execute(const std::string &name, const JsonValue &arg
         conversation::truncate_text(code, 64);
         r.reason = code.empty() ? "action_failed" : "action_failed: " + code;
         r.failure_code = code.empty() ? "provider_error" : code;
+        if (name == "desktop.input.fill" && parsed) {
+            r.ime_progress = JsonValue::Object{};
+            for (const auto *key : {"phase", "verified_bytes", "internal_actions", "roi_ocr_calls"})
+                if (const auto *value = parsed.value().find(key))
+                    r.ime_progress.set(key, *value);
+        }
         if (code == "input_lag" || code == "input_timeout" || code == "input_release_failed" ||
             code == "portal_input_failed") {
             r.failure_diagnostic = parsed ? field(parsed.value(), "message") : "";
@@ -988,7 +1000,16 @@ DesktopActionVerification::execute(const std::string &name, const JsonValue &arg
     // Explicit recheck may inspect its fixed condition; no reflexive capture here.
     if (!r.uncertain || application_action)
         observe(r, ctx);
+    const auto *local_epoch = result ? result.value().find("evidence_epoch") : nullptr;
+    const bool local_roi_feedback =
+        name == "desktop.input.fill" && result && r.dispatched && r.input_released &&
+        !r.uncertain && flag(result.value(), "text_verified") &&
+        field(result.value(), "verification_method") == "roi_ocr_exact" && local_epoch &&
+        local_epoch->as_integer() == static_cast<std::int64_t>(r.epoch) && desktop_.actions &&
+        r.authority == desktop_.actions->authority_epoch();
     records_.push_back(std::move(r));
+    if (local_roi_feedback)
+        note_observation();
     refresh_recovery_fence();
     const auto &record = records_.back();
     if (result) {

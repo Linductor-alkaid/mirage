@@ -312,6 +312,7 @@ std::unique_ptr<PpOcrPipeline> PpOcrPipeline::create(kairo::Executor &executor,
         config.capture_limits.max_bytes = 32u << 20; // DEC-068: bounded 4K acquisition.
         config.run_ocr = true;
         config.session.enable_image_session = true;
+        config.session.enable_background_session = true;
         config.geometry_marks = geometry_marks;
         config.roi_capture = roi_capture;
         config.session.template_assets = std::move(template_assets);
@@ -508,6 +509,19 @@ PpOcrPipeline::read_image_ocr(const desktop::ImageFrame &image, const desktop::C
     result.backend_calls = backend_calls();
     return result;
 }
+PerceptionSample
+PpOcrPipeline::observe_image(const desktop::ImageFrame &image, const std::string &key,
+                             const std::optional<desktop::WindowGeometry> &focus,
+                             const desktop::CancelToken &cancel,
+                             const std::optional<std::chrono::steady_clock::time_point> &deadline) {
+    if (!impl_->pipeline || !impl_->pipeline->running()) {
+        PerceptionSample out;
+        out.error = {"unavailable", "continuous pipeline is not running"};
+        return out;
+    }
+    return impl_->pipeline->observe_image(image, key, focus, cancel, deadline);
+}
+
 ImageContinuousState PpOcrPipeline::query_image_state(
     const std::string &source_key, const desktop::CancelToken &cancel,
     const std::optional<std::chrono::steady_clock::time_point> &deadline) {

@@ -8,6 +8,7 @@
 #include <mirage/desktop/presentation_exclusion.hpp>
 #include <mirage/desktop/visual_snapshot.hpp>
 #include <mirage/integration/basic_output_retention.hpp>
+#include <mirage/integration/desktop_perception.hpp>
 #include <mirage/integration/environment_visual_pipeline.hpp>
 
 #include <cstddef>
@@ -144,6 +145,8 @@ struct DesktopToolContext {
         const std::string &, const desktop::CancelToken &,
         const std::optional<std::chrono::steady_clock::time_point> &)>
         query_image_state;
+    /// DEC-115: composition-root-owned continuous observer, opt-in backend seam.
+    PerceptionSessionFactory continuous_session;
     /// DEC-058: same-frame SoM/crop. Caller authorizes capture before invoking.
     std::function<EnvironmentVisualRefresh(
         const std::optional<desktop::WindowGeometry> &, const desktop::CancelToken &,

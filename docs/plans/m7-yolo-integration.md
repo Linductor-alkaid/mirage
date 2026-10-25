@@ -12,6 +12,9 @@
 - [x] 坐标、故障、生命周期、真实像素标注与 ASAN/UBSAN 验收。
 - [x] 同步文档、创建 PR、记录实际 CI 状态。
 - [ ] PR 的跨平台 CI 与评审收尾（维护者；按下述 PR checks 失败项补跑）。
+- [x] 2026-10-23 本机构建交付跟进：native-release 配置已锁定 UI 权重，重建 DEB，
+  核对包内 detector/权重/许可证并实际执行检测；依据 DEC-097，
+  [验收记录](../compatibility/yolo-native-package-20261023.md)。
 
 ## 验收边界
 
@@ -46,3 +49,10 @@ Mirage run 38912335032 的格式门禁在 apps/service/host.cpp 首次失败；�
 Mirador run 38909877501 全部 14/14 检查成功，已按维护者授权合并 #40；
 Mirage 改 pin 合并提交 cb45a10（与验证头 932d425 的树相同）。修复回归的
 Release 与严格 ASAN/UBSAN 各 4/4（含状态 fixture）成功；Mirage 最终跨平台 CI 仍待完成。
+
+2026-10-23 / 本机构建补充模型：维护者要求将 YOLO 补入当前构建。复用已转换且
+摘要匹配的本机模型，显式配置 `MIRAGE_YOLO_MODEL_DIR`；native-release 与 DEB
+均包含 detector、权重、锁文件和许可证。完整 Release 120/120、0 skip，147.22 s；
+构建与解包清单分别完成表单/空白真实推理各 2/2，YOLO 每图一次，像素与编号引用检查
+通过。新包已交付至 out/packages，旧包保留备份；不据此关闭既有跨平台/评审待办。
+命令、摘要和未验范围见上述验收记录。

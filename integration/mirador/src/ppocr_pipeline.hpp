@@ -4,6 +4,7 @@
 #include <memory>
 #include <string>
 
+#include <mirage/integration/desktop_perception.hpp>
 #include <mirage/integration/environment_visual_pipeline.hpp>
 
 namespace kairo {
@@ -43,6 +44,10 @@ class PpOcrPipeline final : public EnvironmentVisualPipeline {
     ImageContinuousState
     query_image_state(const std::string &source_key, const desktop::CancelToken &cancel,
                       const std::optional<std::chrono::steady_clock::time_point> &deadline);
+    PerceptionSample observe_image(const desktop::ImageFrame &, const std::string &,
+                                   const std::optional<desktop::WindowGeometry> &,
+                                   const desktop::CancelToken &,
+                                   const std::optional<std::chrono::steady_clock::time_point> &);
     void stop();
     const std::string &model_revision() const;
     std::uint64_t backend_calls() const;

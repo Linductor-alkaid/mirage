@@ -5,12 +5,16 @@
 add_library(mirage_integration_mira STATIC
     src/basic_agent_toolset.cpp
     src/desktop_atom_toolset.cpp
+    src/ime_text_input.cpp
+    src/ime_pinyin_planner.cpp
+    src/desktop_ime_input.cpp
     src/controlled_input_session.cpp
     src/controlled_input_tools.cpp
     src/desktop_action_verification.cpp
     src/desktop_context_builder.cpp
     src/desktop_ocr_tool.cpp
     src/desktop_image_supply.cpp
+    src/desktop_perception.cpp
     src/desktop_shared_input.cpp
     src/desktop_visual_tools.cpp
     src/desktop_region_tools.cpp

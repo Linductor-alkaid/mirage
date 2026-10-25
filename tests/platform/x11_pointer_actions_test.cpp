@@ -238,6 +238,21 @@ void keyboard_cadence() {
     }
     MIRAGE_CHECK(!key_down(XK_Shift_L));
     f.reset();
+    // The visual IME loop uses page keys and the number displayed on the
+    // current page. Check actual server-delivered symbols and complete release.
+    for (const auto *name : {"-", "=", "1", "3", "9"}) {
+        f.reset();
+        const auto tap = input->key_chord({name}, {}, {});
+        MIRAGE_CHECK(tap.ok && tap.input_released);
+        keys = key_events();
+        MIRAGE_CHECK(keys.size() == 2);
+        if (keys.size() == 2) {
+            MIRAGE_CHECK(keys[0].type == KeyPress && keys[1].type == KeyRelease);
+            MIRAGE_CHECK(XLookupKeysym(&keys[0], 0) == static_cast<unsigned char>(name[0]));
+            MIRAGE_CHECK(keys[0].keycode == keys[1].keycode);
+        }
+    }
+    f.reset();
     const auto text = input->type_text("aB", {}, {});
     MIRAGE_CHECK(text.ok && text.input_released);
     keys = key_events();
