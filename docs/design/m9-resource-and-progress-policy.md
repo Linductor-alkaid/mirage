@@ -30,15 +30,17 @@ M9-06/07/08 按 [DEC-109](../decisions/DEC-109-continuous-perception-attention-a
 
 ### 2026-10-22：关系与规划消费预算
 
-Mirador `23f7ed2` 的 Experimental 关系/规划消费复用现有 worker，默认新增
-coordinator 512 KiB/16 条条件、单份 relation view 512 KiB/256 实体/1,024 关系、
-单份 attention plan 64 KiB，配置仅可收紧，见
+Mirador `2a9f483` 的 Experimental 连续感知消费复用现有 worker，默认新增
+coordinator 512 KiB/256 实体/256 事件/16 条条件、单份 relation view 512 KiB/256 实体/1,024 关系、
+前置 AttentionPlan + token 化 WorkPlan 合计 64 KiB（含 source 字符串），时间/焦点/drain 输出按相同
+数量与协调器字符串预算有界，单列 state_owned_bytes，配置仅可收紧，见
 [消费契约](continuous-visual-analysis.md)。这些是新增状态/结果的局部预算，原有
 缓存、快照与消费者保留代数继续单列，不能据此宣称全产品存量门禁完成。
 
 已结算请求在唤醒 future 消费者前释放源帧/attention payload，避免 mailbox
 历史版本继续占用采集的两代像素；worker 唤醒接入在途能力取消，覆盖 Executor
-优先关闭。当前识别后的规划不等于当前 OCR 已按 ROI 减少，也不表示静态退避
+优先关闭。显式空间模式默认限 4 个 ROI/4,194,304 源像素；先整批检查再调用
+OCR/Detector，诊断记录计划面积与完成次数。测试中的面积下降不表示静态退避
 或真实资源收益已经验收。负责人 Mirage 维护者，由 M9-11/12 在生产接线后补测。
 
 ### 2026-10-22：采集基础层局部预算
@@ -120,3 +122,28 @@ M9-07 在实现前冻结，并用目标设备实测 RSS/拷贝及延迟。
 或填写节省比例。负责人为 Mirage 维护者；补跑条件为 native 文本/动作接线与
 可重置的真实授权桌面、provider 环境到位。当前单元长序列仅验证对象表逻辑
 存量，不代表连续帧采集 CPU/GPU/RSS 或端到端收益。
+
+
+2026-10-22 无帧查询：输入 policy 的 vector/string capacity 在投递前按
+max_coordination_bytes（默认 512 KiB）检查；每个命令最多 16 条条件，沿用一个
+在途+一个最新待处理命令。结果沿用实体/事件/焦点数量上限并计 state_owned_bytes；
+mailbox 历史槽中的已结算 policy 在 future 可见前释放。最后完成分析时间/序号
+仅为状态年龄元数据，查询/skip/失败不推进，不建立任务监控或定时器。
+
+
+### 2026-10-22：原生产品按需消费者预算
+
+生产 PP-OCR pipeline 的同 worker image core 新增 frame cache 1 MiB、result cache
+2 MiB、协调器 512 KiB，单次关系视图 512 KiB、计划 64 KiB；沿用 256 实体/
+1024 关系/256 事件和 OCR 128 区域/16 KiB JSON 前缀上限。复用模型、backend 和
+worker，不新增周期取图；text_only 不生成 PNG/artifact，退休旧图输入引用。
+文本 preview 仍受 8 MiB 限制，平台原始获取仍按 32 MiB 单列；不把这些局部上限
+当作全进程 RSS。契约及验证见[产品接线](native-continuous-perception-wiring.md)。
+
+## 2026-10-22：自主恢复更正
+
+动作执行故障的默认恢复策略改按 [DEC-113](../decisions/DEC-113-autonomous-action-recovery.md)：
+保留执行不确定事实，以当前观察建立恢复基线，允许 Agent 重新规划及独立应用路径，
+不把普通 input_lag 升级为人工检查。恢复与条件匹配分开，任务结论仍依赖用户目标
+的当前证据。连续输入故障按 episode 停用局部路径，权限/接管与释放守卫保持。
+M9-20 跟踪实现和平台验收，不表示连续后台采样或任意故障通道重建已经交付。

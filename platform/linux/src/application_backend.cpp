@@ -167,7 +167,36 @@ std::string exec_binary(GDesktopAppInfo *info) {
     GError *parse_error = nullptr;
     std::string binary;
     if (g_shell_parse_argv(exec, &argc, &argv, &parse_error) && argc > 0 && argv[0] != nullptr) {
-        binary = basename_of(argv[0]);
+        gint command = 0;
+        if (basename_of(argv[0]) == "env") {
+            command = 1;
+            while (command < argc) {
+                const std::string_view word(argv[command]);
+                if (word == "--") {
+                    ++command;
+                    break;
+                }
+                if (word == "-i" || word == "--ignore-environment") {
+                    ++command;
+                    continue;
+                }
+                if (word == "-u" || word == "--unset") {
+                    command += 2;
+                    continue;
+                }
+                if (word.starts_with("--unset=") ||
+                    (word.find('=') != std::string_view::npos && !word.starts_with('-'))) {
+                    ++command;
+                    continue;
+                }
+                // Unknown env options are not executable identities.
+                if (word.starts_with('-'))
+                    command = argc;
+                break;
+            }
+        }
+        if (command < argc)
+            binary = basename_of(argv[command]);
     } else {
         const std::string_view raw(exec);
         const auto end = raw.find_first_of(" \t");
@@ -506,7 +535,14 @@ ApplicationListOutcome ApplicationBackend::list_applications(const ApplicationLi
     const std::map<std::string, std::vector<pid_t>> index = scan_process_index();
     outcome.applications.reserve(by_id.size());
     for (const auto &[id, entry] : by_id) {
-        const bool running = !entry.binary.empty() && index.count(entry.binary) != 0;
+        // Listing is descriptive: Linux launchers sometimes exec a differently
+        // cased name (chatgpt -> ChatGPT). Never use this relaxed match to select
+        // a PID for termination, launch suppression or other side effects.
+        const bool running =
+            !entry.binary.empty() &&
+            std::any_of(index.begin(), index.end(), [&](const auto &process) {
+                return g_ascii_strcasecmp(process.first.c_str(), entry.binary.c_str()) == 0;
+            });
         outcome.applications.push_back({id, entry.name, running});
     }
     outcome.ok = true;

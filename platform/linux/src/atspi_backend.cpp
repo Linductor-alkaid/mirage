@@ -484,7 +484,7 @@ SnapshotOutcome AtspiBackend::semantic_snapshot(const std::string &window_id,
         return outcome;
     }
     // Map the opaque window id to a title via the environment's window
-    // surface (honest v1 mapping: accessibility window name == X title).
+    // surface (honest v1 mapping: accessibility window name == provider title).
     std::string title;
     if (impl_->windows != nullptr) {
         WindowListLimits unlimited;
@@ -495,6 +495,12 @@ SnapshotOutcome AtspiBackend::semantic_snapshot(const std::string &window_id,
                 title = window.title;
                 break;
             }
+        }
+        if (!title.empty() &&
+            std::count_if(listed.windows.begin(), listed.windows.end(),
+                          [&](const auto &window) { return window.title == title; }) > 1) {
+            outcome.error = error("unsupported_window", "window title mapping is ambiguous");
+            return outcome;
         }
     }
     if (title.empty()) {
@@ -659,38 +665,27 @@ class AtspiWindowProvider final : public mirage::desktop::WindowProvider {
             outcome.error = error("io_error", "accessibility desktop unavailable");
             return outcome;
         }
-        const gint n = atspi_accessible_get_child_count(desktop, nullptr);
-        if (n > 0 && static_cast<std::size_t>(n) > limits.max_windows) {
-            outcome.error = error("result_too_large", "window enumeration exceeds the budget");
-            return outcome;
-        }
+        // Registry children are applications; their immediate children are the
+        // top-level frames. Never descend into controls or nested dialogs here.
+        constexpr std::size_t scan_cap = 4096;
+        std::size_t visited = 0;
         std::map<std::string, std::size_t> seen;
-        for (gint i = 0; i < n; ++i) {
-            if (cancel.cancelled()) {
-                outcome.error = error("cancelled", "window enumeration cancelled");
-                return outcome;
-            }
-            AtspiAccessible *child = atspi_accessible_get_child_at_index(desktop, i, nullptr);
-            if (child == nullptr)
-                continue;
-            adopt(child);
-            const auto role = atspi_accessible_get_role(child, nullptr);
-            if (role != ATSPI_ROLE_FRAME && role != ATSPI_ROLE_WINDOW && role != ATSPI_ROLE_DIALOG)
-                continue;
+        const auto append_window = [&](AtspiAccessible *child) {
             AtspiComponent *component = atspi_accessible_get_component(child);
             if (component == nullptr)
-                continue;
+                return;
             AtspiRect *extents =
                 atspi_component_get_extents(component, ATSPI_COORD_TYPE_SCREEN, nullptr);
+            g_object_unref(component);
             if (extents == nullptr)
-                continue;
+                return;
             WindowGeometry geometry{static_cast<std::int32_t>(extents->x),
                                     static_cast<std::int32_t>(extents->y),
                                     static_cast<std::int32_t>(extents->width),
                                     static_cast<std::int32_t>(extents->height)};
             g_free(extents);
             if (geometry.width <= 0 || geometry.height <= 0)
-                continue;
+                return;
             gchar *raw_title = atspi_accessible_get_name(child, nullptr);
             const std::string title = raw_title != nullptr ? raw_title : "";
             g_free(raw_title);
@@ -710,10 +705,78 @@ class AtspiWindowProvider final : public mirage::desktop::WindowProvider {
             }
             if (occurrence > 0)
                 id += "#" + std::to_string(occurrence);
+            if (outcome.windows.size() >= limits.max_windows) {
+                outcome.error = error("result_too_large", "window enumeration exceeds its budget");
+                return;
+            }
             outcome.windows.push_back(mirage::desktop::WindowInfo{
                 std::move(id), title, geometry, state_set_has(child, ATSPI_STATE_ACTIVE)});
-            if (outcome.windows.size() >= limits.max_windows)
-                break;
+        };
+        const auto visit = [&](AtspiAccessible *parent, bool applications) {
+            const gint count = atspi_accessible_get_child_count(parent, nullptr);
+            if (count < 0 || static_cast<std::size_t>(count) > scan_cap - visited) {
+                outcome.error =
+                    error("result_too_large", "window traversal exceeds its node budget");
+                return;
+            }
+            for (gint i = 0; i < count; ++i) {
+                if (visited >= scan_cap) {
+                    outcome.error =
+                        error("result_too_large", "window traversal exceeds its node budget");
+                    return;
+                }
+                if (cancel.cancelled()) {
+                    outcome.error = error("cancelled", "window enumeration cancelled");
+                    return;
+                }
+                ++visited;
+                auto *child = atspi_accessible_get_child_at_index(parent, i, nullptr);
+                if (child == nullptr)
+                    continue;
+                adopt(child);
+                const auto role = atspi_accessible_get_role(child, nullptr);
+                if (applications && role == ATSPI_ROLE_APPLICATION) {
+                    const gint windows = atspi_accessible_get_child_count(child, nullptr);
+                    if (windows < 0 || static_cast<std::size_t>(windows) > scan_cap - visited) {
+                        outcome.error =
+                            error("result_too_large", "window traversal exceeds its node budget");
+                        return;
+                    }
+                    for (gint j = 0; j < windows; ++j) {
+                        if (cancel.cancelled()) {
+                            outcome.error = error("cancelled", "window enumeration cancelled");
+                            return;
+                        }
+                        ++visited;
+                        auto *window = atspi_accessible_get_child_at_index(child, j, nullptr);
+                        if (window == nullptr)
+                            continue;
+                        adopt(window);
+                        const auto window_role = atspi_accessible_get_role(window, nullptr);
+                        if (window_role == ATSPI_ROLE_FRAME || window_role == ATSPI_ROLE_WINDOW ||
+                            window_role == ATSPI_ROLE_DIALOG)
+                            append_window(window);
+                        if (!outcome.error.code.empty())
+                            return;
+                    }
+                } else if (role == ATSPI_ROLE_FRAME || role == ATSPI_ROLE_WINDOW ||
+                           role == ATSPI_ROLE_DIALOG) {
+                    append_window(child);
+                }
+                if (!outcome.error.code.empty()) {
+                    outcome.error =
+                        error("result_too_large", "window enumeration exceeds its budget");
+                    return;
+                }
+            }
+        };
+        visit(desktop, true);
+        if (!outcome.error.code.empty() || cancel.cancelled()) {
+            outcome.windows.clear();
+            if (cancel.cancelled()) {
+                outcome.error = error("cancelled", "window enumeration cancelled");
+            }
+            return outcome;
         }
         outcome.ok = true;
         return outcome;
@@ -739,6 +802,8 @@ class AtspiWindowProvider final : public mirage::desktop::WindowProvider {
         outcome.ok = true; // no focused window is a result, not an error
         return outcome;
     }
+
+    bool activation_supported() const override { return false; }
 
     mirage::desktop::WindowActionOutcome activate(const std::string &,
                                                   const CancelToken &cancel) override {

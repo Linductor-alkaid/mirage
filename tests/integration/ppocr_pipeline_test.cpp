@@ -626,12 +626,18 @@ int main(int argc, char **argv) {
                               .submit_auto([&] {
                                   return pipeline->read_image_ocr(image.frame, {},
                                                                   std::chrono::steady_clock::now() +
-                                                                      std::chrono::seconds(5));
+                                                                      std::chrono::seconds(5),
+                                                                  "ppocr-native-test");
                               })
                               .get();
             MIRAGE_CHECK(direct.ok && direct.regions.size() == 1 &&
                          direct.regions[0].text == "中A");
             MIRAGE_CHECK(!direct.model_revision.empty() && direct.backend_calls > 0);
+            MIRAGE_CHECK(direct.continuous && direct.continuous->ok);
+            const auto calls_before_query = pipeline->backend_calls();
+            const auto state = pipeline->query_image_state("ppocr-native-test", {}, {});
+            MIRAGE_CHECK(state.ok && state.analysis_age_ms && state.frame_sequence > 0);
+            MIRAGE_CHECK(pipeline->backend_calls() == calls_before_query);
             MIRAGE_CHECK(env.capture_calls == captures);
             MIRAGE_CHECK(pipeline->registry().current().scope_ref == registry_scope);
             auto cancelled_image = mirage::desktop::CancelToken{};

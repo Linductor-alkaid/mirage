@@ -87,8 +87,36 @@ integration::DesktopToolContext desktop() {
 }
 
 class NativeEnvironment final : public mirage::desktop::DesktopEnvironment,
-                                public mirage::desktop::ScreenProvider {
+                                public mirage::desktop::ScreenProvider,
+                                public mirage::desktop::ProcessProvider,
+                                public mirage::desktop::FilesystemProvider {
   public:
+    int process_calls = 0;
+    mirage::desktop::ProcessProvider *process() override { return this; }
+    bool supports_working_directory() const override { return true; }
+    mirage::desktop::ProcessOutcome execute(const std::string &,
+                                            const mirage::desktop::ProcessLimits &,
+                                            const mirage::desktop::CancelToken &) override {
+        ++process_calls;
+        return mirage::testing::FakeDesktopEnvironment::default_process_outcome();
+    }
+    mirage::desktop::ProcessOutcome
+    execute_request(const mirage::desktop::ProcessRequest &request,
+                    const mirage::desktop::ProcessLimits &limits,
+                    const mirage::desktop::CancelToken &cancel) override {
+        return execute(request.command, limits, cancel);
+    }
+    // Write/edit are deliberately sentinel providers: a fenced call must not
+    // even reach their observation/commit checks.
+    mirage::desktop::FilesystemProvider *filesystem() override { return this; }
+    mirage::desktop::FilesystemCapabilities capabilities() const override {
+        return {true, true, true};
+    }
+    mirage::desktop::FileReadOutcome read_text_file(const std::filesystem::path &,
+                                                    const mirage::desktop::FileReadLimits &,
+                                                    const mirage::desktop::CancelToken &) override {
+        return {};
+    }
     int created = 0, captures = 0, closed = 0, inputs = 0, moves = 0;
     bool long_press_available = true;
     bool interactive = false, pixels_changed = false, release_failed = false,
@@ -97,6 +125,7 @@ class NativeEnvironment final : public mirage::desktop::DesktopEnvironment,
     // Automatic approach refuses when same-stream cursor metadata is unavailable.
     bool glide_origin_unknown = false, arrival_changed = false;
     std::string cursor_fault;
+    std::string lag_phase;
     // M7-16 / DEC-083: `pixels_changed` paints a position-dependent structural
     // pattern (a replaced subject whose frame fingerprint and block diffs both
     // move), while `drift` only shifts brightness uniformly (the subject stays
@@ -119,7 +148,7 @@ class NativeEnvironment final : public mirage::desktop::DesktopEnvironment,
     // M7-18: optional window-provider facade (the AT-SPI fallback stand-in)
     // and a configurable session frame, so region sources have room to crop.
     std::vector<mirage::desktop::WindowInfo> native_windows;
-    bool provide_windows = false;
+    bool provide_windows = false, activation_available = true;
     int frame_width = 4, frame_height = 2;
     std::function<std::vector<std::uint8_t>()> session_pixels;
     // Screen coordinates the last dispatched session input carried.
@@ -164,6 +193,7 @@ class NativeEnvironment final : public mirage::desktop::DesktopEnvironment,
             outcome.ok = true;
             return outcome;
         }
+        bool activation_supported() const override { return env_.activation_available; }
         NativeEnvironment &env_;
     };
     NativeWindow window_provider{*this};
@@ -210,6 +240,12 @@ class NativeEnvironment final : public mirage::desktop::DesktopEnvironment,
                                             const mirage::desktop::CancelToken &cancel) override {
             if (action.kind == mirage::desktop::SharedInputAction::Kind::Move) {
                 ++env.moves;
+                if (env.lag_phase == "travel")
+                    return {false,
+                            false,
+                            {"input_lag", "phase=travel sample=3 late_ms=300"},
+                            true,
+                            true};
                 if (env.glide_origin_unknown)
                     return {false,
                             false,
@@ -221,6 +257,9 @@ class NativeEnvironment final : public mirage::desktop::DesktopEnvironment,
                 return {true, false, {}, true, true};
             }
             ++env.inputs;
+            if (env.lag_phase == "click")
+                return {
+                    false, false, {"input_lag", "phase=click sample=0 late_ms=300"}, true, true};
             env.last_action_x = action.x;
             env.last_action_y = action.y;
             env.last_click_count = action.click_count;
@@ -459,6 +498,19 @@ void shared_contracts(const std::string &mode) {
             call.arguments_digest = mira::canonical_json_digest(args);
             return registry.execute(call, owner);
         };
+        const auto consume_image = [&] {
+            mira::AgentLoopSpec spec;
+            spec.task_id = ctx.task;
+            spec.session_id = ctx.session;
+            spec.task_epoch = ctx.task_epoch;
+            const auto supplied = turn.supply(spec);
+            check(bool(supplied));
+            mira::ModelRequest request;
+            request.task_id = ctx.task;
+            request.task_epoch = ctx.task_epoch;
+            request.input = supplied.value();
+            check(bool(turn.validate_request(request, ctx)));
+        };
         if (mode == "initial_denied") {
             input_allowed = false;
             const auto a = invoke(
@@ -534,6 +586,8 @@ void shared_contracts(const std::string &mode) {
             env->release_failed = true;
         if (mode == "uncertain")
             env->uncertain_input = true;
+        if (mode == "lag" || mode == "approach_lag" || mode == "lag_exhaustion")
+            env->lag_phase = mode == "approach_lag" ? "travel" : "click";
         if (mode == "takeover")
             tools.actions->takeover();
         if (mode == "stale")
@@ -626,6 +680,67 @@ void shared_contracts(const std::string &mode) {
                                  ? "desktop.session.scroll"
                                  : "desktop.session.click",
                              args, action_ctx);
+        if (mode == "lag_exhaustion") {
+            for (int failure = 0; failure < 3; ++failure) {
+                check(result && result.value().failed);
+                const auto observed =
+                    invoke("desktop.screen.capture", JsonValue::Object{{"source", "desktop"}}, ctx);
+                check(observed && !observed.value().failed);
+                const auto &current = observed.value().result;
+                check(current.find("input_actionable")->as_boolean().value_or(false) ==
+                      (failure < 2));
+                verification.note_observation();
+                consume_image();
+                args.set("image_scope", *current.find("image_scope"));
+                args.set("environment_epoch", *current.find("environment_epoch"));
+                result = invoke("desktop.session.click", args, ctx);
+            }
+            check(result && result.value().failed &&
+                  result.value().safe_error_summary.find("input_recovery_budget_exhausted") !=
+                      std::string::npos);
+            check(env->inputs == 3 && env->created == 1 && env->closed == 0);
+            return;
+        }
+        if (mode == "lag" || mode == "approach_lag") {
+            check(result && result.value().failed);
+            check(result.value().safe_error_summary.find("input_lag") != std::string::npos);
+            check(env->closed == 0 && !verification.settle());
+            check(!verification.admit_effect(ctx));
+            const auto receipt = mira::parse_json(result.value().safe_error_summary);
+            check(bool(receipt));
+            const auto action_id = *receipt.value().find("action_id")->as_string();
+            // Do not repeat the uncertain input. Observe once and use its new scope.
+            const auto before_capture = env->captures;
+            const auto observed = invoke("desktop.screen.capture",
+                                         JsonValue{JsonValue::Object{{"source", "desktop"}}}, ctx);
+            check(observed && !observed.value().failed &&
+                  observed.value().result.find("source_sequence")->as_integer().value() >
+                      before_capture);
+            check(*observed.value().result.find("input_actionable")->as_boolean());
+            check(env->created == 1 && env->closed == 0);
+            verification.note_observation();
+            consume_image();
+            check(bool(verification.admit_effect(ctx)));
+            // An old image still cannot dispatch after recovery.
+            const int before = env->inputs + env->moves;
+            const auto old = invoke("desktop.session.click", args, ctx);
+            check(old && old.value().failed && env->inputs + env->moves == before);
+            env->lag_phase.clear();
+            auto next = args;
+            next.set("image_scope", *observed.value().result.find("image_scope"));
+            next.set("environment_epoch", *observed.value().result.find("environment_epoch"));
+            const auto recovered = invoke("desktop.session.click", next, ctx);
+            check(recovered && !recovered.value().failed && env->inputs > 0);
+            verification.note_observation();
+            check(verification.settle());
+            const auto original = verification.recheck(action_id, ctx);
+            check(original &&
+                  *original.value().find("execution_status")->as_string() == "uncertain");
+            check(*original.value().find("input_diagnostic")->as_string() ==
+                  (mode == "lag" ? "phase=click sample=0 late_ms=300"
+                                 : "phase=travel sample=3 late_ms=300"));
+            return;
+        }
         if (mode == "unicode") {
             check(result && result.value().failed &&
                   result.value().safe_error_summary.find("text_transport_unavailable") !=
@@ -1481,6 +1596,139 @@ void native_region_sources() {
 // capture/OCR returned "native sharing ended or failed". Session liveness now
 // belongs to the failure sites: only real sharing-path failures poison, while
 // argument, budget, and staleness rejections leave the session reusable.
+auto execute_native_tool(mira::BuiltinToolRegistry &registry, const mira::OperationContext &ctx,
+                         const std::string &name, const char *args) {
+    const auto exposed = registry.exposed_tools();
+    const auto tool = std::find_if(exposed.begin(), exposed.end(),
+                                   [&](const auto &spec) { return spec.wire_name == name; });
+    check(tool != exposed.end());
+    mira::ToolProposal call;
+    call.tool_id = tool->tool_id;
+    call.tool_version = tool->version;
+    call.wire_name = name;
+    call.operation_id = mira::OperationId::generate();
+    call.provider_call_id.value = "native-wiring";
+    call.arguments = mira::parse_json(args).value();
+    call.arguments_digest = mira::canonical_json_digest(call.arguments);
+    return registry.execute(call, ctx);
+}
+
+void native_text_only_and_state_wiring() {
+    auto env = std::make_shared<NativeEnvironment>();
+    env->interactive = true;
+    auto tools = desktop();
+    tools.environment = env;
+    tools.reuse_recent_observation = true;
+    tools.gate = [](const auto &, const auto &, const auto &cancel) { return !cancel(); };
+    int reads = 0, queries = 0;
+    bool revoke_during_query = false;
+    std::string observed_key;
+    tools.ocr_image = [](const auto &, const auto &, const auto &) {
+        throw std::runtime_error("contextual product path must be used");
+        return integration::ImageOcrOutcome{};
+    };
+    tools.ocr_image_contextual = [&](const auto &, const auto &key, const auto &, const auto &) {
+        ++reads;
+        observed_key = key;
+        integration::ImageOcrOutcome out;
+        out.ok = true;
+        out.regions = {{"untrusted OCR text", 0.9, 0, 0, 1, 1}};
+        out.continuous = integration::ImageContinuousState{};
+        out.continuous->ok = true;
+        out.continuous->source_revision = 3;
+        return out;
+    };
+    tools.query_image_state = [&](const auto &key, const auto &, const auto &) {
+        ++queries;
+        check(key == observed_key && key.size() == 64);
+        integration::ImageContinuousState out;
+        out.ok = true;
+        out.source_revision = 3;
+        out.analysis_age_ms = 25;
+        if (revoke_during_query)
+            tools.actions->invalidate_authority();
+        return out;
+    };
+    auto source = std::make_shared<detail::DesktopImageSource>();
+    const auto ctx = context();
+    detail::DesktopImageTurn turn(source, tools, ctx, {});
+    mira::BuiltinToolRegistry registry;
+    turn.register_tool(registry, {}, true);
+    const auto initial = execute_native_tool(registry, ctx, "desktop.vision.state", "{}");
+    check(!initial || initial.value().failed);
+    const auto capture = execute_native_tool(registry, ctx, "desktop.screen.capture",
+                                             R"({"source":"desktop","interaction":true})");
+    check(capture && !capture.value().failed);
+    mira::AgentLoopSpec spec;
+    spec.task_id = ctx.task;
+    spec.session_id = ctx.session;
+    spec.task_epoch = ctx.task_epoch;
+    const auto old_input = turn.supply(spec);
+    check(old_input && !old_input.value().empty());
+    const auto read =
+        execute_native_tool(registry, ctx, "desktop.vision.ocr", R"({"text_only":true})");
+    check(read && !read.value().failed && reads == 1);
+    if (read && !read.value().failed) {
+        check(read.value().result.find("input_actionable")->as_boolean() == false);
+        check(read.value().result.find("text_only")->as_boolean() == true);
+        check(read.value().result.find("image_artifact_id")->as_string()->empty());
+        check(read.value().result.find("continuous") != nullptr);
+    }
+    const auto text_supply = turn.supply(spec);
+    check(text_supply && text_supply.value().empty() && !turn.supplied_image());
+    mira::ModelRequest stale;
+    stale.task_id = ctx.task;
+    stale.task_epoch = ctx.task_epoch;
+    stale.input = old_input.value();
+    check(!turn.validate_request(stale, ctx));
+    const auto captures = env->captures;
+    const auto state = execute_native_tool(registry, ctx, "desktop.vision.state", "{}");
+    check(state && !state.value().failed && queries == 1);
+    check(env->captures == captures && reads == 1);
+    auto wrong = ctx;
+    wrong.task = mira::TaskId::generate();
+    const auto wrong_task = execute_native_tool(registry, wrong, "desktop.vision.state", "{}");
+    check(!wrong_task || wrong_task.value().failed);
+    revoke_during_query = true;
+    const auto late_revoke = execute_native_tool(registry, ctx, "desktop.vision.state", "{}");
+    check(!late_revoke || late_revoke.value().failed);
+    const auto revoked = execute_native_tool(registry, ctx, "desktop.vision.state", "{}");
+    check(!revoked || revoked.value().failed);
+    check(queries == 2);
+}
+
+void native_roi_pixel_budget() {
+    auto env = std::make_shared<NativeEnvironment>();
+    env->frame_width = 1600;
+    env->frame_height = 1600;
+    auto tools = desktop();
+    tools.environment = env;
+    tools.gate = [](const auto &, const auto &, const auto &cancel) { return !cancel(); };
+    auto source = std::make_shared<detail::DesktopImageSource>();
+    const auto ctx = context();
+    const auto budget = std::chrono::seconds(MIRAGE_TSAN_SLOW ? 60 : 5);
+    detail::DesktopImageTurn turn(source, tools, ctx, {}, true, budget, budget);
+    mira::BuiltinToolRegistry registry;
+    turn.register_tool(registry, {}, false);
+    const auto result =
+        execute_native_tool(registry, ctx, "desktop.screen.capture",
+                            R"({"source":"roi","x":0,"y":0,"width":1420,"height":1560})");
+    if (!result || result.value().failed)
+        throw std::runtime_error(
+            "native ROI pixel-budget fixture: " +
+            (result ? result.value().safe_error_summary : result.error().safe_message));
+    check(result && !result.value().failed);
+    if (result && !result.value().failed) {
+        const auto &value = result.value().result;
+        const auto w = *value.find("width")->as_integer();
+        const auto h = *value.find("height")->as_integer();
+        check(w > 0 && w < 1420 && h > 0 && h < 1560);
+        check(w * h * 4 <= (8 << 20));
+        check(*value.find("source_width")->as_integer() == 1420);
+        check(*value.find("source_height")->as_integer() == 1560);
+    }
+}
+
 void native_session_poison_discipline() {
     auto env = std::make_shared<NativeEnvironment>();
     env->interactive = true;
@@ -1927,6 +2175,7 @@ class NativeOcrScript final : public mira::IModelProvider {
     std::vector<mira::ModelRequest> requests;
     std::vector<std::string> steps;
     bool images = false, throw_final = false, invalid_args = false, expect_truncated = false;
+    bool text_first = false;
     explicit NativeOcrScript(const mira::ModelProfile &p) : profile_(p) {}
     const mira::ModelProfile &profile() const override { return profile_; }
     mira::Result<mira::ModelResponse> infer(const mira::ModelRequest &request,
@@ -1947,7 +2196,9 @@ class NativeOcrScript final : public mira::IModelProvider {
             }
         if (!images)
             check(image_count == 0);
-        if (images && ocr) {
+        if (text_first && ocr)
+            check(image_count == 0);
+        if (images && ocr && !text_first) {
             check(image_count == 1 && image);
             check(image->source.id.to_string() ==
                   *ocr->result.find("image_artifact_id")->as_string());
@@ -1994,6 +2245,7 @@ class NativeOcrScript final : public mira::IModelProvider {
             call.provider_call_id.value = "native-ocr-" + std::to_string(step);
             call.arguments = name == "desktop.screen.capture"
                                  ? JsonValue{JsonValue::Object{{"source", "desktop"}}}
+                             : text_first ? JsonValue{JsonValue::Object{{"text_only", true}}}
                              : invalid_args
                                  ? JsonValue{JsonValue::Object{{"window_id", "invented"}}}
                                  : JsonValue{JsonValue::Object{}};
@@ -2220,6 +2472,7 @@ void native_ocr_loop(kairo::Executor &executor, const std::string &mode) {
         script->images = images;
         script->throw_final = mode == "model_throw";
         script->invalid_args = mode == "invalid_args";
+        script->text_first = mode == "text_first";
         script->expect_truncated =
             mode == "output_budget" || mode == "escaped_budget" || mode == "candidate_prefix";
         if (images)
@@ -2240,9 +2493,9 @@ void native_ocr_loop(kairo::Executor &executor, const std::string &mode) {
                                                              "", false, {}, {}, stop);
                       })
                       .get();
-    const bool success = mode == "normal" || mode == "text_only" || mode == "recovery" ||
-                         mode == "output_budget" || mode == "escaped_budget" ||
-                         mode == "candidate_prefix";
+    const bool success = mode == "normal" || mode == "text_only" || mode == "text_first" ||
+                         mode == "recovery" || mode == "output_budget" ||
+                         mode == "escaped_budget" || mode == "candidate_prefix";
     if (result.ok != success)
         std::cerr << "native OCR " << mode << ": " << result.error << '\n';
     check(result.ok == success);
@@ -2269,6 +2522,197 @@ void native_ocr_loop(kairo::Executor &executor, const std::string &mode) {
             check(part.output.find("region_count") != std::string::npos);
             check(part.output.find("image_artifact_id") != std::string::npos);
         }
+    }
+    model.shutdown();
+}
+
+// A provider deliberately tries the same cross-tool recovery as the real
+// session. Assert the actual decorated registry prevents provider dispatch.
+class FencedEffectsScript final : public mira::IModelProvider {
+  public:
+    FencedEffectsScript(mira::ModelProfile profile, bool failed,
+                        std::shared_ptr<NativeEnvironment> env, bool observe_only)
+        : profile_(std::move(profile)), failed_(failed), env_(std::move(env)),
+          observe_only_(observe_only) {}
+    const mira::ModelProfile &profile() const override { return profile_; }
+    std::vector<mira::ModelRequest> requests;
+    mira::Result<mira::ModelResponse> infer(const mira::ModelRequest &request,
+                                            const mira::OperationContext &,
+                                            const mira::ProviderInferOptions &) override {
+        requests.push_back(request);
+        mira::ModelResponse response;
+        response.request_id = request.request_id;
+        response.operation_id = request.operation_id;
+        response.profile_id = profile_.id;
+        response.requested_model = profile_.model_selector;
+        response.status = mira::ModelCompletionStatus::Completed;
+        const std::vector<std::string> names =
+            observe_only_
+                ? std::vector<std::string>{"desktop.screen.capture", "desktop.session.click",
+                                           "desktop.screen.capture"}
+            : failed_ ? std::vector<std::string>{"desktop.screen.capture",
+                                                 "desktop.session.click",
+                                                 "exec",
+                                                 "exec",
+                                                 "exec",
+                                                 "write",
+                                                 "edit",
+                                                 "desktop.screen.capture",
+                                                 "desktop.vision.ocr",
+                                                 "desktop.vision.state",
+                                                 "exec",
+                                                 "desktop.screen.capture",
+                                                 "desktop.session.click",
+                                                 "desktop.screen.capture"}
+                      : std::vector<std::string>{"desktop.screen.capture", "desktop.session.click",
+                                                 "exec", "desktop.screen.capture"};
+        const auto step = requests.size() - 1;
+        if (step >= names.size()) {
+            mira::MessageOutput message;
+            message.content.emplace_back(mira::OutputTextPart{
+                "Current observation supports the result; the old click remains uncertain.", {}});
+            response.output.emplace_back(std::move(message));
+            return response;
+        }
+        const auto name = names[step];
+        JsonValue args{JsonValue::Object{}};
+        if (name == "desktop.screen.capture") {
+            args.set("source", "desktop");
+            if (!step)
+                args.set("interaction", true);
+        } else if (name == "desktop.session.click") {
+            if (step > 1)
+                env_->lag_phase.clear();
+            const mira::ToolResultPart *capture = nullptr;
+            for (const auto &item : request.input)
+                for (const auto &part : item.content)
+                    if (const auto *result = std::get_if<mira::ToolResultPart>(&part);
+                        result && !result->failed && result->result.find("image_scope"))
+                        capture = result;
+            check(capture != nullptr);
+            args.set("image_scope", *capture->result.find("image_scope"));
+            args.set("environment_epoch", *capture->result.find("environment_epoch"));
+            args.set("x", 0);
+            args.set("y", 0);
+            args.set("width", 1);
+            args.set("height", 1);
+            args.set("verify_kind", "shared_frame_observed");
+        } else if (name == "exec") {
+            args.set("command", "xdg-open https://fixture.invalid/video");
+        } else if (name == "write") {
+            args.set("path", "/tmp/fixture.txt");
+            args.set("content", "fixture");
+        } else if (name == "edit") {
+            args.set("path", "/tmp/fixture.txt");
+            args.set("old_string", "before");
+            args.set("new_string", "after");
+        } else if (name == "desktop.vision.ocr")
+            args.set("text_only", true);
+        const auto tool =
+            std::find_if(request.tools.begin(), request.tools.end(), [&](const auto &t) {
+                return t.wire_name == mirage::testing::fixture_tool_name(name);
+            });
+        check(tool != request.tools.end());
+        mira::ToolCallOutput call;
+        call.tool_id = tool->tool_id;
+        call.provider_name = tool->wire_name;
+        call.provider_call_id.value = "fence-" + std::to_string(step);
+        call.arguments = std::move(args);
+        call.arguments_digest = mira::digest_string(mira::to_json_string(call.arguments));
+        response.output.emplace_back(std::move(call));
+        return response;
+    }
+
+  private:
+    mira::ModelProfile profile_;
+    bool failed_;
+    std::shared_ptr<NativeEnvironment> env_;
+    bool observe_only_;
+};
+
+void cross_tool_fence(kairo::Executor &executor, bool lag, bool observe_only = false) {
+    auto env = std::make_shared<NativeEnvironment>();
+    env->provide_windows = true;
+    env->activation_available = false;
+    env->interactive = true;
+    if (lag)
+        env->lag_phase = "click";
+    auto tools = desktop();
+    tools.environment = env;
+    tools.gate = [](const auto &, const auto &, const auto &cancel) { return !cancel(); };
+    tools.basic_tools.enabled = tools.basic_tools.exec_enabled = true;
+    tools.basic_tools.workspace = "/tmp";
+    int ocr = 0, queries = 0;
+    std::string source_key;
+    tools.ocr_image = [](const auto &, const auto &, const auto &) {
+        return integration::ImageOcrOutcome{};
+    };
+    tools.ocr_image_contextual = [&](const auto &, const auto &key, const auto &, const auto &) {
+        ++ocr;
+        source_key = key;
+        integration::ImageOcrOutcome out;
+        out.ok = true;
+        out.continuous = integration::ImageContinuousState{};
+        out.continuous->ok = true;
+        out.continuous->source_revision = 1;
+        return out;
+    };
+    tools.query_image_state = [&](const auto &key, const auto &, const auto &) {
+        ++queries;
+        check(key == source_key);
+        integration::ImageContinuousState out;
+        out.ok = true;
+        out.source_revision = 1;
+        return out;
+    };
+    std::shared_ptr<FencedEffectsScript> script;
+    integration::ModelProviderOverride provider([&](const auto &profile) {
+        script = std::make_shared<FencedEffectsScript>(profile, lag, env, observe_only);
+        return script;
+    });
+    integration::ModelLayerConfig config;
+    config.enabled = config.supports_images = true;
+    config.model_selector = "fence-fixture";
+    integration::ModelLayer model(executor, config, &provider, tools);
+    auto result = executor
+                      .submit_auto([&] {
+                          return model.complete_harness_turn(
+                              "", "Open video, preserving uncertainty guards", context());
+                      })
+                      .get();
+    if (!result.ok) {
+        std::cerr << "cross_tool_fence lag=" << lag << " error=" << result.error
+                  << " process_calls=" << env->process_calls
+                  << " model_calls=" << script->requests.size() << "\n";
+    }
+    check(result.ok);
+    check(env->process_calls == (observe_only ? 0 : 1));
+    check(
+        std::none_of(script->requests.front().tools.begin(), script->requests.front().tools.end(),
+                     [](const auto &tool) { return tool.wire_name == "desktop_window_activate"; }));
+    check(env->created == 1 && env->closed == 1);
+    if (observe_only) {
+        check(script->requests.size() == 4 && env->inputs == 1 && env->moves == 1);
+        bool retained_uncertainty = false;
+        for (const auto &record : result.parts)
+            if (record.name == "desktop.session.click" && record.status == "failed")
+                retained_uncertainty =
+                    record.output.find("\"execution_status\":\"uncertain\"") != std::string::npos &&
+                    record.output.find("\"verified\":false") != std::string::npos;
+        check(retained_uncertainty);
+    } else if (lag) {
+        check(ocr == 1 && queries == 1);
+        check(script->requests.size() == 15);
+        int blocked = 0;
+        for (const auto &part : result.parts) {
+            if (part.name == "exec" || part.name == "write" || part.name == "edit") {
+                if (part.status == "failed") {
+                    check(part.output.find("reobserve current desktop state") != std::string::npos);
+                    ++blocked;
+                }
+            }
+        }
+        check(blocked == 5);
     }
     model.shutdown();
 }
@@ -3228,6 +3672,9 @@ int main() {
                                          "denied",
                                          "release",
                                          "uncertain",
+                                         "lag",
+                                         "approach_lag",
+                                         "lag_exhaustion",
                                          "takeover",
                                          "stale",
                                          "initial_denied",
@@ -3250,8 +3697,11 @@ int main() {
         for (const auto &mode :
              {"normal", "text_only", "recovery", "denied", "failed", "throw", "cancel", "epoch",
               "takeover", "nan", "bounds", "regions", "text_budget", "output_budget",
-              "escaped_budget", "candidate_prefix", "invalid_args", "model_throw"})
+              "escaped_budget", "candidate_prefix", "invalid_args", "model_throw", "text_first"})
             native_ocr_loop(executor, mode);
+        cross_tool_fence(executor, false);
+        cross_tool_fence(executor, true);
+        cross_tool_fence(executor, true, true);
         input_reuse_contention(executor);
         shared_long_press_contract();
         shared_loop(executor);
@@ -3296,6 +3746,8 @@ int main() {
         rejected_layer.shutdown();
         png_content_matrix();
         native_region_sources();
+        native_roi_pixel_budget();
+        native_text_only_and_state_wiring();
         native_session_poison_discipline();
         native_observation_efficiency();
         input_reuse_identity();

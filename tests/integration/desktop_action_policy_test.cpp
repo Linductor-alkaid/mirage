@@ -153,10 +153,22 @@ void uncertainty() {
                 return error;
             });
         MIRAGE_CHECK(!bad);
+        MIRAGE_CHECK(!v.settle() && !v.admit_effect(f.ctx));
+        const auto blocked = v.execute("desktop.input.key", args, f.ctx, f.handler());
+        MIRAGE_CHECK(!blocked && f.inputs == 0);
+        // Even a blocked admission owns a no-effect receipt: canonical replay
+        // must not turn an ordinary recovery checkpoint into permanent failure.
+        const auto rejection = mira::parse_json(blocked.error().safe_message);
+        MIRAGE_CHECK(rejection && !text(rejection.value(), "action_id").empty());
         v.note_observation();
-        MIRAGE_CHECK(!v.settle());
-        MIRAGE_CHECK(!v.execute("desktop.input.key", args, f.ctx, f.handler()));
-        MIRAGE_CHECK(f.inputs == 0);
+        MIRAGE_CHECK(bool(v.admit_effect(f.ctx)) == released);
+        MIRAGE_CHECK(bool(v.execute("desktop.input.key", args, f.ctx, f.handler())) == released);
+        MIRAGE_CHECK(f.inputs == (released ? 1 : 0));
+        v.note_observation();
+        MIRAGE_CHECK(v.settle() == released);
+        const auto original = mira::parse_json(bad.error().safe_message);
+        const auto current = v.recheck(text(original.value(), "action_id"), f.ctx);
+        MIRAGE_CHECK(current && text(current.value(), "execution_status") == "uncertain");
     }
     Fixture f;
     d::CancelToken cancel;
@@ -204,6 +216,75 @@ void unrelated_proof_keeps_fence() {
     MIRAGE_CHECK(!unreleased.settle());
     MIRAGE_CHECK(!unreleased.execute("desktop.input.key", args, f.ctx, f.handler()));
     MIRAGE_CHECK(f.inputs == 1);
+}
+void autonomous_recovery() {
+    Fixture f;
+    f.env->applications = {{"app.desktop", "Fixture", false}};
+    f.env->application_instances["app.desktop"] = "instance";
+    Verification v(f.tools, f.ctx, {});
+    const Json failed_args{Json::Object{{"window_id", "w1"},
+                                        {"verify_kind", "semantic_node_exists"},
+                                        {"expected_role", "label"},
+                                        {"expected_name", "Old step"}}};
+    const mira::BuiltinToolHandler failure = [](const auto &, const auto &) -> mira::Result<Json> {
+        mira::Error e;
+        e.code = mira::ErrorCode::PlatformError;
+        e.safe_message =
+            R"({"error_code":"input_lag","side_effect_may_have_occurred":true,"input_released":true})";
+        return e;
+    };
+    const auto bad = v.execute("desktop.input.key", failed_args, f.ctx, failure);
+    MIRAGE_CHECK(!bad);
+    const auto receipt = mira::parse_json(bad.error().safe_message);
+    const auto id = text(receipt.value(), "action_id");
+    // A direct application handoff has its own fresh scope/provider guards.
+    const auto opened = v.execute(
+        "desktop.application.open_uri",
+        Json::Object{{"application_id", "app.desktop"}, {"uri", "https://example.invalid/new"}},
+        f.ctx, f.handler());
+    MIRAGE_CHECK(opened && f.inputs == 1);
+    MIRAGE_CHECK(!v.settle() &&
+                 !v.admit_effect(f.ctx)); // process presence cannot resolve the old input
+    v.note_observation();
+    MIRAGE_CHECK(v.admit_effect(f.ctx) && v.settle());
+    auto old = v.recheck(id, f.ctx);
+    MIRAGE_CHECK(old && text(old.value(), "status") == "uncertain");
+    MIRAGE_CHECK(text(old.value(), "recovery_status") == "replanned");
+    MIRAGE_CHECK(!old.value().find("verified")->as_boolean().value_or(true));
+    // Current unknown/unmet condition remains unusable as a dependency.
+    MIRAGE_CHECK(!v.execute("desktop.input.key",
+                            Json::Object{{"window_id", "w1"}, {"depends_on", Json::Array{id}}},
+                            f.ctx, f.handler()));
+    v.note_observation();
+    // Canonical failures resolve by owned identity, including recovered history.
+    mira::ModelRequest request;
+    request.task_id = f.ctx.task;
+    request.task_epoch = f.ctx.task_epoch;
+    mira::ModelInputItem item;
+    mira::ToolCallPart call;
+    call.provider_call_id.value = "original";
+    call.wire_name = "desktop.input.key";
+    mira::ToolResultPart result;
+    result.provider_call_id = call.provider_call_id;
+    result.failed = true;
+    result.safe_error_summary = bad.error().safe_message;
+    item.content.emplace_back(call);
+    item.content.emplace_back(result);
+    request.input.push_back(item);
+    MIRAGE_CHECK(v.validate_request(request, f.ctx) && v.settle());
+    for (int n = 0; n < 70; ++n)
+        MIRAGE_CHECK(
+            v.execute("desktop.input.key", Json::Object{{"window_id", "w1"}}, f.ctx, f.handler()));
+    v.note_observation();
+    MIRAGE_CHECK(v.validate_request(request, f.ctx) && v.settle());
+    old = v.recheck(id, f.ctx);
+    MIRAGE_CHECK(old && text(old.value(), "execution_status") == "uncertain");
+    // A later failure starts a new observation requirement, regardless of old recovery.
+    MIRAGE_CHECK(!v.execute("desktop.input.key", failed_args, f.ctx, failure));
+    MIRAGE_CHECK(!v.admit_effect(f.ctx) && !v.settle());
+    f.tools.actions->invalidate_authority();
+    v.note_observation();
+    MIRAGE_CHECK(!v.admit_effect(f.ctx)); // old-authority uncertainty cannot recover
 }
 void registration(const Json &golden) {
     Fixture f;
@@ -307,7 +388,7 @@ void expiry(const Json &golden) {
 int main() {
     try {
         std::ifstream file(std::filesystem::path{__FILE__}.parent_path() /
-                           "data/desktop_action_policy_v2.json");
+                           "data/desktop_action_policy_v3.json");
         const std::string source{std::istreambuf_iterator<char>{file}, {}};
         const auto golden = mira::parse_json(source);
         if (!golden)
@@ -316,6 +397,7 @@ int main() {
         dependencies();
         uncertainty();
         unrelated_proof_keeps_fence();
+        autonomous_recovery();
         registration(golden.value());
         expiry(golden.value());
     } catch (const std::exception &error) {

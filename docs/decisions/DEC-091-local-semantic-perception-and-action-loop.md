@@ -69,10 +69,12 @@ owner，复用现有 kairo blocking worker；共享帧用 LatestMailbox 合并�
 [连续帧采集基础层](../design/continuous-capture-infrastructure.md)。该局部实现
 不代表 DEC-109 全部协议冻结，也不改变现有产品采集/pet 默认值。
 
-同日后续：从 Mirador `23f7ed2` 消费 Experimental 关系视图与注意规划，独立
-oriented 宿主使用当前帧快照，不改变原 display 观察的坐标/动作契约；新增来源
-代际与预算见[消费设计](../design/continuous-visual-analysis.md)。完整前置 ROI、
-覆盖采纳及事件仍按 M9-07/18 与上游后续交付推进，不在 Mirage 重写算法。
+同日后续：从 Mirador `2a9f483` 消费 Experimental 关系、token/覆盖采纳与
+时间状态/事件，独立 oriented 宿主使用当前帧快照；对显式全帧/空间 ROI 完整刷新证据批量采纳，
+不将缓存/部分结果视为新完成。来源、预算和结算边界见
+[消费设计](../design/continuous-visual-analysis.md)。ROI-only 选区已前置；对象/文本
+前置定位与生产模型供给仍按 M9-07/18 推进；无帧焦点/状态查询已通过同一 worker
+消费上游公开接口，不在 Mirage 重写覆盖或去抖算法。
 
 - 连续帧是输入源，不要求每一帧都复制、编码、识别、融合和发送。优先消费平台
   可用的 damage/dirty-region 信息，再用 Mirador 变化检测确认相关区域；平台
@@ -272,3 +274,14 @@ provider input tokens、OCR/detector 实际调用数、P50/P95 时延及本地�
   [DEC-059](DEC-059-visual-text-postconditions.md)、[DEC-069](DEC-069-local-visual-workflow-grounding.md)、
   [DEC-081](DEC-081-native-cua-capability-and-observation-continuity.md)、
   [DEC-083](DEC-083-target-region-stability-reverification.md)。
+
+
+### 2026-10-22：首个原生产品消费者
+
+维护者授权进行 M9 接线；产品默认 PP-OCR pipeline 在同一 worker 内启用独立的
+image session/coordinator，保持 display 模板/引用隔离并复用现有模型。Runtime
+以可信 task/authority/ROI 来源键接通 OCR 文本供给与无帧 advisory 查询；文本模式
+不生成 PNG/artifact，不把历史图片当作输入授权。预算化 OCR 保留 partial/deferred，
+不以部分证据登记完整覆盖；未开启后台帧采样或新的通知默认值。
+本局部实施契约与预算见[产品接线](../design/native-continuous-perception-wiring.md)，
+实际验证和剩余范围见[证据](../compatibility/native-observation-and-continuous-wiring-20261022.md)。

@@ -790,8 +790,10 @@ void evidence_contracts() {
     const auto still = unproven.recheck(field(fenced_receipt.value(), "action_id"), ctx);
     check(still && field(still.value(), "status") == "uncertain" &&
           field(still.value(), "reason") == "effect_uncertain");
-    check(!unproven.execute("desktop.application.launch", args, ctx,
-                            [&](const auto &a, const auto &c) { return ok_handler(a, c); }));
+    // The fresh running=false query allows a newly planned launch, while
+    // its still-unmatched condition continues to prevent a success claim.
+    check(bool(unproven.execute("desktop.application.launch", args, ctx,
+                                [&](const auto &a, const auto &c) { return ok_handler(a, c); })));
     check(dispatches == 3);
     check(!unproven.settle());
     // Its canonical failure also stays disqualifying for the model request.
@@ -874,8 +876,8 @@ void observation_settlement() {
     check(!refused.settle() && refused.no_effect_rejection());
     refused.note_observation();
     check(refused.settle() && !refused.no_effect_rejection());
-    // Dispatched/uncertain side effects keep the turn unsettled no matter how
-    // many observations follow.
+    // DEC-113: released uncertainty may conclude from the current state.
+    // A fresh observation is not retroactive proof of the failed click.
     i::detail::DesktopActionVerification uncertain(tools, ctx, {});
     uncertain.set_shared_observation(shared_proof);
     const mira::BuiltinToolHandler dispatched_failure = [](const auto &,
@@ -889,7 +891,7 @@ void observation_settlement() {
     check(!uncertain.execute("desktop.session.click", click_args, ctx, dispatched_failure));
     for (int observations = 0; observations < 3; ++observations) {
         uncertain.note_observation();
-        check(!uncertain.settle() && !uncertain.no_effect_rejection());
+        check(uncertain.settle() && !uncertain.no_effect_rejection());
     }
 }
 

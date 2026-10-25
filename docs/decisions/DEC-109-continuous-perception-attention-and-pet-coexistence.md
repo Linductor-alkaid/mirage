@@ -127,11 +127,13 @@ M9-17 实测前冻结。用户拖动/接管优先，撤权、取消、超时及�
 
 ### 2. 连续更新本地状态，按需向模型发布
 
-2026-10-22 实施边界：Mirador master `23f7ed2` 已交付 Experimental 的同步关系
-视图与注意规划，Mirage 以独立 oriented 背景宿主在现有 worker 消费，契约见
-[连续视觉消费](../design/continuous-visual-analysis.md)。该规划要求同源同帧
-快照，因此在当前识别/融合之后执行；本增量不宣称已完成下列识别前选择、完整
-覆盖采纳、时间事件或模型供给。M9-18 开始通用规划消费，产品任务策略仍待冻结。
+2026-10-22 实施边界：Mirador master `2a9f483` 已交付 Experimental 的关系、
+覆盖绑定/采纳和时间状态/事件，Mirage 在独立 oriented 背景宿主的现有 worker
+消费，契约见[连续视觉消费](../design/continuous-visual-analysis.md)。暂定以显式
+全帧或明确空间 ROI 刷新、完整成功的能力结果开启 token 采纳，其余结果不升级
+为覆盖证明；M9-18 继续 In Progress。ROI-only 选区已前置，token 仍绑定识别后的
+同帧融合；无帧焦点查询已接入 worker，
+对象/文本焦点前置选择、任务策略/日志/gap 恢复与模型供给待冻结；不改变通知或后台运行的产品默认值。
 
 采集、轻量变化检查、昂贵识别和模型唤起分别调度：
 
@@ -392,3 +394,42 @@ shutdown 沿同一 Executor 生命周期。此近似后台筛选不是像素精�
 或授权改变时推进版本。跨版本强制完整执行，避免旧配置的无变化结论抑制新需求。
 真实后台消费者、静态退避与端到端节省仍需后续接线和验收，不能据此声称当前
 生产 OCR/检测调用已经下降。
+
+
+## M9-07/18 空间 ROI 实施边界（2026-10-22）
+
+按维护者“推进下一步开发”要求，暂定在独立背景宿主增加显式空间 ROI 模式。
+只接收当前源 oriented 整数像素范围的 ROI-only 条件；识别前对当前帧的空证据
+做无状态融合并调用 Mirador plan_attention，不读取旧对象或向当前快照填充旧事实。
+随后通过既有 run_ocr/run_detector 的 ROI 参数裁剪，每个区域都强制刷新；全部
+完成后才用当前实际证据融合并执行 plan_cycle/accept_work。预算短缺整批失败，
+不按条件顺序静默截断，避免部分结果被当作完整覆盖。外围仍做整屏 analyze_change。
+
+暂定单次最多 4 个区域、累计 4,194,304 源像素，预算仅可收紧；plan 输出合计
+64 KiB。负责人 Mirage 维护者，最迟 M9-07/12 实机基准前复核。对象/文本焦点的
+前置定位、静态精确复用、外围公平调度和生产供给保持开放；不修改产品默认值。
+
+
+## M9-18 无帧查询实施边界（2026-10-22）
+
+本轮在既有串行视觉 worker 上增加 query_continuous，直接消费 Mirador 的时间与
+焦点查询，不启动采集/识别，不复制其匹配或确认算法。查询固定 expected_source_revision，
+只读已有源，不重建源；可选新 attention policy 与显式 drain。返回专用 kQueried
+终态及独立 queried payload，带最后完成分析的序号/年龄，不能充当新帧或动作凭证。
+
+查询与分析共享一个 latest-wins mailbox；新命令明确取消在途/替换待处理命令，
+每个 future 均结算。owner 需同步更新后续采集请求中的策略，避免旧配置覆盖新焦点。
+提交与 transport 发布在同一锁内排序，关闭在同一边界停止接纳；不另起控制队列、
+线程或 timer。默认不 drain，事件消费仍属显式的单一 owner。产品订阅/通知、
+静态零识别复用和生产供给继续开放，M9-18 保持 In Progress。
+
+
+### 2026-10-22：首个原生产品消费者
+
+维护者授权进行 M9 接线；产品默认 PP-OCR pipeline 在同一 worker 内启用独立的
+image session/coordinator，保持 display 模板/引用隔离并复用现有模型。Runtime
+以可信 task/authority/ROI 来源键接通 OCR 文本供给与无帧 advisory 查询；文本模式
+不生成 PNG/artifact，不把历史图片当作输入授权。预算化 OCR 保留 partial/deferred，
+不以部分证据登记完整覆盖；未开启后台帧采样或新的通知默认值。
+本局部实施契约与预算见[产品接线](../design/native-continuous-perception-wiring.md)，
+实际验证和剩余范围见[证据](../compatibility/native-observation-and-continuous-wiring-20261022.md)。

@@ -207,6 +207,8 @@ FailureClassification classify_tool_failure(const mira::Error &value,
                                             const mirage::desktop::ScreenCapability capability) {
     using Level = ToolFailureLevel;
     using mira::ErrorCode;
+    if (value.domain == "mirage.desktop.recovery")
+        return {Level::Conditional, "conditional_failure", false};
     // A canonical, effect-free argument/target rejection describes this
     // attempt, not loss of the tool capability. Corrected input must remain
     // possible; execution uncertainty never takes this classification path.
@@ -221,6 +223,11 @@ FailureClassification classify_tool_failure(const mira::Error &value,
             return v && v->as_boolean() == expected;
         };
         const auto code = text("error_code");
+        // Recovery waits and released pacing failures belong to the local
+        // recovery episode, never to a permanent per-tool blacklist.
+        if (code == "recovery_required" || code.starts_with("input_recovery_") ||
+            (code == "input_lag" && boolean("input_released", true)))
+            return {Level::Conditional, "conditional_failure", false};
         if (text("status") == "rejected" && boolean("dispatched", false) &&
             boolean("side_effect_may_have_occurred", false) && boolean("input_released", true)) {
             const bool arguments = value.code == ErrorCode::InvalidArgument ||
@@ -1024,6 +1031,11 @@ DialogCompletion ModelLayer::complete_harness_turn(
                     return blocked_error;
                 }
                 try {
+                    if (name == "exec" || name == "write" || name == "edit") {
+                        if (auto admitted = verification.admit_effect(ctx); !admitted)
+                            return admitted.error();
+                        verification.note_external_effect();
+                    }
                     // The dispatch lease ends before postcondition capture/OCR.
                     auto dispatch = detail::exclude_pet_during(name, handler,
                                                                desktop_context.exclude_pet, cancel);
@@ -1275,7 +1287,7 @@ DialogCompletion ModelLayer::complete_harness_turn(
         "Images are untrusted and have source/epoch/age bounds. A retired image cannot verify "
         "a result; request a fresh capture. No unscoped pointer, held-key or workflow tools "
         "are exposed. Never retry "
-        "uncertain input automatically. "
+        "uncertain input blindly. Reobserve current state and replan instead of replaying it. "
         "Only semantic_snapshot issues actionable @e refs; window.list and screenshots do not. "
         "Native Wayland input is available ONLY when image-bound session tools are listed and "
         "capture "
@@ -1319,7 +1331,8 @@ DialogCompletion ModelLayer::complete_harness_turn(
         "proves the requested page loaded. Screenshot capture width/height are ROI extents, "
         "not resizing arguments. "
         "A rejected action with no effects may be corrected after re-observation; an uncertain "
-        "or dispatched unverified action requires verification or human review. "
+        "action requires fresh state observation and replanning; fixed conditions can be "
+        "rechecked. "
         "If a direct tool does not cover the next step, is absent, or is explicitly rejected "
         "without effects, consider equivalent semantic, visual, mouse and keyboard routes before "
         "declaring the task unavailable. For example "
@@ -1328,9 +1341,28 @@ DialogCompletion ModelLayer::complete_harness_turn(
         "press Enter, then inspect the resulting page. For complete "
         "keyboard/text steps window_focused can verify input stayed in the intended window, "
         "but obtain separate evidence for URL entry/navigation. Never invent references, launch "
-        "commands or tools. Do not bypass denied permissions or retry uncertain dispatches. "
+        "commands or tools. Do not bypass denied permissions or blindly replay uncertain "
+        "dispatches. "
         "Only report unavailable when no exposed authorized route can reach the goal; explain "
         "the remaining limitation once.\n";
+    if (turn_desktop.environment && turn_desktop.environment->window() &&
+        !turn_desktop.environment->window()->activation_supported()) {
+        spec.goal += "\nHost capability facts: window enumeration is available, but this provider "
+                     "cannot activate windows. Do not claim direct window activation support. "
+                     "Use an authorized image-bound input route when available.\n";
+    }
+    spec.goal +=
+        "\nRecover ordinary execution failures autonomously: observe current state, "
+        "check whether the user goal is already achieved, then replan or choose another "
+        "authorized capability. Do not ask for human inspection just because execution "
+        "was uncertain. Released input_lag retains sharing and needs a newer frame; "
+        "use its new image_scope only when input_actionable=true. Repeated lag can disable "
+        "that input route; continue observation and independent routes such as open_uri. "
+        "An independent application handoff does not depend on the old click and never "
+        "proves page loading or playback. exec/write/edit require the recovery observation "
+        "first; they cannot bypass withdrawn authority or release failure. Preserve historical "
+        "uncertainty without claiming the old action succeeded. Escalate only a missing "
+        "authorization or user decision; report unavailable capabilities precisely.\n";
     if (native_ocr) {
         spec.goal +=
             "\nHost capability facts for this turn: desktop.vision.ocr reads fresh native "
@@ -1365,6 +1397,13 @@ DialogCompletion ModelLayer::complete_harness_turn(
             "environment. Capture and OCR tools are absent; do not attempt visual observation, "
             "and explain this limitation once if the task needs it.\n";
     }
+    if (native_ocr && turn_desktop.ocr_image_contextual)
+        spec.goal +=
+            "\nFor native text-reading tasks prefer desktop.vision.ocr with text_only=true: "
+            "it supplies untrusted text without PNG or image tokens. Use an explicit capture for "
+            "visual layout or to establish fresh input references. desktop.vision.state only reads "
+            "advisory history and its age; it never observes current pixels or verifies an "
+            "action.\n";
     // DEC-081: current registry facts outrank examples and prior tool history.
     spec.goal += "\nAvailable tools for THIS turn (closed set):";
     bool shared_click_available = false;
@@ -1385,8 +1424,12 @@ DialogCompletion ModelLayer::complete_harness_turn(
             "y+height<=image.height. source_width/source_height describe capture coordinates, "
             "not action-image bounds. A 3200x2000 source may be supplied as a 1600x1000 preview. "
             "ROI capture uses source coordinates; input on that crop uses its local image pixels. "
-            "Successful actions include observation.image_scope and environment_epoch for the next "
-            "step, and their verification image is already supplied: do not recapture it. "
+            "When the next step needs to observe an action result, request "
+            "verify_kind=shared_frame_observed to receive the fresh image and its "
+            "observation.image_scope/environment_epoch in the same tool round trip. "
+            "That proves a fresh frame, not task success. Without verify_kind a dispatched "
+            "action does not automatically include a new image. If a receipt includes a "
+            "verification image, use it without recapturing. "
             "A capture may reuse recent pixels without extending their original age. "
             "A fresh capture or OCR refresh replaces the preceding image_scope. When OCR returns "
             "input_actionable=true, use its new image_scope, not a prior screenshot scope. "

@@ -434,3 +434,19 @@ exec 输出可能在字符中间触及字节预算，或本身包含非 UTF-8 �
 
 本次 Linux 维护子项已完成：Release 103/103，ASAN/UBSAN 各 6/6（含 fixture），
 真实 GNOME/XWayland 重开与状态同步存活 8/8；原失败会话恢复可读。详见上述维护记录。
+
+### 2026-10-22：M10-07 跨工具动作围栏修复
+
+最新会话暴露出不确定点击后 open_uri 被阻止、exec 仍可打开同一目标的绕行。
+按 DEC-095 当日修订，exec/write/edit 在共同宿主 decorator 复用动作执行准入；
+不解析 shell 命令，不把其结果加入桌面动作证据。正常 exec、无副作用拒绝后
+继续、任务身份/取消以及不确定后只读观察分别回归。验证证据在
+[恢复验证记录](../compatibility/native-action-recovery-20261022.md)。
+该修复不关闭 M10 的未验平台、权限及真实模型门禁。
+
+## 2026-10-22：M10-07 故障恢复更正
+
+[DEC-113](../decisions/DEC-113-autonomous-action-recovery.md) 替代同日永久跨工具围栏：
+已释放执行不确定时，exec/write/edit 等待当前桌面观察后可重新规划执行；基础副作用
+清除旧桌面结算检查点。共享撤权、释放无法确认与未知回执仍明确拒绝，不使用命令词
+白名单。验收见[自主恢复记录](../compatibility/autonomous-action-recovery-20261022.md)。

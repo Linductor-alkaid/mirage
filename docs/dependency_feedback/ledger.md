@@ -18,10 +18,10 @@
 消费面：`DialogCompletion` 结构化标记、IPC 对话轮 `error_kind` 封闭词表
 （"output_limit"）与 dialog 截断正文保留；文本锚点为临时方案，上游字段落地后移除。
 
-2026-10-22：[MIRADOR-20261019-001](mirador.md#mirador-20261019-001) 转 Accepted
-（部分交付与消费）：Mirador `23f7ed2` 已交付 Experimental 契约、关系视图与注意
-规划；完整覆盖采纳与时间事件仍待上游 M9-04/05。pin 和验证见
-[消费审计](../supply-chain/mirador-continuous-perception-20261022.md)，不将条目整体关闭。
+2026-10-22：[MIRADOR-20261019-001](mirador.md#mirador-20261019-001) 保持 Accepted
+（部分消费）：Mirador `2a9f483` 已交付 M9-01～05，Mirage 新消费 token/覆盖采纳与
+确认状态/事件，产品前置 ROI、供给与资源验收仍开放。pin 和验证见
+[消费审计](../supply-chain/mirador-continuous-perception-20261022.md)。
 
 2026-10-19：M9 连续感知与注意策略诉求登记为
 [MIRADOR-20261019-001](mirador.md#mirador-20261019-001)（Proposed），关联已有

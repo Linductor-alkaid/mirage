@@ -51,7 +51,9 @@ bool DesktopActionVerification::mutation(const std::string &name) {
 }
 bool DesktopActionVerification::settled(const Record &record) {
     return record.status == "verified" || record.status == "not_requested" ||
-           (record.status == "rejected" && !record.dispatched && !record.uncertain);
+           (record.status == "rejected" && !record.dispatched && !record.uncertain) ||
+           (record.uncertain && record.input_released && record.recovery_observed &&
+            (record.kind.empty() || record.recovery_replanned));
 }
 bool DesktopActionVerification::observation(const std::string &name) {
     return name == "desktop.screen.capture" || name == "desktop.window.front" ||
@@ -61,8 +63,7 @@ bool DesktopActionVerification::observation(const std::string &name) {
 void DesktopActionVerification::configure_policy(mira::BuiltinToolSpec &spec) {
     if (!mutation(spec.wire_name))
         return;
-    if (spec.version.major < 3)
-        spec.version = {3, 0, 0};
+    spec.version = {static_cast<std::uint16_t>(spec.version.major < 4 ? 4 : 5), 0, 0};
     auto *properties = spec.parameters_schema.root.find("properties");
     if (properties)
         properties->set(
@@ -100,13 +101,19 @@ JsonValue DesktopActionVerification::summary(const Record &r) const {
     JsonValue::Array dependencies;
     for (const auto &id : r.dependencies)
         dependencies.emplace_back(id);
-    return JsonValue{JsonValue::Object{
+    auto result = JsonValue{JsonValue::Object{
         {"action_id", r.id},
         {"action", r.action},
         {"window_id", r.window},
         {"application_id", r.application_id},
         {"status", r.status},
-        {"policy_version", 2},
+        {"policy_version", 3},
+        {"recovery_status", !r.uncertain                                  ? "not_required"
+                            : r.status == "verified"                      ? "condition_observed"
+                            : r.recovery_observed && r.recovery_replanned ? "replanned"
+                            : r.recovery_observed                         ? "reobserved"
+                                                                          : "observation_required"},
+        {"historical_execution_uncertain", r.uncertain},
         {"execution_status", r.dispatched && r.input_released && !r.uncertain ? "completed"
                              : r.uncertain                                    ? "uncertain"
                                                                               : "rejected"},
@@ -142,6 +149,9 @@ JsonValue DesktopActionVerification::summary(const Record &r) const {
         {"model_revision", r.model_revision},
         {"ocr_backend_calls", static_cast<std::int64_t>(r.backend_calls)},
         {"environment_epoch", static_cast<std::int64_t>(r.epoch)}}};
+    if (!r.failure_diagnostic.empty())
+        result.set("input_diagnostic", r.failure_diagnostic);
+    return result;
 }
 
 bool DesktopActionVerification::observe_text(
@@ -298,7 +308,7 @@ void DesktopActionVerification::observe(Record &r, const mira::OperationContext 
             return;
         }
         if (r.kind == "shared_frame_observed" || r.kind == "shared_text_exists") {
-            if (!shared_observation_ || r.uncertain) {
+            if (!shared_observation_) {
                 r.reason = "effect_uncertain";
                 return;
             }
@@ -367,7 +377,8 @@ void DesktopActionVerification::observe(Record &r, const mira::OperationContext 
             // DEC-086: an uncertain dispatch is a fence against unprovable
             // effects, not against evidence — when its declared postcondition
             // is machine-verified afterwards, the record settles and the turn
-            // can continue. Effects that stay unproven keep awaiting review.
+            // can continue. Execution uncertainty stays historical even when the current condition
+            // matches.
             r.status = matched ? "verified" : r.uncertain ? "uncertain" : "unverified";
             r.reason = matched       ? (r.uncertain ? "application_running_confirmed"
                                                     : "application_running_only")
@@ -453,10 +464,8 @@ void DesktopActionVerification::observe(Record &r, const mira::OperationContext 
             r.captured_at_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
                                    std::chrono::system_clock::now().time_since_epoch())
                                    .count();
-            r.status = r.uncertain ? "uncertain" : matched ? "verified" : "unverified";
-            r.reason = r.uncertain ? "effect_uncertain"
-                       : matched   ? "condition_matched"
-                                   : "condition_not_matched";
+            r.status = matched ? "verified" : r.uncertain ? "uncertain" : "unverified";
+            r.reason = matched ? "condition_matched" : "condition_not_matched";
             return;
         }
         if (!before.ok || !before.found || before.window.id != r.window ||
@@ -546,11 +555,10 @@ void DesktopActionVerification::observe(Record &r, const mira::OperationContext 
         r.captured_at_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
                                std::chrono::system_clock::now().time_since_epoch())
                                .count();
-        r.status = r.uncertain ? "uncertain" : matched ? "verified" : "unverified";
-        r.reason = r.uncertain      ? "effect_uncertain"
-                   : r.kind.empty() ? "condition_missing"
-                   : matched        ? "condition_matched"
-                                    : "condition_not_matched";
+        r.status = matched ? "verified" : r.uncertain ? "uncertain" : "unverified";
+        r.reason = r.kind.empty() ? "condition_missing"
+                   : matched      ? "condition_matched"
+                                  : "condition_not_matched";
     } catch (...) {
         r.reason = "observation_failed";
     }
@@ -621,41 +629,104 @@ std::string DesktopActionVerification::failure_receipt(const Record &r, std::str
     return encoded;
 }
 
+void DesktopActionVerification::refresh_recovery_fence() {
+    fenced_ = std::any_of(records_.begin(), records_.end(), [](const auto &r) {
+        return r.uncertain &&
+               (!r.input_released || (r.status != "verified" && !r.recovery_observed));
+    });
+}
+
 void DesktopActionVerification::note_observation() {
     observation_at_ = std::chrono::steady_clock::now();
     observation_epoch_ = desktop_.actions ? desktop_.actions->epoch() : 0;
     observation_authority_ = desktop_.actions ? desktop_.actions->authority_epoch() : 0;
+    if (observation_authority_ && desktop_.actions->input_released())
+        for (auto &r : records_)
+            if (r.uncertain && r.input_released && r.authority == observation_authority_)
+                r.recovery_observed = true;
+    refresh_recovery_fence();
     if (!records_.empty() && records_.back().status == "rejected" && !records_.back().dispatched &&
         !records_.back().uncertain)
         observation_after_rejection_ = true;
+}
+
+void DesktopActionVerification::note_external_effect() {
+    observation_at_ = {};
+    request_feedback_valid_ = false;
+    request_conditions_.clear();
+    for (auto &r : records_) {
+        r.observed_at = {};
+        if (r.uncertain && r.input_released && r.recovery_observed && desktop_.actions &&
+            r.authority == desktop_.actions->authority_epoch())
+            r.recovery_replanned = true;
+    }
+}
+
+mira::Result<void>
+DesktopActionVerification::admit_effect(const mira::OperationContext &ctx) const {
+    if (auto admitted = admit_action(ctx); !admitted)
+        return admitted.error();
+    // Basic effects have no desktop provider receipt. Check retained global
+    // authority here, without bypassing the action path's canonical rejection.
+    if (desktop_.actions && !desktop_.actions->authority_epoch()) {
+        auto unavailable = error(mira::ErrorCode::InvalidArgument,
+                                 "desktop authority withdrawn; wait for authorized resume");
+        unavailable.domain = "mirage.desktop.recovery";
+        return unavailable;
+    }
+    return {};
+}
+
+mira::Result<void> DesktopActionVerification::admit_action(const mira::OperationContext &ctx,
+                                                           bool independent_application) const {
+    if (ctx.task != owner_.task || ctx.session != owner_.session ||
+        ctx.task_epoch != owner_.task_epoch)
+        return error(mira::ErrorCode::InvalidArgument, "desktop verification owner mismatch");
+    if (cancel_.cancelled() || ctx.cancelled_or_expired(mira::Timestamp::now()))
+        return error(mira::ErrorCode::Cancelled, "desktop verification cancelled");
+    if (std::any_of(records_.begin(), records_.end(),
+                    [](const auto &r) { return r.uncertain && !r.input_released; }))
+        return error(
+            mira::ErrorCode::InvalidArgument,
+            "input_release_failed: release unconfirmed; affected input path is unavailable");
+    if (canonical_failure_)
+        return error(mira::ErrorCode::InvalidArgument, "desktop receipt integrity failure");
+    const bool independent =
+        independent_application && desktop_.actions && desktop_.actions->authority_epoch() &&
+        desktop_.actions->input_released() &&
+        std::none_of(records_.begin(), records_.end(), [](const auto &r) {
+            return r.uncertain && r.status != "verified" && !r.recovery_observed &&
+                   (r.action == "desktop.application.launch" ||
+                    r.action == "desktop.application.open_uri");
+        });
+    if (fenced_ && !independent) {
+        auto recovery =
+            error(mira::ErrorCode::InvalidArgument,
+                  "reobserve current desktop state, then replan; do not replay uncertain input");
+        recovery.domain = "mirage.desktop.recovery";
+        return recovery;
+    }
+    return {};
 }
 
 mira::Result<mira::JsonValue>
 DesktopActionVerification::execute(const std::string &name, const JsonValue &args,
                                    const mira::OperationContext &ctx,
                                    const mira::BuiltinToolHandler &handler) {
+    if (ctx.task != owner_.task || ctx.session != owner_.session ||
+        ctx.task_epoch != owner_.task_epoch || cancel_.cancelled() ||
+        ctx.cancelled_or_expired(mira::Timestamp::now()))
+        return admit_action(ctx).error();
     // Any new mutation attempt supersedes "the model observed after the
     // trailing rejection"; the appended record owns the evidence question.
     observation_after_rejection_ = false;
     observation_at_ = {};
     request_feedback_valid_ = false;
     const auto request_conditions = std::exchange(request_conditions_, {});
-    if (ctx.task != owner_.task || ctx.session != owner_.session ||
-        ctx.task_epoch != owner_.task_epoch)
-        return error(mira::ErrorCode::InvalidArgument, "desktop verification owner mismatch");
-    if (cancel_.cancelled() || ctx.cancelled_or_expired(mira::Timestamp::now()))
-        return error(mira::ErrorCode::Cancelled, "desktop verification cancelled");
-    if (fenced_ && desktop_.actions && !desktop_.actions->input_released())
-        return error(mira::ErrorCode::InvalidArgument,
-                     "input_release_failed: human review required");
-    if (canonical_failure_ || fenced_)
-        return error(mira::ErrorCode::InvalidArgument,
-                     "verify the previous action; uncertain effects require human review");
     // M9-03: a Continuous run must not refuse its 33rd action. Settled
     // records (verified, or a clean rejection without dispatched effects)
     // archive out oldest-first; the cap only stays hard while every kept
-    // record still carries unconfirmed side effects — the fence above
-    // already blocks new dispatches in that state.
+    // record still needs observation or a condition/recovery decision.
     while (records_.size() >= kMaxRecords && archive_settled_locked()) {
     }
     if (records_.size() >= kMaxRecords)
@@ -692,20 +763,24 @@ DesktopActionVerification::execute(const std::string &name, const JsonValue &arg
     if (r.kind.empty() && name == "desktop.window.activate")
         r.kind = "window_focused";
     const auto reject_before_dispatch =
-        [&](const char *message, const std::string &invalid_field = {}) -> mira::Result<JsonValue> {
+        [&](const char *message, const std::string &invalid_field = {},
+            const std::string &code = "invalid_arguments") -> mira::Result<JsonValue> {
         r.status = "rejected";
         r.reason = "validation_failed_before_dispatch";
-        r.failure_code = "invalid_arguments";
+        r.failure_code = code;
         r.failure_field = invalid_field;
         r.recovery_hint = message;
         conversation::truncate_text(r.failure_field, 32);
         conversation::truncate_text(r.recovery_hint, 120);
         r.input_released = true;
         auto failure = error(mira::ErrorCode::InvalidArgument, message);
-        failure.safe_message = failure_receipt(r, message, invalid_field, {}, {});
+        failure.safe_message = failure_receipt(r, message, invalid_field, code, {});
         records_.push_back(std::move(r));
         return failure;
     };
+    if (auto admitted = admit_action(ctx, application_action); !admitted)
+        return reject_before_dispatch(admitted.error().safe_message.c_str(), {},
+                                      "recovery_required");
     const auto valid_text = [](const std::string &s) {
         return s.size() <= 1024 && mirage::desktop::is_valid_utf8(s);
     };
@@ -892,21 +967,29 @@ DesktopActionVerification::execute(const std::string &name, const JsonValue &arg
         conversation::truncate_text(code, 64);
         r.reason = code.empty() ? "action_failed" : "action_failed: " + code;
         r.failure_code = code.empty() ? "provider_error" : code;
+        if (code == "input_lag" || code == "input_timeout" || code == "input_release_failed" ||
+            code == "portal_input_failed") {
+            r.failure_diagnostic = parsed ? field(parsed.value(), "message") : "";
+            conversation::truncate_text(r.failure_diagnostic, 224);
+        }
         r.failure_field = parsed ? field(parsed.value(), "field") : "";
         r.recovery_hint = parsed ? field(parsed.value(), "hint") : "";
         conversation::truncate_text(r.failure_code, 64);
         conversation::truncate_text(r.failure_field, 32);
         conversation::truncate_text(r.recovery_hint, 120);
     }
-    fenced_ = fenced_ || r.uncertain;
+    if (r.dispatched || r.uncertain)
+        for (auto &prior : records_)
+            if (prior.uncertain && prior.input_released && prior.authority == r.authority &&
+                (prior.recovery_observed || application_action))
+                prior.recovery_replanned = true;
     r.epoch = desktop_.actions ? desktop_.actions->epoch() : 0;
-    observe(r, ctx);
-    // Only the newly admitted action can introduce an unresolved execution
-    // uncertainty. DEC-086 may confirm its application-running condition;
-    // ordinary missing/mismatched business evidence never owns this fence.
-    if (r.status == "verified")
-        fenced_ = false;
+    // An uncertain input first requires a model-visible current-state checkpoint.
+    // Explicit recheck may inspect its fixed condition; no reflexive capture here.
+    if (!r.uncertain || application_action)
+        observe(r, ctx);
     records_.push_back(std::move(r));
+    refresh_recovery_fence();
     const auto &record = records_.back();
     if (result) {
         auto object = *result.value().as_object();
@@ -955,15 +1038,12 @@ mira::Result<JsonValue> DesktopActionVerification::recheck(const std::string &ac
     // Re-observe the same fixed target after an independent recovery. Normal
     // action epochs advance; takeover/release failures change authority and
     // cannot be repaired by rebasing an old receipt.
-    if (!record->uncertain && record->input_released)
+    if (record->input_released)
         record->epoch = desktop_.actions->epoch();
     observe(*record, ctx);
-    // DEC-086: fresh machine evidence on the pending action releases the
-    // mutation fence; the next gate check re-examines the record anyway.
-    if (record->status == "verified" && record->kind == "application_running")
-        fenced_ = std::any_of(records_.begin(), records_.end(), [](const auto &candidate) {
-            return candidate.uncertain && candidate.status != "verified";
-        });
+    if (record->uncertain && !record->evidence.empty())
+        record->recovery_observed = true;
+    refresh_recovery_fence();
     return summary(*record);
 }
 
@@ -973,7 +1053,7 @@ void DesktopActionVerification::register_tool(mira::BuiltinToolRegistry &registr
         return;
     mira::BuiltinToolSpec spec;
     spec.wire_name = "desktop.action.verify";
-    spec.version = {2, 0, 0};
+    spec.version = {3, 0, 0};
     spec.description =
         "Read fresh evidence for a retained action_id and its fixed postcondition under "
         "the same authority. This can recheck a condition after independent recovery. "
@@ -1036,6 +1116,7 @@ JsonValue DesktopActionVerification::recovery_facts() const {
             r.failure_code == "invalid_target_bounds" || r.failure_code == "invalid_argument" ||
                     r.failure_code == "invalid_arguments"
                 ? "correct_arguments_not_recapture"
+            : r.failure_code == "recovery_required" ? "observe_current_state_then_replan"
             : r.failure_code == "stale_image_scope" || r.failure_code == "stale_observation"
                 ? "use_latest_target_once"
                 : "inspect_failure_before_retry";
@@ -1122,8 +1203,10 @@ bool DesktopActionVerification::settle() {
            (records_.empty() || fresh_feedback() || consumed_feedback) &&
            (records_.empty() || records_.back().status != "rejected" || trailing_clean_rejection) &&
            std::all_of(records_.begin(), records_.end(), [](const auto &r) {
-               return r.status == "verified" || r.status == "not_requested" ||
-                      (r.status == "rejected" && !r.dispatched && !r.uncertain);
+               // A terminal model decision may conclude from the current state
+               // without another mutation. Recovery is not proof of the old
+               // execution or its fixed condition; those facts stay unchanged.
+               return settled(r) || (r.uncertain && r.input_released && r.recovery_observed);
            });
 }
 void DesktopActionVerification::project(std::vector<conversation::Part> &parts) const {
@@ -1192,11 +1275,9 @@ mira::Result<void> DesktopActionVerification::validate_request(const mira::Model
     collect_conditions(records_);
     collect_conditions(archived_);
     // Canonical history is authoritative even when the UI projection has hit its budget.
-    // Re-derived per request against the current record states (DEC-086): a
-    // failed mutation receipt stays disqualifying only while its record is
-    // neither machine-verified nor a clean pre-dispatch rejection — the same
-    // acceptance settle() applies. Unknown failures never enter records_ and
-    // always fail the check, so a hidden failure still fences the turn.
+    // DEC-113: owned records govern condition/recovery state. A known historical
+    // failure must not recreate a global fence after observation and replanning.
+    // Unknown receipts remain integrity errors even outside the UI projection.
     canonical_failure_ = false;
     ocr_failed_ = false;
     for (const auto &item : request.input)
@@ -1218,26 +1299,24 @@ mira::Result<void> DesktopActionVerification::validate_request(const mira::Model
                                 ocr_failed_ = result->failed;
                             else if (mutation(call->wire_name)) {
                                 if (result->failed) {
-                                    // Trust only this turn's own no-effect receipt. Unknown or
-                                    // unverified failures remain fenced even outside UI projection.
+                                    // Resolve only the current turn's owned receipt identity.
+                                    // Its record separately governs execution and recovery.
                                     const auto parsed =
                                         mira::parse_json(result->safe_error_summary);
                                     const auto &receipt = parsed ? parsed.value() : result->result;
                                     const auto id = field(receipt, "action_id");
-                                    // Settled receipts stay resolvable after
-                                    // archival (M9-03); archived records are
-                                    // settled by construction. Unknown failures
-                                    // never entered records_ and always fence.
-                                    const auto known_settled = [&]() {
+                                    // Recovered failures remain resolvable after archival
+                                    // without changing their original failure facts.
+                                    const auto known_receipt = [&]() {
                                         for (const auto &r : records_)
                                             if (r.id == id && r.action == call->wire_name)
-                                                return settled(r);
+                                                return true;
                                         for (const auto &r : archived_)
                                             if (r.id == id && r.action == call->wire_name)
-                                                return settled(r);
+                                                return true;
                                         return false;
                                     }();
-                                    if (!known_settled)
+                                    if (!known_receipt)
                                         canonical_failure_ = true;
                                 }
                             } else if (!result->failed && observation(call->wire_name)) {

@@ -734,6 +734,16 @@ struct RuntimeService::Impl {
                                     const auto &image, const auto &cancel, const auto &deadline) {
                 return pipeline->read_image_ocr(image, cancel, deadline);
             };
+            desktop.ocr_image_contextual =
+                [pipeline = core->ocr_pipeline.get()](const auto &image, const auto &key,
+                                                      const auto &cancel, const auto &deadline) {
+                    return pipeline->read_image_ocr(image, cancel, deadline, key);
+                };
+            desktop.query_image_state =
+                [pipeline = core->ocr_pipeline.get()](const auto &key, const auto &cancel,
+                                                      const auto &deadline) {
+                    return pipeline->query_image_state(key, cancel, deadline);
+                };
             desktop.ocr = [pipeline = core->ocr_pipeline.get(), presentation = desktop.exclude_pet](
                               const auto &cancel, const auto &deadline) {
                 const auto begin = std::chrono::steady_clock::now();

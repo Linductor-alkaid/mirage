@@ -7,10 +7,11 @@
 
 ## 1. 项目概述
 
-2026-10-22 后续：M9-05/07/18 消费 Mirador master `23f7ed2` 已交付的 Experimental
-关系视图与注意规划，复用视觉 worker，对共享帧的当前 oriented 融合快照执行。
-来源/策略版本隔离比较基线，完整覆盖采纳、时间事件和模型供给仍待交付；原有
-display 观察与动作契约保持原行为，见[消费设计](continuous-visual-analysis.md)。
+2026-10-22 后续：M9-05/07/18 消费 Mirador master `2a9f483` 的 Experimental
+关系、token/覆盖采纳与时间状态/事件，复用视觉 worker，对共享帧的当前 oriented
+融合快照执行。显式完整刷新才允许采纳，空间 ROI-only 选区已移至昂贵阶段前；
+无帧焦点/状态查询已串行接入，单独回显历史状态与年龄；对象/文本前置定位和
+模型供给仍待交付。原 display 观察与动作契约保持原行为，见[消费设计](continuous-visual-analysis.md)。
 
 2026-10-22 实施增量：M9-06/07 新增可显式启用的连续采集基础层，外部 owner
 注入授权 capture 函数和 kairo Executor，需求 timer 唤醒串行 blocking worker，
@@ -255,6 +256,12 @@ DesktopEnvironment
 ```
 
 `ApplicationProvider` 负责应用发现、启动、关闭以及运行状态；`WindowProvider` 负责窗口枚举、前台窗口、焦点、位置和尺寸；`AccessibilityProvider` 提供当前应用的结构化 UI 信息；`ScreenProvider` 提供显示器、窗口和 ROI 图像；`InputProvider` 提供键盘、鼠标以及文本输入；`FilesystemProvider` 和 `ProcessProvider` 提供桌面 Agent 对本机工作环境的直接访问。
+
+窗口枚举与激活分别判断能力：WindowProvider.activation_supported() 的兼容默认
+为 true，纯 Wayland 的 AT-SPI provider 返回 false；Workflow 与 Harness 均不为
+该 provider 注册激活工具。Accessibility Backend 复用同一个窗口 provider，
+保证枚举的 ID 可映射到语义快照。此能力不绕过运行时焦点/权限检查，接口变更
+须同源重编译；边界和验证见 [DEC-081](../decisions/DEC-081-native-cua-capability-and-observation-continuity.md)。
 
 这些 Provider 形成统一的环境接口，上层行为不直接包含平台实现信息。
 
@@ -1674,3 +1681,11 @@ M7-27 系统切换器首增量通过独立 Provider opt-in 与 desktop.window_sw
 及 input.inject 授权，窗口受限任务不注册。清理可能提交选择，释放后新观察验证
 目标；具体模式、预算、示例及平台门禁见 DEC-110“显式窗口切换器首增量”和
 [验收记录](../compatibility/controlled-window-switcher-20261021.md)。
+
+## 2026-10-22：自主恢复更正
+
+动作执行故障的默认恢复策略改按 [DEC-113](../decisions/DEC-113-autonomous-action-recovery.md)：
+保留执行不确定事实，以当前观察建立恢复基线，允许 Agent 重新规划及独立应用路径，
+不把普通 input_lag 升级为人工检查。恢复与条件匹配分开，任务结论仍依赖用户目标
+的当前证据。连续输入故障按 episode 停用局部路径，权限/接管与释放守卫保持。
+M9-20 跟踪实现和平台验收，不表示连续后台采样或任意故障通道重建已经交付。

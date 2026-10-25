@@ -6,6 +6,9 @@
 > 授权：维护者要求提交采集基础层后继续开发，并提醒 Mirador master 持续更新
 > 工作项：M9-05/06/07/18；反馈 MIRADOR-20261019-001
 
+最新 pin 为 `2a9f483`，第二次升级及验证见本文末尾“第二次升级”。下述首轮
+`5565436..23f7ed2` 记录按当时能力保留，不代表当前尚缺覆盖或时间状态 API。
+
 ## 升级范围
 
 | 项目 | 实际值 |
@@ -83,3 +86,74 @@ ExecutionContext。另在 future 可见前释放已结算请求的源帧/attenti
 未验收：真实模型/低端设备 CPU/RSS/唤醒、4K/多源长期 soak、生产 native/IPC
 供给、平台推送流按需暂停、前置 ROI 调度、Windows/真实 Wayland/pet 共存。
 负责人 Mirage 维护者；接线、设备/授权及预登记任务/阈值到位后由 M9-11/12 补跑。
+
+## 第二次升级：M9-04/05 覆盖与时间状态消费
+
+授权：维护者再次说明 Mirador master 更新并要求继续 M9。基线 Mirage `7dd436b`，
+独立分支 feat/continuous-perception-cycle；保留基线中的 Runtime 截断分类工作。
+
+| 项目 | 实际值 |
+| --- | --- |
+| 旧 pin | `23f7ed2d985187f1d4c53752c53aeba1674b952e` |
+| 新 pin | `2a9f4830f4727498ed4cbad568a1d3ec357ece7e` |
+| 范围 | 6 个提交，master PR #53/#54，上游 M9-04/05 |
+| 新能力 | plan_cycle/accept_work、精确 ROI 摘要验证、覆盖/失效记录；去抖时间状态、焦点查询、有界事件 drain |
+| 兼容性 | continuous_perception.hpp 为 Experimental 增量；原单帧/OCR/detector API 不变 |
+| 供应链 | LICENSE、.gitmodules、CMake 消费与嵌套 gitlink 未变；仍为 MIT，无新增依赖 |
+
+仅更新 Mirador gitlink 和 lock，无上游源码修改。按 pinned integration skill 的
+By API → Fusion and snapshots 路由阅读；新头、DEC-026、示例及 temporal 测试中
+溢出/resync 的断言为本轮 API 核对证据。未运行上游独立测试套件，不借其 CI 代替
+Mirage 消费测试。
+
+Experimental 结果从 attention 扩展为 cycle.attention + WorkPlan/状态/事件，
+本仓消费用例同步迁移；稳定 Runtime/IPC/动作接口没有变更。
+
+应用继续复用单一 kairo worker，无新增并发设施。默认只规划；非零
+full_frame_evidence_digest 由可信 owner 标识能力栈，准入要求全帧 kRefresh 且
+所有能力完整成功后才采纳。预算化、ROI、缓存和几何分割不能走该路径。明确保留
+识别后规划边界；本轮没有实现前置 ROI/模型通知或宣传资源收益。
+
+覆盖/确认/事件直接复用上游，返回完整 WorkPlan、可选采纳报告、时间/焦点与事件
+drain。WorkPlan 动态内存含 token 字符串受 64 KiB 限额；时间输出沿用数量及
+协调器字符串预算，另计 state_owned_bytes。最终同步提交后不以迟到取消丢弃 drain。
+完整契约见[设计](../design/continuous-visual-analysis.md)。
+
+Linux x86_64、GCC 13.3.0，Mira `a29374a` 未变；开发末段再次 fetch，master
+仍为新 pin。Debug 全量 **110/110，290.95 s，通过**；执行 cmake --preset debug、
+cmake --build --preset debug -j 4、ctest --preset debug。10 份变更 Markdown 的
+456 个本地链接、标题/围栏、M9-01～19 唯一编号、pin/lock 一致与干净子模块
+检查通过，git diff --check 通过。ASAN、UBSAN、TSAN、native-release 定向各 **7/7** 通过（含隔离
+setup/cleanup）；消费专项 **672 checks**，采集 166、visual_session 281、budgeted
+136、observation_loop 114，均零失败，无 sanitizer 报告。TSAN 沿用本机测试
+子进程 setarch -R，不改变系统设置。新增用例确认：两次有效观测后 begin、静态
+精确验证 reuse、一字节变化在近似 gate 为 None 时仍失效、源重建 old-epoch end、
+身份失效、无证明的请求被拒、过滤时内部照常确认、事件溢出可观察与取消后恢复。
+
+首轮溢出用例误以为 surviving-coverage 路径的 resync 只出现在下一帧；核对上游
+TemporalEventQueueTest，确认 plan 内生成的溢出在本帧即报告，已修正消费断言。
+没有修改上游行为。64 帧共享源 churn 仍保持两代/512 字节且 OCR 实调一次；这是
+关闭采纳的背景 skip 路径，不把它与全帧刷新采纳路径混作性能收益。
+
+变更的三个 C++ 文件格式通过；公开边界检查 65 个头零违规，保留 DEC-096 两个
+已有 seam。**仓库全量格式门禁未通过**：integration/mira/src/model_layer.cpp:1528
+原有截断分类条件的换行不合格式。在基线 `7dd436b` 回放同一检查复现，本轮没有
+修改该文件；不将局部检查填写为全量通过。负责人 Mirage 维护者，条件是截断分类
+维护分支修正该行格式后重跑 mirage-format-check。
+
+复现本轮定向验证（将 preset 依次替换为 asan、ubsan、tsan、native-release；TSAN
+的 ctest 前加 setarch x86_64 -R）：
+
+```sh
+cmake --preset asan
+cmake --build --preset asan --target continuous_perception_consumer_test continuous_capture_test visual_session_test visual_session_budgeted_test visual_observation_loop_test -j 2
+ctest --preset asan -R '^(continuous_perception_consumer_test|continuous_capture_test|visual_session_test|visual_session_budgeted_test|visual_observation_loop_test)$'
+clang-format --dry-run --Werror integration/mirador/include/mirage/integration/visual_session_host.hpp integration/mirador/src/visual_session_host.cpp tests/integration/continuous_perception_consumer_test.cpp
+cmake --build --preset debug --target mirage-boundary-check
+# 基线格式问题的只读复现
+git show 7dd436b:integration/mira/src/model_layer.cpp | clang-format --dry-run --Werror --assume-filename=integration/mira/src/model_layer.cpp
+```
+
+Windows、真实 Wayland/pet、实际模型/低端
+设备资源收益和长期 soak 仍未运行；负责人 Mirage 维护者，待消费者/平台接线、
+设备与预登记阈值到位，由 M9-11/12 补跑。M9-05/07/18 和反馈整体保持开放。

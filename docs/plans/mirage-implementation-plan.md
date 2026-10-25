@@ -10,10 +10,16 @@
 
 ## 当前状态
 
-2026-10-22 后续：已提交采集基础层 `1faba92`，升级 Mirador 至 master `23f7ed2`，
-在现有视觉 worker 消费 Experimental 当前帧关系视图与注意规划，M9-18 转 In Progress。
-共享 capture→analysis 串联、结算后像素释放与 Executor 优先关闭已补齐；规划
-仍在当前识别之后，完整前置 ROI/覆盖采纳/事件和 native 供给保持开放。见
+2026-10-22 产品接线：M9-06/18 已接原生任务的受权帧 OCR、同 worker 连续融合/规划、
+无 PNG 文本供给及无帧状态摘要；同时修复窗口/应用清单和 ROI/OCR 边界问题。
+M9-05/06/07/11/12/18 保持 In Progress，后台采样与增量订阅等继续交付，
+[范围与验证](../compatibility/native-observation-and-continuous-wiring-20261022.md)。
+
+2026-10-22 后续：Mirador 再更新至 master `2a9f483`，消费其 M9-04 token/覆盖
+采纳和 M9-05 时间状态/事件。独立背景宿主对显式全帧/空间 ROI 完整刷新证据采纳，返回
+覆盖失效、确认状态、焦点与有界事件；M9-05/07/18 继续 In Progress。规划仍在
+当前识别之后；新增 ROI-only 的前置空间选区、有界能力执行及无帧状态/焦点查询
+宿主接口。对象/文本前置定位与 native/模型供给保持开放。见
 [消费契约](../design/continuous-visual-analysis.md)及[pin 审计](../supply-chain/mirador-continuous-perception-20261022.md)。
 
 2026-10-22：按 DEC-091/109 推进 M9-06/07 的 opt-in 连续采集基础层：kairo worker/
@@ -938,3 +944,15 @@ pet、OCR/YOLO 和资源打包），Release 定向回归 19/19、39.57 s，公�
 零违规，launcher --version 正常。命令和产物哈希见
 [后续验证记录](../compatibility/controlled-window-switcher-20261021.md#2026-10-21native-release-更新与提交前验证)。
 本次未启动/重启产品；M7-27 的其他平台与真实环境门禁继续开放。
+
+2026-10-22：M7-18/25/26、M10-07 与 M9-05/18 推进最新会话恢复修复：
+纯 Wayland 语义 provider 接线、激活能力诚实暴露、不确定动作的 exec/write/edit
+围栏、输入迟到诊断及只读观察收敛。验证与未验项见
+[恢复验证记录](../compatibility/native-action-recovery-20261022.md)，未关闭真实模型
+与未验平台门禁。
+
+2026-10-22：维护者要求纠正长期自主 Agent 的故障恢复方向。新增
+[DEC-113](../decisions/DEC-113-autonomous-action-recovery.md) 与 M9-20，替代普通执行
+不确定默认人工复核：保留失败、重新观察、独立路径和重规划；input_lag 等待新源帧
+后恢复，连续故障停用局部路径。计划/设计/安全及证据同步，M9 保持 In Progress，
+真实平台长任务和释放失败通道重建不由受控回归关闭。

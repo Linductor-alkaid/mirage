@@ -1,3 +1,4 @@
+#include "image_ocr_validation.hpp"
 #include <mirage/integration/visual_observation_pipeline.hpp>
 
 #include <mirage/integration/visual_frame.hpp>
@@ -63,7 +64,8 @@ EnvironmentVisualRefresh VisualObservationPipeline::refresh_region(
 }
 ImageOcrOutcome VisualObservationPipeline::read_image_ocr(
     const desktop::ImageFrame &image, const desktop::CancelToken &cancel,
-    const std::optional<std::chrono::steady_clock::time_point> &deadline) {
+    const std::optional<std::chrono::steady_clock::time_point> &deadline,
+    const std::string &source_key) {
     ImageOcrOutcome out;
     const auto end =
         std::min(deadline.value_or(std::chrono::steady_clock::now() + std::chrono::seconds(5)),
@@ -88,10 +90,22 @@ ImageOcrOutcome VisualObservationPipeline::read_image_ocr(
         out.error = {"invalid_argument", "image OCR preview exceeds its bounded layout"};
         return out;
     }
-    std::uint64_t sequence = 0;
+    if (source_key.size() > 256) {
+        out.error = {"invalid_argument", "image source key exceeds its budget"};
+        return out;
+    }
+    std::uint64_t sequence = 0, source_revision = 0;
     {
         const std::lock_guard<std::mutex> guard(sequence_mutex_);
         sequence = ++sequence_;
+        if (source_key.empty() || source_key != image_source_key_ || image_width_ != image.width ||
+            image_height_ != image.height) {
+            image_source_key_ = source_key;
+            image_width_ = image.width;
+            image_height_ = image.height;
+            ++image_source_revision_;
+        }
+        source_revision = image_source_revision_;
     }
     auto frame =
         to_mirador_frame(image, config_.source_id, sequence, std::chrono::steady_clock::now());
@@ -105,7 +119,14 @@ ImageOcrOutcome VisualObservationPipeline::read_image_ocr(
     request.run_ocr = true;
     request.ocr.cache_policy = mirador::CachePolicy::kRefresh;
     request.ocr.output_space = mirador::CoordinateSpaceId::kOriented;
-    request.fuse = false; // No global transform, snapshot or actionable refs.
+    request.fuse = config_.session.enable_image_session;
+    if (request.fuse) {
+        request.image_session = true;
+        request.analyze_change = true;
+        request.continuous = VisualContinuousRequest{};
+        request.continuous->source_revision = source_revision;
+        // Budgeted/partial OCR is advisory, never completed full-frame coverage.
+    }
     request.deadline = end;
     request.external_cancel = bounded;
     // M8-07 (upstream DEC-025): when the budgeted backend is configured, the
@@ -134,6 +155,11 @@ ImageOcrOutcome VisualObservationPipeline::read_image_ocr(
         return out;
     }
     if (result.outcome.kind != VisualAnalysisOutcome::Kind::kCompleted) {
+        if (result.invalid_ocr_region) {
+            out.invalid_region_index = result.invalid_ocr_region;
+            out.error = {result.outcome.message, "image OCR region failed validation"};
+            return out;
+        }
         out.error = {
             result.outcome.kind == VisualAnalysisOutcome::Kind::kTimedOut   ? "deadline_exceeded"
             : result.outcome.code == mirador::ErrorCode::kBudgetExceeded    ? "result_too_large"
@@ -148,12 +174,10 @@ ImageOcrOutcome VisualObservationPipeline::read_image_ocr(
     }
     for (const auto &r : result.text) {
         const auto &b = r.bounds;
-        if (r.utf8_text.size() > 1024 || !desktop::is_valid_utf8(r.utf8_text) ||
-            !std::isfinite(r.confidence) || r.confidence < 0 || r.confidence > 1 ||
-            !std::isfinite(b.x) || !std::isfinite(b.y) || !std::isfinite(b.width) ||
-            !std::isfinite(b.height) || b.x < 0 || b.y < 0 || b.width <= 0 || b.height <= 0 ||
-            double(b.x) + b.width > image.width || double(b.y) + b.height > image.height) {
-            out.error = {"invalid_result", "image OCR text or geometry is invalid"};
+        const auto *invalid = detail::invalid_image_text(r, image.width, image.height);
+        if (invalid) {
+            out.error = {invalid, "image OCR region failed validation"};
+            out.invalid_region_index = static_cast<std::uint64_t>(&r - result.text.data());
             out.regions.clear();
             return out;
         }
@@ -181,7 +205,63 @@ ImageOcrOutcome VisualObservationPipeline::read_image_ocr(
         diagnostics.det_limit_hit = result.ocr_batch->det_limit_hit;
         out.diagnostics = std::move(diagnostics);
     }
+    if (result.continuous) {
+        ImageContinuousState state;
+        state.ok = true;
+        state.source_revision = result.continuous->source_revision;
+        state.source_epoch = result.continuous->source_epoch;
+        state.frame_sequence = sequence;
+        state.analysis_age_ms = 0;
+        state.entities = result.continuous->temporal.entities.size();
+        state.pending_events = result.continuous->temporal.pending_events;
+        state.dropped_events = result.continuous->temporal.dropped_events;
+        out.continuous = state;
+    }
     out.ok = true;
+    return out;
+}
+
+ImageContinuousState VisualObservationPipeline::query_image_state(
+    const std::string &source_key, const desktop::CancelToken &cancel,
+    const std::optional<std::chrono::steady_clock::time_point> &deadline) {
+    ImageContinuousState out;
+    VisualContinuousQuery query;
+    query.image_session = true;
+    query.external_cancel = cancel;
+    query.deadline =
+        std::min(deadline.value_or(std::chrono::steady_clock::now() + std::chrono::seconds(1)),
+                 std::chrono::steady_clock::now() + std::chrono::seconds(1));
+    std::future<VisualAnalysisResult> future;
+    {
+        std::lock_guard lock(sequence_mutex_);
+        if (!config_.session.enable_image_session || source_key.empty() ||
+            source_key.size() > 256 || image_source_key_ != source_key) {
+            out.error = {"stale_source", "no matching image source state"};
+            return out;
+        }
+        query.expected_source_revision = image_source_revision_;
+        future = session_.query_continuous(query);
+    }
+    if (future.wait_until(*query.deadline) != std::future_status::ready) {
+        out.error = {"deadline_exceeded", "image state query deadline exceeded"};
+        return out;
+    }
+    auto result = future.get();
+    if (result.outcome.kind != VisualAnalysisOutcome::Kind::kQueried || !result.queried) {
+        out.error = {cancel.cancelled() ? "cancelled" : "unavailable", "image state query failed"};
+        return out;
+    }
+    const auto &view = *result.queried;
+    out.ok = true;
+    out.source_revision = view.source_revision;
+    out.source_epoch = view.source_epoch;
+    out.frame_sequence = view.last_analyzed_frame;
+    if (view.analysis_age)
+        out.analysis_age_ms =
+            std::chrono::duration_cast<std::chrono::milliseconds>(*view.analysis_age).count();
+    out.entities = view.temporal.entities.size();
+    out.pending_events = view.temporal.pending_events;
+    out.dropped_events = view.temporal.dropped_events;
     return out;
 }
 
@@ -393,6 +473,10 @@ EnvironmentVisualRefresh VisualObservationPipeline::refresh_impl(
         break;
     case VisualAnalysisOutcome::Kind::kRejected:
         refresh.analysis_error = {"invalid_state", result.outcome.message};
+        break;
+    case VisualAnalysisOutcome::Kind::kQueried:
+        refresh.analysis_error = {"invalid_state",
+                                  "state query is not a current visual observation"};
         break;
     }
     return refresh;

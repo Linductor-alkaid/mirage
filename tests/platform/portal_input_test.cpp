@@ -3,6 +3,7 @@
 #include <chrono>
 #include <kairo/executor.hpp>
 #include <mirage/desktop/action_coordinator.hpp>
+#include <mirage/desktop/input_recovery.hpp>
 #include <mirage/desktop/input_session.hpp>
 #include <poll.h>
 #include <stdexcept>
@@ -11,6 +12,30 @@ int main() {
     using namespace mirage;
     using namespace platform::linux_backend;
     using Kind = desktop::SharedInputAction::Kind;
+    desktop::InputRecovery recovery;
+    const desktop::InputOutcome lag{false, false, {"input_lag", "fixture"}, true, true};
+    for (unsigned episode = 0; episode < 3; ++episode) {
+        recovery.failed(lag, 10 + episode);
+        MIRAGE_CHECK(recovery.blocked());
+        recovery.observe(10 + episode);
+        MIRAGE_CHECK(recovery.blocked());
+        recovery.observe(11 + episode);
+        MIRAGE_CHECK(recovery.blocked() == (episode == 2));
+    }
+    MIRAGE_CHECK(std::string(recovery.reason()) == "input_recovery_budget_exhausted");
+    desktop::InputRecovery reset;
+    for (unsigned episode = 0; episode < 8; ++episode) {
+        reset.failed(lag, episode + 1);
+        reset.observe(episode + 2);
+        MIRAGE_CHECK(!reset.blocked());
+        reset.completed(); // successful full input resets only this failure episode
+    }
+    for (const auto *code : {"input_release_failed", "portal_input_failed"}) {
+        desktop::InputRecovery unavailable;
+        unavailable.failed({false, false, {code, "fixture"}, true, false}, 1);
+        unavailable.observe(100);
+        MIRAGE_CHECK(unavailable.blocked() && !unavailable.awaiting_frame());
+    }
     kairo::Executor executor;
     kairo::ExecutorConfig config;
     config.min_threads = config.max_threads = 1;
@@ -356,6 +381,27 @@ int main() {
         events.clear();
         result = dispatch_portal_input(context, action, {}, {});
         MIRAGE_CHECK(result.ok && result.input_released);
+        // A slow Portal acknowledgement crosses the unchanged 250 ms guard.
+        // No press is sent after travel falls behind; diagnostics retain the cause.
+        events.clear();
+        context.notify = [&](const auto &event) {
+            events.push_back(event);
+            if (events.size() == 1)
+                (void)::poll(nullptr, 0, 350);
+            return true;
+        };
+        result = dispatch_portal_input(context, action, {}, {});
+        MIRAGE_CHECK(!result.ok && result.error.code == "input_lag");
+        MIRAGE_CHECK(result.side_effect_may_have_occurred && result.input_released);
+        MIRAGE_CHECK(events.size() == 1 && events.front().kind == PortalInputEvent::Kind::Motion);
+        MIRAGE_CHECK(result.error.message.find("phase=travel") != std::string::npos);
+        MIRAGE_CHECK(result.error.message.find("notify_max_ms=") != std::string::npos);
+        MIRAGE_CHECK(result.error.message.size() < 224);
+        context.notify = [&](const auto &event) {
+            events.push_back(event);
+            return true;
+        };
+
         // Glide is a Click-only feature: Drag and Scroll refuse it.
         action.kind = Kind::Drag;
         action.destination_x = 1200;

@@ -234,6 +234,85 @@ int main() {
             native_pipeline.stop();
         }
 
+        // Invalid OCR evidence has field-specific, text-free diagnostics.
+        for (const bool companion : {false, true}) {
+            for (int invalid = 0; invalid < 3; ++invalid) {
+                auto bad_config = ocr_config;
+                mirador::TextRegion region{{0, 0, 1, 1}, "private-sentinel", 0.9F, {}};
+                if (invalid == 0)
+                    region.utf8_text = "\xff";
+                if (invalid == 1)
+                    region.confidence = 1.5F;
+                if (invalid == 2)
+                    region.bounds.width = float(native_image.frame.width) + 1;
+                bad_config.regions = {region};
+                FakeOcrBackend bad_backend(bad_config);
+                VisualObservationPipelineConfig config;
+                config.source_id =
+                    "native-invalid-" + std::to_string(companion) + "-" + std::to_string(invalid);
+                config.run_ocr = true;
+                config.session.enable_image_session = companion;
+                config.session.ocr_backend = &bad_backend;
+                desktop::VisualReferenceRegistry bad_registry;
+                VisualObservationPipeline bad_pipeline(executor, *environment->screen(),
+                                                       bad_registry, config);
+                MIRAGE_CHECK(bad_pipeline.start(start_error));
+                const auto result =
+                    bad_pipeline.read_image_ocr(native_image.frame, {}, {}, "bad-source");
+                MIRAGE_CHECK(!result.ok && result.regions.empty());
+                const char *codes[] = {"invalid_result_text", "invalid_result_confidence",
+                                       "invalid_result_geometry"};
+                MIRAGE_CHECK(result.error.code == codes[invalid]);
+                MIRAGE_CHECK(result.invalid_region_index && *result.invalid_region_index == 0);
+                MIRAGE_CHECK(result.error.message.find("private-sentinel") == std::string::npos);
+                bad_pipeline.stop();
+            }
+        }
+
+        // M9 product path: a companion session shares the worker/backends,
+        // has independent image-space state, and never publishes global refs.
+        {
+            auto rgb_config = ocr_config;
+            rgb_config.info.accepted_formats = {mirador::PixelFormat::kRgb8};
+            FakeOcrBackend image_backend(rgb_config);
+            VisualObservationPipelineConfig config;
+            config.source_id = "mirage.native.continuous";
+            config.run_ocr = true;
+            config.session.ocr_backend = &image_backend;
+            config.session.enable_image_session = true;
+            desktop::VisualReferenceRegistry image_registry;
+            VisualObservationPipeline product(executor, *environment->screen(), image_registry,
+                                              config);
+            MIRAGE_CHECK(product.start(start_error));
+            // The image core's compact cache budget must not reject a normal
+            // 1600x1000 preview or its RGB backend conversion work buffer.
+            desktop::ImageFrame large;
+            large.width = 1600;
+            large.height = 1000;
+            large.stride = 1600 * 4;
+            large.pixels.assign(large.stride * 1000, std::uint8_t{0x80});
+            const auto read = product.read_image_ocr(large, {}, {}, "task-a:authority-1");
+            MIRAGE_CHECK(read.ok && read.continuous && read.continuous->ok);
+            MIRAGE_CHECK(image_backend.calls() == 1 && image_registry.size() == 0);
+            const auto state = product.query_image_state("task-a:authority-1", {}, {});
+            MIRAGE_CHECK(state.ok && state.analysis_age_ms && state.frame_sequence > 0);
+            MIRAGE_CHECK(image_backend.calls() == 1 && image_registry.size() == 0);
+            MIRAGE_CHECK(!product.query_image_state("task-b", {}, {}).ok);
+            const auto next = product.read_image_ocr(native_image.frame, {}, {}, "task-b");
+            MIRAGE_CHECK(next.ok && next.continuous &&
+                         next.continuous->source_revision > state.source_revision);
+            MIRAGE_CHECK(!product.query_image_state("task-a:authority-1", {}, {}).ok);
+            MIRAGE_CHECK(product.refresh(true, {}, {}).analyzed);
+            const auto after_display = product.query_image_state("task-b", {}, {});
+            MIRAGE_CHECK(after_display.ok && next.continuous &&
+                         after_display.frame_sequence == next.continuous->frame_sequence);
+            desktop::CancelToken cancelled;
+            cancelled.request_cancel();
+            MIRAGE_CHECK(!product.query_image_state("task-b", cancelled, {}).ok);
+            product.stop();
+            MIRAGE_CHECK(!product.query_image_state("task-b", {}, {}).ok);
+        }
+
         mirage::integration::MiraEnvironmentBinding::VisualWiring wiring;
         wiring.pipeline = &pipeline;
         wiring.artifacts = &store;

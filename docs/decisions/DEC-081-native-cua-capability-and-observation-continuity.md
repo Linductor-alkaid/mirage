@@ -1,5 +1,8 @@
 # DEC-081：原生 CUA 能力与观察引用衔接
 
+> 当前恢复规则：人工复核及永久围栏部分已由
+> [DEC-113](DEC-113-autonomous-action-recovery.md) 替代；其他能力与权限约束继续有效。
+
 > 状态：Accepted
 > 日期：2026-10-12
 > 负责人：Mirage 维护者
@@ -41,3 +44,33 @@ OCR 刷新后返回实际新的 image_scope 与 input_actionable，观察区域�
 解决静态生产者不交新帧的问题，旧帧也无法证明动作效果，因此采用有界自有副本与
 源帧水位。代价是动作无新增可观察画面时仍可能明确返回未验证，必须由目标证据或
 人工确认收敛，不能以输入已发送声明业务完成。
+
+
+2026-10-22：能力提示明确未请求 verify_kind 的派发回执不自动带图；需要立即观察
+时可请求 shared_frame_observed 并使用回执的新图/新 scope，无需再绕一次模型取图。
+新帧仍不证明业务完成。OCR 的 text_only 入口退休旧图引用，后续输入必须重新 capture；
+无帧 state 查询不构成当前观察，见[产品接线](../design/native-continuous-perception-wiring.md)。
+
+## 2026-10-22：原生窗口与观察能力边界
+
+窗口枚举与语义快照必须使用同一个 WindowProvider；没有 X11 时先创建 AT-SPI
+窗口 provider，再传给 Accessibility Backend，避免已枚举的窗口不可解析。
+WindowProvider 新增加法 activation_supported（兼容默认 true）；AT-SPI 返回
+false，Adapter 不注册 desktop.window.activate，并向模型明确能力边界。
+该 C++ virtual 加法要求自研消费者与 Backend 同源重编译，不承诺旧二进制 ABI。
+
+共享输入的 input_lag 且确认释放按 DEC-110 当日修订保留观察；任务输入围栏
+与全局核验要求不解除。新图像 input_actionable=false，后续 capture/OCR 无需
+重新授权。其他不明确失败仍关闭流，不把本地主动关闭描述为系统撤权。
+
+AT-SPI v1 仍以标题映射语义树。窗口枚举中出现同标题的多个 ID 时，快照返回
+unsupported_window，不任取首个窗口；稳定平台对象身份与完整跨应用映射仍属于
+M7-18 后续验收范围。本增量不把同名窗口合并为一个对象。
+
+## 2026-10-22：自主恢复规则替代
+
+[DEC-113](DEC-113-autonomous-action-recovery.md) 部分替代本文此前的人工复核、
+永久只读与全局执行围栏：已释放的不确定输入经当前观察和重规划恢复，独立
+ApplicationProvider 路径不依赖旧点击；历史失败保留，不改为成功。取消、
+接管、撤权和无法确认释放仍按具体状态阻止受影响路径。此前验证记录保留历史含义，
+不代表当前默认策略；当前实现及限制见 DEC-113 和对应验收记录。

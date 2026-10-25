@@ -1,5 +1,8 @@
 # DEC-095：Mirage 基础 Agent 工具集
 
+> 当前恢复规则：人工复核及永久围栏部分已由
+> [DEC-113](DEC-113-autonomous-action-recovery.md) 替代；其他能力与权限约束继续有效。
+
 > 状态：Accepted（M10-02 冻结）
 > 日期：2026-10-16；冻结：2026-10-16
 > 负责人：Mirage 维护者
@@ -129,3 +132,23 @@ Desktop UTF-8 校验及 Mira JSON 公开 API。
 
 过程记录仍遵循 DEC-049。修复与证据见
 [任务事件退出维护记录](../plans/maintenance-ui-exit-20261019.md)。
+
+## 2026-10-22：不确定动作后的跨工具围栏
+
+维护者授权修复最新会话的 exec 绕行。M10-07 与 M7-25/26 的同一任务内，
+执行结果不确定、输入未释放或规范动作证据损坏时，禁止新的 exec/write/edit；
+不解析命令文本判断是否只读，也不允许用 shell/文件改写绕开桌面动作围栏。
+read、桌面只读观察、action.verify 与紧急释放仍可用。普通业务条件未满足不自动
+升级为全局围栏；纯参数拒绝且无副作用不阻止基础工具。此为 Mirage 宿主策略，
+通过 pinned Mira 的既有 tool handler/decorator 承载，无需修改依赖。
+
+任务的新 verifier 也须检查共享 ActionCoordinator 的 authority：接管或释放失败
+留下的撤权状态不能因换轮而允许新的 exec/write/edit。普通在途 busy 不等于撤权。
+
+## 2026-10-22：自主恢复规则替代
+
+[DEC-113](DEC-113-autonomous-action-recovery.md) 部分替代本文此前的人工复核、
+永久只读与全局执行围栏：已释放的不确定输入经当前观察和重规划恢复，独立
+ApplicationProvider 路径不依赖旧点击；历史失败保留，不改为成功。取消、
+接管、撤权和无法确认释放仍按具体状态阻止受影响路径。此前验证记录保留历史含义，
+不代表当前默认策略；当前实现及限制见 DEC-113 和对应验收记录。

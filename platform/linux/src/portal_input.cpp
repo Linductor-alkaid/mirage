@@ -252,25 +252,42 @@ desktop::InputOutcome dispatch_portal_input(PortalInputContext &s,
     std::array<int, 5> held{};
     std::size_t count = 0;
     bool held_button = false, effects = false, released = true, ok = true, lagged = false;
+    const auto execution_started = std::chrono::steady_clock::now();
+    std::chrono::milliseconds lateness{0}, notify_max{0};
+    const char *diagnostic_phase = "dispatch";
+    std::size_t sample_index = 0, event_count = 0;
     auto notify = [&](PortalInputEvent event) {
         effects = true;
+        ++event_count;
+        const auto started = std::chrono::steady_clock::now();
+        bool accepted = false;
         try {
-            return s.notify(event);
+            accepted = s.notify(event);
         } catch (...) {
-            return false;
         }
+        notify_max = std::max(notify_max, std::chrono::duration_cast<std::chrono::milliseconds>(
+                                              std::chrono::steady_clock::now() - started));
+        return accepted;
     };
     auto key = [&](int symbol, bool pressed) {
         return notify({PortalInputEvent::Kind::Key, symbol, pressed ? 1u : 0u});
     };
     auto wait = [&](Phase phase, std::size_t index = 0) {
-        const bool result = pace_input_for(desktop::input_cadence_delay(seed, phase, index),
-                                           [&] { return !stopped(); });
+        constexpr std::array names{"key_dwell",  "key_interval", "modifier_interval",
+                                   "release",    "wheel_dwell",  "wheel_interval",
+                                   "drag_press", "drag_settle"};
+        diagnostic_phase = names[static_cast<std::size_t>(phase)];
+        sample_index = index;
+        const bool result = pace_input_until(
+            std::chrono::steady_clock::now() + desktop::input_cadence_delay(seed, phase, index),
+            [&] { return !stopped(); }, &lateness);
         lagged |= !result && !stopped();
         return result;
     };
     const auto wait_long = [&] {
-        const bool result = pace_input_for(long_dwell, [&] { return !stopped(); });
+        diagnostic_phase = "long_press";
+        const bool result = pace_input_until(
+            std::chrono::steady_clock::now() + long_dwell, [&] { return !stopped(); }, &lateness);
         lagged |= !result && !stopped();
         return result;
     };
@@ -284,7 +301,9 @@ desktop::InputOutcome dispatch_portal_input(PortalInputContext &s,
             return true;
         const auto started = std::chrono::steady_clock::now();
         for (const auto &sample : path) {
-            if (!pace_input_until(started + sample.at, [&] { return !stopped(); })) {
+            diagnostic_phase = "travel";
+            ++sample_index;
+            if (!pace_input_until(started + sample.at, [&] { return !stopped(); }, &lateness)) {
                 lagged = !stopped();
                 return false;
             }
@@ -333,8 +352,10 @@ desktop::InputOutcome dispatch_portal_input(PortalInputContext &s,
                     note_pointer(start_x, start_y);
             }
             if (ok && !stopped() && action.kind == Kind::Click) {
+                diagnostic_phase = "click";
                 for (std::uint32_t i = 0; i < action.click_count && ok && released && !stopped();
                      ++i) {
+                    sample_index = i;
                     held_button = true;
                     ok = notify({PortalInputEvent::Kind::Button, button, 1u});
                     if (ok && action.long_press)
@@ -342,11 +363,13 @@ desktop::InputOutcome dispatch_portal_input(PortalInputContext &s,
                     release();
                 }
             } else if (ok && !stopped() && action.kind == Kind::Drag) {
+                diagnostic_phase = "drag";
                 held_button = true;
                 ok = notify({PortalInputEvent::Kind::Button, button, 1u});
                 if (ok)
                     ok = wait(Phase::drag_press) && travel() && wait(Phase::drag_settle);
             } else if (ok && !stopped() && action.kind == Kind::Scroll) {
+                diagnostic_phase = "scroll";
                 std::size_t index = 0;
                 for (unsigned axis = 0; axis < 2 && ok && !stopped(); ++axis) {
                     const int steps = axis ? action.horizontal_steps : action.vertical_steps;
@@ -360,7 +383,9 @@ desktop::InputOutcome dispatch_portal_input(PortalInputContext &s,
                 }
             }
         } else {
+            diagnostic_phase = action.kind == Kind::Text ? "text" : "key";
             for (std::size_t i = 0; i < keys.size(); ++i) {
+                sample_index = i;
                 if (stopped()) {
                     ok = false;
                     break;
@@ -402,12 +427,22 @@ desktop::InputOutcome dispatch_portal_input(PortalInputContext &s,
     release(action.kind == Kind::Key); // Emergency cleanup never waits.
     const bool stop = stopped();
     if (!released || !ok || stop) {
-        return failed(!released                 ? "input_release_failed"
-                      : cancelled_during_action ? "cancelled"
-                      : stop                    ? "input_timeout"
-                      : lagged                  ? "input_lag"
-                                                : "portal_input_failed",
-                      effects, released);
+        auto out = failed(!released                 ? "input_release_failed"
+                          : cancelled_during_action ? "cancelled"
+                          : stop                    ? "input_timeout"
+                          : lagged                  ? "input_lag"
+                                                    : "portal_input_failed",
+                          effects, released);
+        out.error.message = std::string("phase=") + (released ? diagnostic_phase : "release") +
+                            " sample=" + std::to_string(sample_index) +
+                            " planned_ms=" + std::to_string(planned.count()) + " elapsed_ms=" +
+                            std::to_string(std::chrono::duration_cast<std::chrono::milliseconds>(
+                                               std::chrono::steady_clock::now() - execution_started)
+                                               .count()) +
+                            " late_ms=" + std::to_string(lateness.count()) +
+                            " notify_max_ms=" + std::to_string(notify_max.count()) +
+                            " events=" + std::to_string(event_count);
+        return out;
     }
     return {true, false, {}, effects, true};
 }

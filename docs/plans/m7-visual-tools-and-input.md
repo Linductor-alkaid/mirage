@@ -106,7 +106,7 @@ M7-08 已闭合 Linux X11 动作后新观察与局部条件门禁；真实语义
 | M7-14 | In Progress（最新会话复验） | DEC-068 首增量已验；DEC-070 第二增量本地修复已验，原在线任务及提交评审待闭合 | 512 字节 canonical 回执、字段诊断、拒绝→新观察→已验证纠正、旧失败卡片收尾、未知/不确定负例及 ROI；见[新验收](../compatibility/desktop-rejection-recovery-20261011.md)，[首增量证据](../compatibility/bundled-vision-and-tool-recovery-20261011.md)保留 | 用户会话脱敏诊断及现有工具契约 |
 | M7-15 | In Progress | DEC-072：快捷能力不可达的 GUI 路线、绑定截图区域点击与前台/显示局部条件 | 无应用/语义 Provider 的真实 X11 启动器→键盘网址→新证据；比例、像素/焦点/权限/取消与不确定负例；在线自主选路另验 | M7-03/04/05/08，复用 M7-06 OCR及 M7-11 本地知识 |
 | M7-16 | Completed（Linux） | [DEC-083](../decisions/DEC-083-target-region-stability-reverification.md)：输入守卫从逐像素比较改为目标矩形主体稳定判定（边距环忽略 + 核心区相似放行 + 不确定即拒），shared_input 与 X11 编号指针路径同语义 | 稳定判定单元用例（ identical/全局/边缘环/噪声放行/主体替换/越界/确定性）；shared 与编号点击回归；真实 X11 任务不回归 | M7-07/14/15 既有守卫契约 |
-| M7-17 | Completed（Linux） | 截图降耗：desktop_png 压缩 DEFLATE（fixed Huffman + LZ77 + 自适应滤波，不可压缩回退 stored，输出不劣于旧编码）、大 ROI 预览缩放（≤1600 保持 1:1）、工具描述更新 | 独立解码器扩展 fixed-Huffman 后全像素回读；多类内容压缩比；ROI 缩放断言与坐标映射；全量回归 | M7-04 |
+| M7-17 | Completed（Linux） | 截图降耗：desktop_png 压缩 DEFLATE（fixed Huffman + LZ77 + 自适应滤波，不可压缩回退 stored，输出不劣于旧编码）、大 ROI 预览缩放（边长≤1600 且像素在预算内保持 1:1）、工具描述更新 | 独立解码器扩展 fixed-Huffman 后全像素回读；多类内容压缩比；ROI 缩放断言与坐标映射；全量回归 | M7-04 |
 | M7-18 | In Progress（Portal fake 全过） | Wayland Portal ROI 捕获（共享帧本地裁剪）与窗口几何近似（AT-SPI WindowProvider 门面，遮挡内容包含、语义与 X11 framebuffer 裁剪一致）；Portal schema 放开三源；shared_input 坐标映射改 origin/scale 元数据驱动 | Portal fake ROI/窗口裁剪正确性与越界/未知窗口 fail-closed；授权计数不变；AT-SPI 不可用路径；真实 Wayland 会话另验 | M7-10（DEC-074/077） |
 | M7-19 | In Progress（拒绝回执链路已验） | 观察节奏：target_pixels_changed 拒绝即发布守卫新鲜帧并在回执附 refreshed_image_scope（拒绝→免重截重试）；CUA 式观察纪律写入桌面指引与工具描述 | 拒绝回执含新 scope 且下一次免重试；canonical 回执 ≤512B 语义保持；真实会话往返减少另验 | M7-14/16 |
 | M7-20 | In Progress | [DEC-099](../decisions/DEC-099-complete-double-click.md)：泛化 `click_count=1..32`，Linux X11/GTK 及 Portal 次数/释放边界已验，默认单击保持；[验证与运行实例](../compatibility/complete-double-click-20261018.md)；真实 Wayland/Windows 后续验收保持开放 | X11/GTK 实际单击/双击/三击/多次；Portal 顺序、取消/超时/失败释放；工具次数与目标/权限守卫 | M7-03/07/10/15 |
@@ -1200,3 +1200,29 @@ ASAN/UBSAN/TSAN 专项各 7/7，私有原生产品 + PP-OCR 66/66，详见证据
 维护者要求构造决策。新增 DEC-110 与专项计划，覆盖自然时序、持键取图/决策、
 输入法状态和过滤软件注入场景的设备输入路线；仅完成文档核对，未实施、未安装
 驱动/硬件、未执行真实输入验收。工作项为 Proposed，负责人和补跑条件见专项计划。
+
+
+2026-10-22：M7-18 修正 AT-SPI 窗口遍历遗漏 application 层的问题，窗口访问预算
+与输出预算分开；同步修复 env 启动器应用清单及报告性大小写别名，控制面保持精确
+PID 关联。[Provider 验证](../compatibility/native-provider-discovery-20261022.md)
+记录隔离协议、四配置回归与当前宿主的只读窗口/应用探针。真实 Wayland 窗口坐标
+和交互验收继续开放，M7-18 保持 In Progress。
+
+同轮 M7-17 补齐按像素预算缩放的边界，M7-19 修正回执带图的条件提示；与原生
+文本/M9 接线一并验证，见[接线证据](../compatibility/native-observation-and-continuous-wiring-20261022.md)。
+
+## 2026-10-22：最新会话恢复修复（本轮增量已验证）
+
+M7-18/25/26、M10-07、M9-05/18：修复纯 Wayland 窗口到语义树的 provider
+接线；按真实窗口能力注册激活工具；补齐不确定动作对基础副作用工具的围栏；
+增加 Portal 输入迟到诊断并保留已释放的迟到失败后的只读观察。依据为
+DEC-095/110 当日修订及 DEC-056/081/091。验证见
+[恢复记录](../compatibility/native-action-recovery-20261022.md)：Debug 全量
+110/110，三 sanitizer 各 10/10，native-release 16/16；同名守卫后五配置
+各 4/4。真实模型/M9 文本与 compositor 验收保持开放，不从旧会话推断通过。
+
+## 2026-10-22：M7-25/26 自主恢复更正
+
+按 [DEC-113](../decisions/DEC-113-autonomous-action-recovery.md) 与 M9-20 消费现有
+Continuous 循环及观察反馈，撤销普通执行不确定默认人工检查的策略。历史执行结果
+与恢复状态分开，保持目标/引用/权限/释放守卫；真实平台验收仍由 M7-31/M9-12 留证。

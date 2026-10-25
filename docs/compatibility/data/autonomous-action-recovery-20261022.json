@@ -1,0 +1,167 @@
+{
+  "schema": 1,
+  "started_date": "2026-10-22",
+  "verified_date": "2026-10-23",
+  "base_commit": "e4d528508fbc7fbf07e68c3e7474fb12fd63f1af",
+  "source_state": "base_commit plus this change; local commit follows validation",
+  "platform": "Linux-7.0.0-38-generic-x86_64-with-glibc2.39",
+  "compiler": "c++ (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0",
+  "mira_pin": "a29374aaf05b956cbd5ceeafc65bba4c6172675e",
+  "mirador_pin": "2a9f4830f4727498ed4cbad568a1d3ec357ece7e",
+  "native_release_binaries": [
+    {
+      "name": "mirage",
+      "path": "/home/linductor/mirage/build/native-release/apps/mirage",
+      "sha256": "85a52cbc55f7ac05c455ebf53681712454a585cc91aa4fff1dc697c5cbc15e86",
+      "executable": true,
+      "dynamic_dependencies_resolved": true,
+      "modified_at": "2026-10-23T00:18:25.550405"
+    },
+    {
+      "name": "mirage-service",
+      "path": "/home/linductor/mirage/build/native-release/apps/mirage-service",
+      "sha256": "601af9e2ec5d5713ac14dd216175d917b5c507db3a547944b2ca34dc5fb89939",
+      "executable": true,
+      "dynamic_dependencies_resolved": true,
+      "modified_at": "2026-10-23T00:18:26.840412"
+    },
+    {
+      "name": "mirage-tray",
+      "path": "/home/linductor/mirage/build/native-release/apps/tray/mirage-tray",
+      "sha256": "2aab14c023da219432e751b8147bb3aefa1ba43effdf273c697198a01db10748",
+      "executable": true,
+      "dynamic_dependencies_resolved": true,
+      "modified_at": "2026-10-23T00:18:27.922417"
+    },
+    {
+      "name": "mirage-native",
+      "path": "/home/linductor/mirage/build/native-release/apps/native/mirage-native",
+      "sha256": "e3261675423fcd653b6c4f46271b439a39d917490a78e7b7c4d0d6af04bec571",
+      "executable": true,
+      "dynamic_dependencies_resolved": true,
+      "modified_at": "2026-10-23T00:06:31.668955"
+    },
+    {
+      "name": "mira_pet",
+      "path": "/home/linductor/mirage/build/native-release/apps/pet/mira_pet",
+      "sha256": "63521f788e722966ee4a33379b91fcc9cbd67ecb823e21aed56a7457c1bf33fd",
+      "executable": true,
+      "dynamic_dependencies_resolved": true,
+      "modified_at": "2026-10-23T00:06:33.550970"
+    }
+  ],
+  "source_files_sha256": {
+    "integration/mira/src/desktop_action_verification.cpp": "09128b7afcdc47d7df07cad1ac47f4344a96e69d8dd64a7f2f5c849c54ff81fd",
+    "integration/mira/src/desktop_action_verification.hpp": "cb77bace7d37da40616eca8338bff4af74f57b7411eadf1ae76e0a8aebedbbda",
+    "integration/mira/src/desktop_image_supply.cpp": "e736f6ec940aa26c6b3cedb71217ebe884d0d0274d631ffb2ffc8a2660767a3d",
+    "integration/mira/src/desktop_image_supply.hpp": "b0de5b4efb76e61cb5ab4e6ece75463bb6899c9ba2d338bc3afc6a2094711f51",
+    "integration/mira/src/desktop_shared_input.cpp": "ae55f5675b925fa4ccd3780e6ddaf51dd17f329a27c73daaf576c5401161009e",
+    "integration/mira/src/model_layer.cpp": "c2fccfcc4b6c4b89a911daf0e95a0e12481bf06696b644f8ca2316e3d6b667ea",
+    "platform/linux/src/portal_screen_backend.cpp": "3d9f2aa93444cc1807aa93463333c7e0df8527dfb7164077d19e9a1041d35eb1",
+    "runtime/conversation/src/conversation.cpp": "0d98f8553cd09c5cbef9edf4419a8a9e61c27b8cc50e455a8dc5168a0484eddf",
+    "tests/integration/desktop_action_policy_test.cpp": "34be086c5780edc81e7a8c781995007d74b8480728b93482971c4b151b81a176",
+    "tests/integration/desktop_image_supply_test.cpp": "ae73072189e1f1f3e71c3d58d798a71d08e18c95d226076e0175431e8d84c358",
+    "tests/integration/post_action_verification_test.cpp": "44dda42a8219f612dc76779b19652e37a33c19112939555d990181d21aa19d7e",
+    "tests/platform/portal_input_test.cpp": "78c041b496cecebe6bba795cf44a9bd793d49672735693ef121f954547677298",
+    "tests/runtime/harness_desktop_tools_test.cpp": "beafacc2ab5f11949870e9c13312aa293f489fd15a3277f2167f3558b5a7bceb",
+    "desktop/environment/include/mirage/desktop/input_recovery.hpp": "b2ded59e2416d777365bbda58ec7b1bdf3a39f10bccf94c48ff2047ea0a636a3"
+  },
+  "tests": {
+    "debug": {
+      "passed": 110,
+      "total": 110,
+      "seconds": 338.9,
+      "test_log": "/tmp/mirage-autonomous-debug-last-test.log",
+      "build_log": "/tmp/mirage-autonomous-debug-last-build.log",
+      "build_command": "cmake --build --preset debug -j 4",
+      "test_command": "ctest --preset debug --output-on-failure"
+    },
+    "asan": {
+      "passed": 10,
+      "total": 10,
+      "seconds": 166.07,
+      "test_log": "/tmp/mirage-autonomous-asan-last-test.log",
+      "build_log": "/tmp/mirage-autonomous-asan-last-build.log",
+      "build_command": "cmake --build --preset asan --target desktop_action_policy_test desktop_image_supply_test post_action_verification_test action_recovery_facts_test harness_desktop_tools_test portal_input_test visual_marks_test conversation_budget_test -j 2",
+      "test_command": "ctest --preset asan -R '^(desktop_action_policy_test|desktop_image_supply_test|post_action_verification_test|action_recovery_facts_test|harness_desktop_tools_test|portal_input_test|visual_marks_test|conversation_budget_test)$' --output-on-failure"
+    },
+    "ubsan": {
+      "passed": 10,
+      "total": 10,
+      "seconds": 148.35,
+      "test_log": "/tmp/mirage-autonomous-ubsan-last-test.log",
+      "build_log": "/tmp/mirage-autonomous-ubsan-last-build.log",
+      "build_command": "cmake --build --preset ubsan --target desktop_action_policy_test desktop_image_supply_test post_action_verification_test action_recovery_facts_test harness_desktop_tools_test portal_input_test visual_marks_test conversation_budget_test -j 2",
+      "test_command": "UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 ctest --preset ubsan -R '^(desktop_action_policy_test|desktop_image_supply_test|post_action_verification_test|action_recovery_facts_test|harness_desktop_tools_test|portal_input_test|visual_marks_test|conversation_budget_test)$' --output-on-failure"
+    },
+    "tsan": {
+      "passed": 10,
+      "total": 10,
+      "seconds": 304.8,
+      "test_log": "/tmp/mirage-autonomous-tsan-last-test.log",
+      "build_log": "/tmp/mirage-autonomous-tsan-final-build.log",
+      "build_command": "cmake --build --preset tsan --target desktop_action_policy_test desktop_image_supply_test post_action_verification_test action_recovery_facts_test harness_desktop_tools_test portal_input_test visual_marks_test conversation_budget_test -j 2",
+      "test_command": "setarch x86_64 -R ctest --preset tsan -R '^(desktop_action_policy_test|desktop_image_supply_test|post_action_verification_test|action_recovery_facts_test|harness_desktop_tools_test|portal_input_test|visual_marks_test|conversation_budget_test)$' --output-on-failure",
+      "harness_seconds": 191.19
+    },
+    "native-release": {
+      "passed": 14,
+      "total": 14,
+      "seconds": 72.62,
+      "test_log": "/tmp/mirage-autonomous-native-release-last-test.log",
+      "build_log": "/tmp/mirage-autonomous-native-release-last-build.log",
+      "build_command": "cmake --build --preset native-release --target desktop_action_policy_test desktop_image_supply_test post_action_verification_test action_recovery_facts_test harness_desktop_tools_test portal_input_test visual_marks_test conversation_budget_test mirage-native-product native_agent_integration_test ppocr_pipeline_test continuous_capture_test continuous_perception_consumer_test -j 2",
+      "test_command": "ctest --preset native-release -R '^(desktop_action_policy_test|desktop_image_supply_test|post_action_verification_test|action_recovery_facts_test|harness_desktop_tools_test|portal_input_test|visual_marks_test|conversation_budget_test|native_agent_integration_test|ppocr_pipeline_test|continuous_capture_test|continuous_perception_consumer_test)$' --output-on-failure"
+    }
+  },
+  "counts_include_ctest_state_fixtures": true,
+  "iteration_history": [
+    {
+      "scope": "intermediate sources",
+      "result": "initial focused run failed prior fixed-fence assertions and a recovery fixture which had not supplied its replacement image; corrected assertions and consumed the new image through the existing supply/validation contract, retaining the input guard",
+      "logs": [
+        "/tmp/mirage-autonomous-debug-focused.log",
+        "/tmp/mirage-autonomous-debug-focused2.log"
+      ]
+    },
+    {
+      "scope": "intermediate sources, before terminal-without-extra-effects correction",
+      "result": "TSAN long harness timed out at 300.05 s while builds/tests ran concurrently; same binary rerun passed without widening the original timeout",
+      "timeout_log": "/tmp/mirage-autonomous-tsan-test.log",
+      "rerun_log": "/tmp/mirage-autonomous-tsan-harness-rerun.log",
+      "rerun_test_seconds": 192.92,
+      "rerun_total_seconds": 192.96
+    }
+  ],
+  "static_checks": {
+    "public_headers_checked": 66,
+    "boundary_violations": 0,
+    "existing_recorded_seams": 2,
+    "boundary_log": "/tmp/mirage-autonomous-boundary.log",
+    "changed_cpp_files_format_checked": 14,
+    "changed_cpp_format_mismatches": 0,
+    "whole_tree_format": "failed at unchanged output-limit wrapping in model_layer.cpp; reproduced against base_commit",
+    "whole_tree_format_log": "/tmp/mirage-autonomous-format-all.log",
+    "diff_check": "passed",
+    "markdown_local_links_checked": 622
+  },
+  "not_validated": [
+    "real Wayland recovery and online-model long task",
+    "root cause of real input_lag and paired device performance",
+    "real page navigation/playback",
+    "Windows"
+  ],
+  "not_implemented": [
+    "automatic channel repair after unconfirmed input release or transport closure",
+    "host continuation before terminal answers",
+    "production background sampling"
+  ],
+  "scope_limits": [
+    "on-demand M9 consumers; no background sampling enabled",
+    "no new threads, queues, schedulers or dependency changes",
+    "no forced input replay or authority restoration",
+    "ConversationLoop keeps its public terminal-answer semantics; no host-owned retry loop added"
+  ],
+  "policy_fixture_sha256": "1cfde4d36a91e228940d52a829974fd04db47dcc60326217dbc73462725f14d8",
+  "legacy_policy_fixture_unchanged": true
+}

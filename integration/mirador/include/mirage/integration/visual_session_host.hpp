@@ -110,6 +110,9 @@ struct VisualContinuousConfig {
     std::int32_t max_entities = 256;
     std::int32_t max_relations = 1024;
     std::int32_t max_focus_conditions = 16;
+    std::int32_t max_events = 256;
+    std::int32_t max_spatial_work_items = 4;
+    std::int64_t max_spatial_pixels = 4 * 1024 * 1024;
 };
 
 struct VisualContinuousRequest {
@@ -118,18 +121,57 @@ struct VisualContinuousRequest {
     std::uint64_t source_revision = 0;
     mirador::AttentionPolicy attention;
     mirador::ImportancePolicy importance;
+    /// Zero: advisory cycle, no adoption. Nonzero: trusted capability/model/
+    /// parameter identity for completed full-frame evidence. Requires at least
+    /// one OCR/detector stage, all enabled stages kRefresh without ROI, and no
+    /// budgeted OCR or geometry. Advance identity when that stack changes.
+    std::uint64_t full_frame_evidence_digest = 0;
+    /// Nonzero opts into pre-recognition ROI-only scheduling. Mutually exclusive
+    /// with full_frame_evidence_digest; identity includes this execution scope.
+    /// Conditions must be in-frame oriented integer ROIs without id/text/label.
+    /// All enabled stages refresh, without caller ROI, budgeted OCR or geometry.
+    std::uint64_t spatial_evidence_digest = 0;
 };
 
 struct VisualContinuousResult {
     std::uint64_t source_revision = 0, source_epoch = 0;
     mirador::RelationView relations;
-    /// Advisory work for subsequent consumption; derived AFTER current fusion.
-    /// coverage remains incomplete. Never authorizes current-frame ROI reuse/input.
-    mirador::AttentionPlan attention;
+    /// Derived AFTER current fusion. Coverage describes snapshot regions only;
+    /// it does not establish full-screen coverage or authorize input actions.
+    mirador::WorkPlan cycle;
+    std::optional<mirador::WorkAcceptReport> accepted;
+    mirador::TemporalSemanticState temporal;
+    std::vector<mirador::FocusStateResolution> focus;
+    mirador::EventDrain events;
+    /// plan bytes include token strings; state output is bounded by the same
+    /// entity/focus/event caps and coordinator string budget, separately counted.
     std::int64_t coordination_owned_bytes = 0, relation_owned_bytes = 0, plan_owned_bytes = 0;
+    std::int64_t state_owned_bytes = 0;
+};
+
+struct VisualContinuousQuery {
+    bool image_session = false;
+    /// Must match an already established source; a query never resets it.
+    std::uint64_t expected_source_revision = 0;
+    std::optional<mirador::AttentionPolicy> attention;
+    bool drain_events = false;
+    desktop::CancelToken external_cancel;
+    std::optional<std::chrono::steady_clock::time_point> deadline;
+};
+
+struct VisualContinuousQueryView {
+    std::uint64_t source_revision = 0, source_epoch = 0, policy_revision = 0;
+    std::uint64_t last_analyzed_frame = 0;
+    std::optional<std::chrono::steady_clock::duration> analysis_age;
+    mirador::TemporalSemanticState temporal;
+    std::vector<mirador::FocusStateResolution> focus;
+    std::optional<mirador::EventDrain> events;
+    std::int64_t coordination_owned_bytes = 0, state_owned_bytes = 0;
 };
 
 struct VisualAnalysisRequest {
+    /// Product image-space companion on this SAME worker, isolated from display/templates.
+    bool image_session = false;
     /// Required exactly when the host is configured for continuous background
     /// analysis. Fusion then produces kOriented, with no marks/action references.
     std::optional<VisualContinuousRequest> continuous;
@@ -213,6 +255,7 @@ struct VisualAnalysisOutcome {
         kTimedOut,         ///< the request deadline expired
         kRejected,         ///< admission refused; the session never saw the request
         kSkippedUnchanged, ///< background screening skipped all expensive stages; no evidence
+        kQueried,          ///< existing state queried without a new frame or observation
     };
     Kind kind = Kind::kRejected;
     /// mirador error code for kFailed (diagnostic); kOk otherwise.
@@ -223,8 +266,19 @@ struct VisualAnalysisOutcome {
 /// Result payload of one settled analysis request. Only the fields of the
 /// requested capabilities are meaningful.
 struct VisualAnalysisResult {
+    std::optional<std::uint64_t> invalid_ocr_region;
+    /// kQueried only: existing state, never a current observation/action reference.
+    std::optional<VisualContinuousQueryView> queried;
     /// Present only for completed opt-in continuous fusion; no payload on skip.
     std::optional<VisualContinuousResult> continuous;
+    struct SpatialExecution {
+        mirador::AttentionPlan plan;
+        std::int64_t requested_pixels = 0, plan_owned_bytes = 0;
+        std::uint32_t ocr_completed = 0, detector_completed = 0;
+    };
+    /// Pre-recognition plan and successful stage calls, retained on failure as
+    /// diagnostics. No partial result is adopted or published as a snapshot.
+    std::optional<SpatialExecution> spatial;
     VisualAnalysisOutcome outcome;
     /// Change decision of this frame (when `analyze_change` ran); the first
     /// submission of a session reports kGlobal / kFirstFrame.
@@ -284,6 +338,8 @@ struct VisualAnalysisResult {
 
 /// Configuration of one visual session host (DEC-016 decision 4).
 struct VisualSessionConfig {
+    /// Native product consumer: isolated continuous image state on the same worker.
+    bool enable_image_session = false;
     /// M9-05/07/18: consume Experimental relation/attention APIs on this same
     /// worker. A separate source host outputs image-space background observations;
     /// legacy hosts retain display-space behavior. No template or marks paths.
@@ -355,6 +411,12 @@ class VisualSessionHost {
     /// Admission refusals (host not running, frame/source mismatch) settle
     /// kRejected instead of throwing.
     [[nodiscard]] std::future<VisualAnalysisResult> submit(VisualAnalysisRequest request);
+
+    /// Frame-free query / optional focus switch on the same worker. Shares the
+    /// latest-wins command slot with submit(); replaces queued work and cancels
+    /// in-flight work. Consume the future before resuming owner frame production.
+    /// kQueried carries only queried, never continuous or a new fusion snapshot.
+    [[nodiscard]] std::future<VisualAnalysisResult> query_continuous(VisualContinuousQuery query);
 
     /// Stops accepting requests, cancels the in-flight analysis, and joins
     /// the worker. Queued requests settle kCancelled. Safe from any thread

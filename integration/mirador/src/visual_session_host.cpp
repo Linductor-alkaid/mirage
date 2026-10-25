@@ -1,3 +1,4 @@
+#include "image_ocr_validation.hpp"
 #include "visual_mark_renderer.hpp"
 #include <mirage/integration/visual_session_host.hpp>
 
@@ -28,8 +29,10 @@ namespace {
 struct RequestState {
     explicit RequestState(VisualAnalysisRequest analysis_request)
         : request(std::move(analysis_request)) {}
+    explicit RequestState(VisualContinuousQuery query_request) : query(std::move(query_request)) {}
 
     VisualAnalysisRequest request;
+    std::optional<VisualContinuousQuery> query;
     desktop::CancelToken cancel; ///< latest-wins / stop cancellation channel
     std::promise<VisualAnalysisResult> done;
 };
@@ -41,6 +44,7 @@ void settle(RequestState &state, VisualAnalysisResult result) {
     // cannot pin all generations of ContinuousCaptureHost's pixel budget.
     state.request.frame = {};
     state.request.continuous.reset();
+    state.query.reset();
     try {
         state.done.set_value(std::move(result));
     } catch (...) {
@@ -153,6 +157,7 @@ struct detail::VisualSessionCore {
           session(std::move(perception_session)), templates(std::move(template_index)),
           coordinator(std::move(continuous_state)) {}
 
+    std::unique_ptr<VisualSessionCore> image_core;
     const std::string source_id;
     const VisualSessionConfig config;
     /// Only ever touched on the worker thread: one session, one scheduling
@@ -167,6 +172,10 @@ struct detail::VisualSessionCore {
     std::int32_t last_width = 0, last_height = 0;
     mirador::Rotation last_rotation = mirador::Rotation::k0;
     std::optional<mirador::ImportancePolicy> importance;
+    std::uint64_t evidence_digest = 0;
+    bool spatial_mode = false;
+    std::uint64_t last_analyzed_frame = 0;
+    std::optional<std::chrono::steady_clock::time_point> last_analyzed_at;
     struct BackgroundBaseline {
         mirador::ChangeSignature signature;
         std::uint64_t sequence = 0, policy_revision = 0;
@@ -176,6 +185,7 @@ struct detail::VisualSessionCore {
     bool assets_enrolled = false; // Only touched by this source worker.
 
     std::mutex mutex;
+    bool accepting = true; // Protected by mutex, including transport publication.
     /// Wakes the worker for a published request, a stop, or the bounded
     /// idle slice; the executor's stop path calls wakeup() through the
     /// worker. The worker never holds this mutex while a request runs.
@@ -190,6 +200,51 @@ struct detail::VisualSessionCore {
 };
 
 namespace {
+
+void publish_request(detail::VisualSessionCore &core, const std::shared_ptr<RequestState> &state) {
+    std::shared_ptr<RequestState> superseded;
+    bool accepted = false;
+    {
+        std::lock_guard lock(core.mutex);
+        // Keep the transport order and queued identity identical across producers.
+        // A failed bounded publication leaves the previous command untouched.
+        if (core.accepting && core.mailbox.try_publish(state)) {
+            superseded = std::move(core.queued);
+            if (core.in_flight)
+                core.in_flight->cancel.request_cancel();
+            core.queued = state;
+            accepted = true;
+        }
+    }
+    if (!accepted) {
+        settle_rejected(*state, "visual command admission closed or mailbox publication rejected");
+        return;
+    }
+    core.cv.notify_all();
+    if (superseded)
+        settle_cancelled(*superseded, "superseded by a newer visual command");
+}
+
+std::uint64_t evidence_digest(const VisualContinuousRequest &input) {
+    return input.spatial_evidence_digest != 0 ? input.spatial_evidence_digest
+                                              : input.full_frame_evidence_digest;
+}
+
+bool query_policy_fits(const mirador::AttentionPolicy &policy,
+                       const VisualContinuousConfig &limits) {
+    auto remaining = static_cast<std::size_t>(limits.max_coordination_bytes);
+    if (policy.conditions.capacity() > remaining / sizeof(mirador::AttentionCondition))
+        return false;
+    remaining -= policy.conditions.capacity() * sizeof(mirador::AttentionCondition);
+    for (const auto &condition : policy.conditions) {
+        for (const auto *text : {&condition.text_equals, &condition.label_equals}) {
+            if (text->capacity() + 1 > remaining)
+                return false;
+            remaining -= text->capacity() + 1;
+        }
+    }
+    return true;
+}
 /// No algorithm is reproduced here: apply owner configuration, scope the old
 /// session's caches/IDs to their source revision, and let Mirador plan/relate.
 mirador::Result<bool> prepare_continuous(detail::VisualSessionCore &core,
@@ -214,19 +269,26 @@ mirador::Result<bool> prepare_continuous(detail::VisualSessionCore &core,
         core.session = session.take_value();
         (void)coordinator.notify_source_reset();
     }
+    if (new_source) {
+        core.last_analyzed_frame = 0;
+        core.last_analyzed_at.reset();
+    }
     const bool invalidate = new_source || previous_policy != coordinator.policy_revision() ||
-                            !core.importance || *core.importance != input.importance;
+                            !core.importance || *core.importance != input.importance ||
+                            core.evidence_digest != evidence_digest(input) ||
+                            core.spatial_mode != (input.spatial_evidence_digest != 0);
     core.source_revision = input.source_revision;
     core.last_continuous_sequence = request.frame.sequence;
     core.last_width = request.frame.image.width;
     core.last_height = request.frame.image.height;
     core.last_rotation = request.frame.image.rotation;
     core.importance = input.importance;
+    core.evidence_digest = evidence_digest(input);
+    core.spatial_mode = input.spatial_evidence_digest != 0;
     return invalidate;
 }
 
-std::optional<std::int64_t> plan_owned_bytes(const mirador::AttentionPlan &plan,
-                                             std::int64_t budget) {
+std::optional<std::int64_t> plan_owned_bytes(const mirador::WorkPlan &plan, std::int64_t budget) {
     std::int64_t bytes = 0;
     const auto add = [&](std::size_t capacity, std::size_t element_size) {
         if (capacity > static_cast<std::size_t>(budget - bytes) / element_size)
@@ -234,11 +296,152 @@ std::optional<std::int64_t> plan_owned_bytes(const mirador::AttentionPlan &plan,
         bytes += static_cast<std::int64_t>(capacity * element_size);
         return true;
     };
-    if (!add(plan.work.capacity(), sizeof(mirador::PlannedWork)) ||
-        !add(plan.resolutions.capacity(), sizeof(mirador::FocusResolution)) ||
-        !add(plan.reconsiderations.capacity(), sizeof(mirador::FocusReconsideration)))
+    if (!add(plan.attention.work.capacity(), sizeof(mirador::PlannedWork)) ||
+        !add(plan.attention.resolutions.capacity(), sizeof(mirador::FocusResolution)) ||
+        !add(plan.attention.reconsiderations.capacity(), sizeof(mirador::FocusReconsideration)) ||
+        !add(plan.work.capacity(), sizeof(mirador::PlannedWorkBinding)) ||
+        !add(plan.reuse.capacity(), sizeof(mirador::WorkReuse)) ||
+        !add(plan.invalidations.capacity(), sizeof(mirador::WorkInvalidation)))
         return std::nullopt;
+    for (const auto &binding : plan.work)
+        if (!add(binding.token.source_id.capacity() + 1, sizeof(char)))
+            return std::nullopt;
     return bytes;
+}
+
+std::int64_t state_owned_bytes(const mirador::TemporalSemanticState &temporal,
+                               const std::vector<mirador::FocusStateResolution> &focus_states,
+                               const mirador::EventDrain *events,
+                               const mirador::WorkAcceptReport *accepted = nullptr) {
+    std::size_t bytes = temporal.entities.capacity() * sizeof(mirador::TemporalEntityState) +
+                        focus_states.capacity() * sizeof(mirador::FocusStateResolution);
+    for (const auto &focus : focus_states)
+        bytes += focus.stable_ids.capacity() * sizeof(std::uint64_t);
+    if (events) {
+        bytes += events->events.capacity() * sizeof(mirador::SemanticEvent);
+        for (const auto &event : events->events)
+            bytes += event.window.source_id.capacity() + 1;
+    }
+    if (accepted)
+        bytes += accepted->item_rejections.capacity() *
+                 sizeof(std::optional<mirador::WorkRejectionReason>);
+    return static_cast<std::int64_t>(bytes);
+}
+
+void execute_query(detail::VisualSessionCore &core, RequestState &state) {
+    const auto &query = *state.query;
+    const auto interrupted = [&] {
+        if (state.cancel.cancelled() || query.external_cancel.cancelled()) {
+            settle_cancelled(state, "visual state query cancelled before commit");
+            return true;
+        }
+        if (query.deadline && std::chrono::steady_clock::now() >= *query.deadline) {
+            settle_failed(state,
+                          {mirador::ErrorCode::kTimeout, "visual state query deadline expired"});
+            return true;
+        }
+        return false;
+    };
+    if (interrupted())
+        return;
+    if (core.source_revision == 0 || query.expected_source_revision != core.source_revision) {
+        settle_rejected(state, "visual state query source revision is not current");
+        return;
+    }
+    if (query.attention) {
+        if (query.attention->conditions.size() >
+            static_cast<std::size_t>(core.config.continuous->max_focus_conditions)) {
+            settle_failed(state, {mirador::ErrorCode::kBudgetExceeded,
+                                  "query attention condition cap exceeded"});
+            return;
+        }
+        if (auto valid = mirador::validate_attention_policy(*query.attention); !valid) {
+            settle_failed(state, valid.status());
+            return;
+        }
+    }
+    if (interrupted())
+        return;
+    if (query.attention) {
+        const auto previous = core.coordinator->policy_revision();
+        auto applied = core.coordinator->set_attention_policy(*query.attention);
+        if (!applied) {
+            settle_failed(state, applied.status());
+            return;
+        }
+        if (previous != core.coordinator->policy_revision())
+            core.background_baseline.reset();
+    }
+    // Bounded synchronous commit: queries do not advance observations. Once a
+    // policy has applied / a drain can happen, late cancellation cannot discard it.
+    VisualContinuousQueryView view;
+    view.source_revision = core.source_revision;
+    view.source_epoch = core.coordinator->source_epoch();
+    view.policy_revision = core.coordinator->policy_revision();
+    view.last_analyzed_frame = core.last_analyzed_frame;
+    if (core.last_analyzed_at)
+        view.analysis_age = std::chrono::steady_clock::now() - *core.last_analyzed_at;
+    view.temporal = core.coordinator->query_temporal_state();
+    view.focus = core.coordinator->query_focus_states();
+    if (query.drain_events)
+        view.events = core.coordinator->drain_events().take_value();
+    view.coordination_owned_bytes = core.coordinator->coordination_owned_bytes();
+    view.state_owned_bytes =
+        state_owned_bytes(view.temporal, view.focus, view.events ? &*view.events : nullptr);
+    VisualAnalysisResult result;
+    result.outcome.kind = VisualAnalysisOutcome::Kind::kQueried;
+    result.cache_stats.continuous_coordination_bytes = view.coordination_owned_bytes;
+    result.queried = std::move(view);
+    settle(state, std::move(result));
+}
+
+mirador::Result<VisualAnalysisResult::SpatialExecution>
+plan_spatial(detail::VisualSessionCore &core, const VisualAnalysisRequest &request,
+             const mirador::ChangeReport &change, const mirador::ExecutionContext &context) {
+    // Current frame, genuinely empty evidence: no old entity is asserted current,
+    // and this stateless fusion never advances the live session's tracker.
+    auto fused = mirador::fuse_evidence({}, request.frame, {}, context);
+    if (!fused)
+        return fused.status();
+    mirador::SemanticSnapshot unobserved;
+    unobserved.coordinate_space = mirador::CoordinateSpaceId::kOriented;
+    unobserved.regions = std::move(fused.value().regions);
+    unobserved.change = change;
+    auto planned = core.coordinator->plan_attention(unobserved, request.frame,
+                                                    request.continuous->importance, context);
+    if (!planned)
+        return planned.status();
+    const auto &limits = *core.config.continuous;
+    mirador::WorkPlan storage;
+    storage.attention = planned.take_value();
+    const auto bytes = plan_owned_bytes(storage, limits.max_plan_bytes);
+    if (!bytes ||
+        storage.attention.work.size() > static_cast<std::size_t>(limits.max_spatial_work_items))
+        return mirador::Status{mirador::ErrorCode::kBudgetExceeded,
+                               "spatial work/plan budget exceeded before recognition"};
+    VisualAnalysisResult::SpatialExecution output;
+    output.plan = std::move(storage.attention);
+    output.plan_owned_bytes = *bytes;
+    for (const auto &work : output.plan.work) {
+        const auto &roi = work.roi;
+        if (work.kind != mirador::PlannedWorkKind::kFocus ||
+            work.space != mirador::CoordinateSpaceId::kOriented || !std::isfinite(roi.x) ||
+            !std::isfinite(roi.y) || !std::isfinite(roi.width) || !std::isfinite(roi.height) ||
+            roi.x < 0 || roi.y < 0 || roi.width <= 0 || roi.height <= 0 ||
+            std::trunc(roi.x) != roi.x || std::trunc(roi.y) != roi.y ||
+            std::trunc(roi.width) != roi.width || std::trunc(roi.height) != roi.height ||
+            static_cast<double>(roi.x) + roi.width > request.frame.image.width ||
+            static_cast<double>(roi.y) + roi.height > request.frame.image.height)
+            return mirador::Status{mirador::ErrorCode::kInvalidArgument,
+                                   "spatial work must be an in-frame oriented integer ROI"};
+        const auto pixels =
+            static_cast<std::int64_t>(roi.width) * static_cast<std::int64_t>(roi.height);
+        if (pixels > limits.max_spatial_pixels - output.requested_pixels)
+            return mirador::Status{mirador::ErrorCode::kBudgetExceeded,
+                                   "spatial pixel budget exceeded before recognition"};
+        output.requested_pixels += pixels;
+    }
+    return output;
 }
 
 /// Runs the requested capabilities serially on the session: template
@@ -250,6 +453,10 @@ std::optional<std::int64_t> plan_owned_bytes(const mirador::AttentionPlan &plan,
 /// polls the request's execution context, so a cancellation or deadline
 /// lands at the next stage boundary as an explicit status.
 void execute(detail::VisualSessionCore &core, RequestState &state) {
+    if (state.query) {
+        execute_query(core, state);
+        return;
+    }
     const VisualAnalysisRequest &request = state.request;
     // The DEC-016 mapping: internal latest-wins token, the caller's external
     // token (a default token never cancels), and the steady-clock deadline.
@@ -286,6 +493,13 @@ void execute(detail::VisualSessionCore &core, RequestState &state) {
                             request.frame.image.rotation != core.last_rotation)) {
             core.background_baseline = std::move(baseline);
             settle_rejected(state, "continuous geometry change requires a new source revision");
+            return;
+        }
+        if (same_source && core.evidence_digest != 0 &&
+            evidence_digest(*request.continuous) == core.evidence_digest &&
+            core.spatial_mode != (request.continuous->spatial_evidence_digest != 0)) {
+            core.background_baseline = std::move(baseline);
+            settle_rejected(state, "execution scope change requires a new evidence digest");
             return;
         }
     }
@@ -436,6 +650,68 @@ void execute(detail::VisualSessionCore &core, RequestState &state) {
         }
     }
 
+    // ---- Spatial selection is complete and budgeted before any expensive call.
+    if (request.continuous && request.continuous->spatial_evidence_digest != 0) {
+        auto planned = plan_spatial(core, request, result.change, context);
+        if (!planned) {
+            settle_failed(state, planned.status());
+            return;
+        }
+        result.spatial = planned.take_value();
+        const auto &limits = *core.config.continuous;
+        for (const auto &work : result.spatial->plan.work) {
+            if (interrupted())
+                return;
+            if (request.run_ocr) {
+                auto ocr = request.ocr;
+                ocr.roi = work.roi;
+                ocr.roi_space = work.space;
+                auto regions =
+                    core.session.run_ocr(request.frame, core.config.ocr_backend, ocr, context);
+                if (!regions) {
+                    fail_result(result, regions.status());
+                    settle(state, std::move(result));
+                    return;
+                }
+                ++result.spatial->ocr_completed;
+                if (result.text.size() + result.detections.size() + regions.value().size() >
+                    static_cast<std::size_t>(limits.max_entities)) {
+                    fail_result(result, mirador::ErrorCode::kBudgetExceeded,
+                                "spatial evidence count budget exceeded");
+                    settle(state, std::move(result));
+                    return;
+                }
+                auto values = regions.take_value();
+                result.text.insert(result.text.end(), std::make_move_iterator(values.begin()),
+                                   std::make_move_iterator(values.end()));
+            }
+            if (request.run_detector) {
+                auto detector = request.detector;
+                detector.roi = work.roi;
+                detector.roi_space = work.space;
+                auto regions = core.session.run_detector(
+                    request.frame, core.config.detector_backend, detector, context);
+                if (!regions) {
+                    fail_result(result, regions.status());
+                    settle(state, std::move(result));
+                    return;
+                }
+                ++result.spatial->detector_completed;
+                if (result.text.size() + result.detections.size() + regions.value().size() >
+                    static_cast<std::size_t>(limits.max_entities)) {
+                    fail_result(result, mirador::ErrorCode::kBudgetExceeded,
+                                "spatial evidence count budget exceeded");
+                    settle(state, std::move(result));
+                    return;
+                }
+                auto values = regions.take_value();
+                result.detections.insert(result.detections.end(),
+                                         std::make_move_iterator(values.begin()),
+                                         std::make_move_iterator(values.end()));
+            }
+        }
+    }
+
     // ---- geometric closed-region proposals (geometric facts only)
     std::vector<mirador::GeometricRegionProposal> proposals;
     if (request.geometry.run) {
@@ -480,7 +756,7 @@ void execute(detail::VisualSessionCore &core, RequestState &state) {
     }
 
     // ---- OCR
-    if (request.run_ocr) {
+    if (request.run_ocr && !result.spatial) {
         if (request.ocr_budget) {
             // M8-07 (upstream DEC-025): budgeted execution with per-line
             // completion states. No configured backend fails the request
@@ -550,7 +826,7 @@ void execute(detail::VisualSessionCore &core, RequestState &state) {
     // ---- detection: the caller's single request, or one request per
     // geometry proposal context ROI (the closed regions supply the
     // detection requests; each ROI keeps its own capability-cache key).
-    if (request.run_detector) {
+    if (request.run_detector && !result.spatial) {
         const bool roi_split = request.geometry.run &&
                                request.geometry.detector_roi_from_geometry && !proposals.empty();
         if (roi_split) {
@@ -639,6 +915,19 @@ void execute(detail::VisualSessionCore &core, RequestState &state) {
     // identities are stamped onto the fused template regions (the fusion
     // itself carries no template label source; the DEC-016 mapper reads the
     // identity from the label)
+    if (request.image_session) {
+        for (std::size_t i = 0; i < result.text.size(); ++i) {
+            if (const auto *invalid = detail::invalid_image_text(
+                    result.text[i], request.frame.image.width, request.frame.image.height)) {
+                result.invalid_ocr_region = i;
+                result.outcome = {VisualAnalysisOutcome::Kind::kFailed,
+                                  mirador::ErrorCode::kInvalidArgument, invalid};
+                result.text.clear();
+                settle(state, std::move(result));
+                return;
+            }
+        }
+    }
     if (request.fuse) {
         if (!core.coordinator && !request.display_transform) {
             fail_result(result, mirador::ErrorCode::kInvalidArgument,
@@ -778,30 +1067,75 @@ void execute(detail::VisualSessionCore &core, RequestState &state) {
             settle(state, std::move(result));
             return;
         }
-        auto plan = core.coordinator->plan_attention(*result.snapshot, request.frame,
-                                                     request.continuous->importance, context);
+        if (interrupted())
+            return;
+        auto plan = core.coordinator->plan_cycle(*result.snapshot, request.frame,
+                                                 request.continuous->importance,
+                                                 evidence_digest(*request.continuous), context);
         if (!plan) {
             result.snapshot.reset();
             fail_result(result, plan.status());
             settle(state, std::move(result));
             return;
         }
-        const auto plan_bytes = plan_owned_bytes(plan.value(), limits.max_plan_bytes);
+        const auto preliminary_bytes = result.spatial ? result.spatial->plan_owned_bytes : 0;
+        const auto plan_bytes =
+            plan_owned_bytes(plan.value(), limits.max_plan_bytes - preliminary_bytes);
         if (!plan_bytes) {
             result.snapshot.reset();
             fail_result(result, mirador::ErrorCode::kBudgetExceeded,
-                        "attention plan byte budget exceeded");
+                        "continuous cycle plan byte budget exceeded");
             settle(state, std::move(result));
             return;
         }
         VisualContinuousResult output;
+        if (interrupted())
+            return;
+        if (evidence_digest(*request.continuous) != 0) {
+            std::vector<mirador::WorkToken> tokens;
+            tokens.reserve(plan.value().work.size());
+            for (const auto &binding : plan.value().work) {
+                if (result.spatial &&
+                    std::none_of(result.spatial->plan.work.begin(), result.spatial->plan.work.end(),
+                                 [&](const auto &executed) {
+                                     return executed.roi == binding.token.roi &&
+                                            executed.space == binding.token.roi_space;
+                                 })) {
+                    result.snapshot.reset();
+                    fail_result(result, mirador::ErrorCode::kInvalidArgument,
+                                "continuous token has no completed spatial work");
+                    settle(state, std::move(result));
+                    return;
+                }
+                tokens.push_back(binding.token);
+            }
+            auto accepted = core.coordinator->accept_work(tokens, request.frame, context);
+            if (!accepted || !accepted.value().committed) {
+                result.snapshot.reset();
+                fail_result(result, accepted
+                                        ? mirador::Status{mirador::ErrorCode::kInvalidArgument,
+                                                          "continuous evidence adoption rejected"}
+                                        : accepted.status());
+                settle(state, std::move(result));
+                return;
+            }
+            output.accepted = accepted.take_value();
+        }
+        // Commit point: completed evidence has been adopted (or the advisory
+        // cycle completed). Do not discard drained events for a later cancel.
+        // These bounded synchronous queries create no new asynchronous work.
+        output.temporal = core.coordinator->query_temporal_state();
+        output.focus = core.coordinator->query_focus_states();
+        output.events = core.coordinator->drain_events().take_value();
         output.source_revision = core.source_revision;
         output.source_epoch = core.coordinator->source_epoch();
         output.relation_owned_bytes = mirador::relation_view_owned_bytes(relations.value());
         output.coordination_owned_bytes = core.coordinator->coordination_owned_bytes();
-        output.plan_owned_bytes = *plan_bytes;
+        output.plan_owned_bytes = *plan_bytes + preliminary_bytes;
         output.relations = relations.take_value();
-        output.attention = plan.take_value();
+        output.cycle = plan.take_value();
+        output.state_owned_bytes = state_owned_bytes(output.temporal, output.focus, &output.events,
+                                                     output.accepted ? &*output.accepted : nullptr);
         continuous_result = std::move(output);
     }
 
@@ -825,7 +1159,7 @@ void execute(detail::VisualSessionCore &core, RequestState &state) {
         result.cache_stats.continuous_coordination_bytes =
             core.coordinator->coordination_owned_bytes();
 
-    if (interrupted())
+    if (!continuous_result && interrupted())
         return;
     if (current_signature)
         core.background_baseline = detail::VisualSessionCore::BackgroundBaseline{
@@ -835,6 +1169,10 @@ void execute(detail::VisualSessionCore &core, RequestState &state) {
         result.cache_stats.background_signature_bytes =
             core.background_baseline->signature.thumbnail.byte_size();
     result.outcome.kind = VisualAnalysisOutcome::Kind::kCompleted;
+    if (core.coordinator) {
+        core.last_analyzed_frame = request.frame.sequence;
+        core.last_analyzed_at = std::chrono::steady_clock::now();
+    }
     result.continuous = std::move(continuous_result);
     settle(state, std::move(result));
 }
@@ -864,12 +1202,11 @@ class VisualSessionWorker final : public kairo::IBlockingIoWorker {
                     return;
                 }
             }
-            // Drain to the newest published request; intermediate slots were
-            // settled by the submissions that overwrote them.
+            // One bounded latest read per iteration. A concurrent newer publish
+            // is picked up by the next predicate check; never spin-drain while
+            // producers keep publishing (stop must remain observable).
             std::shared_ptr<RequestState> request;
-            while (core_->mailbox.try_load_newer_than(seen, request, seen)) {
-            }
-            if (!request) {
+            if (!core_->mailbox.try_load_newer_than(seen, request, seen) || !request) {
                 continue;
             }
             {
@@ -883,7 +1220,9 @@ class VisualSessionWorker final : public kairo::IBlockingIoWorker {
                 core_->in_flight = request;
             }
             try {
-                execute(*core_, *request);
+                const bool image =
+                    request->query ? request->query->image_session : request->request.image_session;
+                execute(image ? *core_->image_core : *core_, *request);
             } catch (...) {
                 // Session calls are no-throw by contract; this guards the
                 // settlement plumbing instead, so the request still settles.
@@ -898,11 +1237,16 @@ class VisualSessionWorker final : public kairo::IBlockingIoWorker {
 
     void wakeup() noexcept override {
         std::lock_guard lock(core_->mutex);
+        core_->accepting = false;
         // Executor shutdown can precede the host's supported stop order.
         // Wake must also interrupt the currently executing capability, whose
         // context otherwise only sees host/external cancellation.
         if (core_->in_flight)
             core_->in_flight->cancel.request_cancel();
+        // A worker can be between its stop check and queued-command pickup.
+        // Cover that window even when there is no in-flight pointer yet.
+        if (core_->queued)
+            core_->queued->cancel.request_cancel();
         core_->cv.notify_all();
     }
 
@@ -938,7 +1282,10 @@ bool VisualSessionHost::start(std::string &error) {
             limits.max_relation_bytes > 512 * 1024 || limits.max_plan_bytes <= 0 ||
             limits.max_plan_bytes > 64 * 1024 || limits.max_entities <= 0 ||
             limits.max_entities > 256 || limits.max_relations <= 0 || limits.max_relations > 1024 ||
-            limits.max_focus_conditions <= 0 || limits.max_focus_conditions > 16) {
+            limits.max_focus_conditions <= 0 || limits.max_focus_conditions > 16 ||
+            limits.max_events <= 0 || limits.max_events > 256 ||
+            limits.max_spatial_work_items <= 0 || limits.max_spatial_work_items > 4 ||
+            limits.max_spatial_pixels <= 0 || limits.max_spatial_pixels > 4 * 1024 * 1024) {
             lifecycle_.store(Lifecycle::New, std::memory_order_release);
             error = "continuous observation budgets invalid or template assets configured";
             return false;
@@ -949,6 +1296,7 @@ bool VisualSessionHost::start(std::string &error) {
         options.max_entities = limits.max_entities;
         options.max_relations = limits.max_relations;
         options.max_focus_conditions = limits.max_focus_conditions;
+        options.max_events = limits.max_events;
         auto created = mirador::ContinuousPerception::create(std::move(options));
         if (!created) {
             lifecycle_.store(Lifecycle::New, std::memory_order_release);
@@ -1009,6 +1357,38 @@ bool VisualSessionHost::start(std::string &error) {
     }
     auto core = std::make_shared<detail::VisualSessionCore>(
         source_id_, config_, session.take_value(), templates.take_value(), std::move(coordinator));
+    if (config_.enable_image_session) {
+        if (config_.continuous) {
+            lifecycle_.store(Lifecycle::New, std::memory_order_release);
+            error = "image companion requires a legacy display host";
+            return false;
+        }
+        auto image_config = config_;
+        image_config.enable_image_session = false;
+        image_config.continuous = VisualContinuousConfig{};
+        image_config.template_assets.clear();
+        image_config.frame_cache_bytes = 1 << 20;
+        image_config.result_cache_bytes = 2 << 20;
+        auto image_session = mirador::PerceptionSession::create(
+            {source_id_, image_config.frame_cache_bytes, image_config.result_cache_bytes});
+        auto image_templates = VisualTemplateIndex::create(image_config.templates);
+        mirador::ContinuousPerceptionOptions image_options;
+        image_options.source_id = source_id_;
+        image_options.max_coordination_bytes = 512 * 1024;
+        image_options.max_entities = 256;
+        image_options.max_relations = 1024;
+        image_options.max_focus_conditions = 16;
+        image_options.max_events = 256;
+        auto image_coordinator = mirador::ContinuousPerception::create(image_options);
+        if (!image_session || !image_templates || !image_coordinator) {
+            lifecycle_.store(Lifecycle::New, std::memory_order_release);
+            error = "image companion state creation failed";
+            return false;
+        }
+        core->image_core = std::make_unique<detail::VisualSessionCore>(
+            source_id_, std::move(image_config), image_session.take_value(),
+            image_templates.take_value(), image_coordinator.take_value());
+    }
     kairo::BlockingWorkerSpec spec;
     spec.name = "mirage-visual-" + source_id_;
     spec.config.thread_name = spec.name;
@@ -1038,7 +1418,12 @@ std::future<VisualAnalysisResult> VisualSessionHost::submit(VisualAnalysisReques
     // frame in oriented coordinates, which is only the view's own pixel
     // space for the adapter's rotation-k0 capture form.
     const VisualAnalysisRequest &analysis = state->request;
-    if (analysis.continuous.has_value() != config_.continuous.has_value()) {
+    if (analysis.image_session && !config_.enable_image_session) {
+        settle_rejected(*state, "image companion is unavailable");
+        return future;
+    }
+    if (analysis.continuous.has_value() !=
+        (analysis.image_session || config_.continuous.has_value())) {
         settle_rejected(*state, "continuous requests require a dedicated continuous host");
         return future;
     }
@@ -1049,6 +1434,37 @@ std::future<VisualAnalysisResult> VisualSessionHost::submit(VisualAnalysisReques
          analysis.probe_geometry_templates)) {
         settle_rejected(*state, "continuous background request identity/stages invalid");
         return future;
+    }
+    if (analysis.continuous && evidence_digest(*analysis.continuous) != 0 &&
+        (!(analysis.run_ocr || analysis.run_detector) || analysis.ocr_budget ||
+         analysis.geometry.run ||
+         (analysis.run_ocr &&
+          (analysis.ocr.roi || analysis.ocr.cache_policy != mirador::CachePolicy::kRefresh)) ||
+         (analysis.run_detector &&
+          (analysis.detector.roi ||
+           analysis.detector.cache_policy != mirador::CachePolicy::kRefresh)))) {
+        settle_rejected(*state, "continuous adoption requires completed full-frame refresh stages");
+        return future;
+    }
+    if (analysis.continuous && analysis.continuous->spatial_evidence_digest != 0) {
+        const auto &input = *analysis.continuous;
+        if (input.full_frame_evidence_digest != 0 || !analysis.analyze_change ||
+            analysis.frame.image.rotation != mirador::Rotation::k0 ||
+            input.attention.conditions.empty() ||
+            (analysis.run_ocr &&
+             analysis.ocr.output_space != mirador::CoordinateSpaceId::kOriented) ||
+            (analysis.run_detector &&
+             analysis.detector.output_space != mirador::CoordinateSpaceId::kOriented) ||
+            std::any_of(input.attention.conditions.begin(), input.attention.conditions.end(),
+                        [](const auto &condition) {
+                            return condition.bind_stable_id || !condition.text_equals.empty() ||
+                                   !condition.label_equals.empty() ||
+                                   condition.roi_space != mirador::CoordinateSpaceId::kOriented;
+                        })) {
+            settle_rejected(*state,
+                            "spatial scheduling requires explicit oriented ROI-only conditions");
+            return future;
+        }
     }
     if (analysis.admission != VisualAnalysisAdmission::always &&
         analysis.admission != VisualAnalysisAdmission::when_changed) {
@@ -1130,22 +1546,42 @@ std::future<VisualAnalysisResult> VisualSessionHost::submit(VisualAnalysisReques
         return future;
     }
 
-    std::shared_ptr<RequestState> superseded;
-    {
-        std::lock_guard lock(core_->mutex);
-        superseded = std::move(core_->queued);
-        if (core_->in_flight) {
-            // Latest-wins: converge the in-flight predecessor through its
-            // cancellation channel; it settles explicitly as kCancelled.
-            core_->in_flight->cancel.request_cancel();
+    publish_request(*core_, state);
+    return future;
+}
+
+std::future<VisualAnalysisResult> VisualSessionHost::query_continuous(VisualContinuousQuery query) {
+    auto state = std::make_shared<RequestState>(std::move(query));
+    auto future = state->done.get_future();
+    const bool image = state->query->image_session;
+    const auto *limits = image && core_ && core_->image_core
+                             ? &*core_->image_core->config.continuous
+                             : (config_.continuous ? &*config_.continuous : nullptr);
+    if (lifecycle_.load(std::memory_order_acquire) != Lifecycle::Running || !limits ||
+        (image && !config_.enable_image_session) || state->query->expected_source_revision == 0) {
+        settle_rejected(
+            *state,
+            "continuous state query requires a running continuous host and source revision");
+        return future;
+    }
+    if (state->query->attention) {
+        const auto &policy = *state->query->attention;
+        if (policy.conditions.size() > static_cast<std::size_t>(limits->max_focus_conditions) ||
+            !query_policy_fits(policy, *limits)) {
+            settle_failed(*state, {mirador::ErrorCode::kBudgetExceeded,
+                                   "query policy payload budget exceeded"});
+            return future;
         }
-        core_->queued = state;
+        if (auto valid = mirador::validate_attention_policy(policy); !valid) {
+            settle_failed(*state, valid.status());
+            return future;
+        }
     }
-    core_->mailbox.publish(state);
-    core_->cv.notify_all();
-    if (superseded) {
-        settle_cancelled(*superseded, "superseded by a newer analysis request");
+    if (!worker_.status().is_running) {
+        settle_rejected(*state, "visual session worker is not running");
+        return future;
     }
+    publish_request(*core_, state);
     return future;
 }
 
@@ -1159,6 +1595,7 @@ void VisualSessionHost::stop() {
     std::vector<std::shared_ptr<RequestState>> to_settle;
     if (core_) {
         std::lock_guard lock(core_->mutex);
+        core_->accepting = false;
         if (core_->queued) {
             to_settle.push_back(std::move(core_->queued));
             core_->queued = nullptr;

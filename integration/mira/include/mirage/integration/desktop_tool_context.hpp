@@ -135,6 +135,15 @@ struct DesktopToolContext {
     std::function<ImageOcrOutcome(const desktop::ImageFrame &, const desktop::CancelToken &,
                                   const std::optional<std::chrono::steady_clock::time_point> &)>
         ocr_image;
+    /// M9: trusted task/authority/ROI source key; no model-provided identity.
+    std::function<ImageOcrOutcome(const desktop::ImageFrame &, const std::string &,
+                                  const desktop::CancelToken &,
+                                  const std::optional<std::chrono::steady_clock::time_point> &)>
+        ocr_image_contextual;
+    std::function<ImageContinuousState(
+        const std::string &, const desktop::CancelToken &,
+        const std::optional<std::chrono::steady_clock::time_point> &)>
+        query_image_state;
     /// DEC-058: same-frame SoM/crop. Caller authorizes capture before invoking.
     std::function<EnvironmentVisualRefresh(
         const std::optional<desktop::WindowGeometry> &, const desktop::CancelToken &,

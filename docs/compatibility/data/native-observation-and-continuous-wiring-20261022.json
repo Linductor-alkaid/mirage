@@ -1,0 +1,126 @@
+{
+  "schema": 1,
+  "date": "2026-10-22",
+  "baseline": "a4c73d7",
+  "platform_commit": "33df50d",
+  "feature": "native continuous perception wiring after platform fix",
+  "tests": [
+    {
+      "name": "debug_full",
+      "passed": 110,
+      "seconds": 318.17,
+      "log": "/tmp/mirage-native-wire-debug-complete-test.log"
+    },
+    {
+      "name": "debug_targeted",
+      "passed": 9,
+      "seconds": 16.46,
+      "log": "/tmp/mirage-native-wire-debug-final-test.log"
+    },
+    {
+      "name": "asan_targeted",
+      "passed": 8,
+      "seconds": 20.53,
+      "log": "/tmp/mirage-native-wire-asan-test-final.log"
+    },
+    {
+      "name": "ubsan_targeted",
+      "passed": 8,
+      "seconds": 20.31,
+      "log": "/tmp/mirage-native-wire-ubsan-test.log"
+    },
+    {
+      "name": "tsan_targeted",
+      "passed": 8,
+      "seconds": 46.63,
+      "log": "/tmp/mirage-native-wire-tsan-test.log"
+    },
+    {
+      "name": "asan_final_image",
+      "passed": 3,
+      "seconds": 19.19,
+      "log": "/tmp/mirage-native-wire-asan-complete-test.log"
+    },
+    {
+      "name": "ubsan_final_image",
+      "passed": 3,
+      "seconds": 19.46,
+      "log": "/tmp/mirage-native-wire-ubsan-complete-test.log"
+    },
+    {
+      "name": "tsan_final_image",
+      "passed": 3,
+      "seconds": 49.63,
+      "log": "/tmp/mirage-native-wire-tsan-complete-test.log"
+    },
+    {
+      "name": "release_final",
+      "passed": 10,
+      "seconds": 23.1,
+      "log": "/tmp/mirage-native-wire-release-complete-test.log"
+    },
+    {
+      "name": "debug_large_rgb_image",
+      "passed": 3,
+      "seconds": 0.74,
+      "log": "/tmp/mirage-native-wire-large-debug-test.log"
+    },
+    {
+      "name": "asan_large_rgb_image",
+      "passed": 3,
+      "seconds": 1.62,
+      "log": "/tmp/mirage-native-wire-large-asan-test.log"
+    },
+    {
+      "name": "ubsan_large_rgb_image",
+      "passed": 3,
+      "seconds": 1.54,
+      "log": "/tmp/mirage-native-wire-large-ubsan-test.log"
+    },
+    {
+      "name": "tsan_large_rgb_image",
+      "passed": 3,
+      "seconds": 5.13,
+      "log": "/tmp/mirage-native-wire-large-tsan-test.log"
+    },
+    {
+      "name": "native-release_large_rgb_image",
+      "passed": 3,
+      "seconds": 0.42,
+      "log": "/tmp/mirage-native-wire-large-native-release-test.log"
+    }
+  ],
+  "artifacts": [
+    {
+      "path": "build/native-release/apps/mirage",
+      "sha256": "754dbbb8b867b86fd84f3a9f67b47bcb97e689fd8209c0cf114ba0fdd2f42e33"
+    },
+    {
+      "path": "build/native-release/apps/mirage-service",
+      "sha256": "32072a7519e83e3863540ef180b573e9bf03ddfa875bde16030fdb0bf2463945"
+    },
+    {
+      "path": "build/native-release/apps/tray/mirage-tray",
+      "sha256": "258e594c1de1ba988c563b65f5e3ac5fc3f99b206c0055365e3b5c3dc8d1f640"
+    },
+    {
+      "path": "build/native-release/apps/native/mirage-native",
+      "sha256": "1f616769ecd230594a387c6ce3fcef7847ae40f781635997b594cc553f006548"
+    },
+    {
+      "path": "build/native-release/apps/pet/mira_pet",
+      "sha256": "a15cd378865d1e9dcd29128688da4f91361ec0511bcffea9f9920dfc847b4daa"
+    }
+  ],
+  "host_probe": {
+    "windows": 13,
+    "chatgpt_running": true,
+    "read_only": true
+  },
+  "limits": [
+    "No real user task replay or compositor pixel/input acceptance",
+    "No Windows or low-end resource/soak acceptance",
+    "No background sampling or zero-forward reuse enabled",
+    "Global formatting has pre-existing model_layer.cpp and protocol.cpp failures"
+  ]
+}

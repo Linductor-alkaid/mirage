@@ -575,6 +575,7 @@ if(GIO_TEST_FOUND)
     mirage_enable_warnings(m205_process_helper)
 
     add_executable(application_backend_test platform/application_backend_test.cpp)
+    add_dependencies(application_backend_test m205_process_helper)
     target_compile_features(application_backend_test PUBLIC cxx_std_20)
     mirage_enable_warnings(application_backend_test)
     target_link_libraries(application_backend_test

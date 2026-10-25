@@ -5,7 +5,7 @@
 > 所属计划：[Mirage 实施总计划](mirage-implementation-plan.md)
 > 前置：M1 Runtime、M3 Mirador 集成、M6 owner/会话、M7 动作/观察能力；不要求关闭旧里程碑全部门禁
 > 建议发布点：持续任务与文本观察 Linux 预览；标签未定，Windows/原生 Wayland 单列验收
-> 更新日期：2026-10-22
+> 更新日期：2026-10-23
 
 ## 目标
 
@@ -118,7 +118,9 @@ MiniCPM-o 4.5 仅参考视觉 token 压缩与时分复用机制，不纳入模�
   缩图仍发生的全帧取回/拷贝。小文字或相似目标不足时从当前源帧提清晰度。
   2026-10-22 首增量：opt-in 连续采集宿主与零拷贝 Mirador 帧适配，需求代际、
   两代像素背压及取消/关闭契约见[基础层设计](../design/continuous-capture-infrastructure.md)。
-  native/IPC 文本供给与生产消费者未接线，本项保持开放。
+  同日产品增量已接 Runtime 原生 OCR/既有 IPC 过程 JSON 的文本优先与无帧状态摘要，
+  复用同一 worker 的独立 image session；后台采样、独立增量订阅及无图动作引用仍开放，
+  本项保持 In Progress，见[产品接线](../design/native-continuous-perception-wiring.md)。
 - [ ] `M9-07` **In Progress**（依赖 05/06）：变化驱动感知与 ROI 增量。无相关变化
   跳过重识别，局部变化更新相交区域，布局切换重置；为关键文字设强制新识别
   路径。冻结采样/工作/缓存/忽略区域预算与迟到丢弃语义。验收：微小文字、动画、
@@ -135,6 +137,9 @@ MiniCPM-o 4.5 仅参考视觉 token 压缩与时分复用机制，不纳入模�
   token 压缩与宿主输入筛选，核对所用模型接口，不新增 MiniCPM 权重或编码器。
   首先让现有 change report 真正控制昂贵阶段 admission，保留关键证据的 Refresh
   条件；用 backend 实调数证明门控，不把当前按开关调用误报为变化后自动跳过。
+  2026-10-22：显式 ROI-only 选区在昂贵阶段前完成，4 个工作/4,194,304 源像素
+  暂定预算，整批完整刷新成功后再采纳；对象/文本前置定位与静态零 forward 仍开放。
+  契约及证据见[空间执行](../compatibility/continuous-spatial-execution-20261022.md)。
 - [ ] `M9-08` **Planned**（依赖 07）：在私有 Adapter 接入 Mirador ObjectTracker。
   覆盖身份关联、运动补偿、丢失/重捕获与置信降级，隔离 Experimental 契约；
   无 tracker 时走新识别回退。验收：相似目标交换、滚动布局代际和漂移不会
@@ -163,7 +168,7 @@ MiniCPM-o 4.5 仅参考视觉 token 压缩与时分复用机制，不纳入模�
   GPU 峰值、快照/标定存量及重标定计数；复用现有监控/事件面。
   记录事件漏检/延迟/日志 gap、语义升级原因、合并/去重/限流与 VLM 实际调用数，
   分开源捕获、识别、提交/发布和推理耗时；不凭时间邻近推定动作因果。
-- [ ] `M9-12` **Planned**（依赖 03～11、13～19；17～19 待方案冻结）：完成回归、配对 A/B、实机与发布证据。
+- [ ] `M9-12` **Planned**（依赖 03～11、13～20；17～19 待方案冻结）：完成回归、配对 A/B、实机与发布证据。
   同步决策、设计、IPC/示例、依赖审计及计划状态，按平台限定结论。验收：下列
   矩阵和退出条件逐项有证据；未跑项保持开放并记录负责人/条件，不能关闭 M9。
 - [ ] `M9-13` **In Progress**（依赖 05/06；与 07 同步；track 场景另依赖 08）：交付
@@ -218,9 +223,10 @@ MiniCPM-o 4.5 仅参考视觉 token 压缩与时分复用机制，不纳入模�
   模型采用下轮供给，不冒称生成期间可注入视觉 token；不新增 MiniCPM 接入任务。
   时间分组复用已有事件/水位，不积累空单元或另起周期工作；实体关系仅维护有界
   局部依赖，后台感知不默认同时运行 OCR/YOLO/tracker 全套。
-  2026-10-22：消费 Mirador `23f7ed2` 的 Experimental 关系视图与注意规划，在现有
-  worker 上对当前 oriented 融合快照执行；源/策略变更隔离后台比较基线。
-  这是识别后的工作建议，前置 ROI 调度、覆盖采纳、事件和生产任务策略仍开放，
+  2026-10-22：消费 Mirador `2a9f483` 的 Experimental 关系、token/覆盖采纳与
+  时间状态/有界事件，在现有 worker 的当前 oriented 融合快照执行；只有显式完整
+  刷新证据可采纳。空间 ROI-only 调度已前置，无帧焦点查询已接入同一 worker；
+  对象/文本前置定位与产品任务策略/供给仍开放，
   契约见[连续视觉消费](../design/continuous-visual-analysis.md)。
 - [ ] `M9-19` **Proposed**（依赖 05/07/09；与 17/18 协同）：按目标及依赖区域重验输入，
   解耦整屏像素变化与全局 authority epoch；分别实现模型通知与输入门控。
@@ -232,6 +238,11 @@ MiniCPM-o 4.5 仅参考视觉 token 压缩与时分复用机制，不纳入模�
 M9-14/15/16 依据
 [最新会话调查](../analysis/native-session-truncation-pet-ime-20261015.md)，仍待冻结具体
 策略与公开契约；桌宠传输延迟及入场回归 BUG-20261015-002 由 M8-03/05/12 承载。
+
+- [ ] `M9-20` **In Progress**：按 [DEC-113](../decisions/DEC-113-autonomous-action-recovery.md)
+  将执行故障默认人工检查改为观察、重规划和能力路径恢复。保留原失败及条件事实，
+  验证新观察恢复输入、独立 URI 路径、连续故障退避和历史结算；真实 Wayland 长任务
+  与释放失败通道修复分别留证，不能由 fixture 代替。
 
 ## 拆分与建议交付顺序
 
@@ -322,7 +333,7 @@ track 模板和语义标定，不只限制 mailbox 长度。语义状态在可�
 | ObjectTracker Experimental | 接入前置风险 | Mirage 维护者；私有适配、能力回退与相似目标负例取证 |
 | 微小文字与缓存新鲜度 | 必验正确性风险 | Mirage 维护者；关键 ROI 强制新识别及源帧水位验证 |
 | LLM 标定错误继承/晚到/存量增长 | 待设计与实现 | Mirage 维护者；05/13 冻结来源/依赖/失效和容量，12 执行负例及 soak |
-| 连续视觉/注意通用契约 | Accepted（部分交付）；23f7ed2 已有关系/规划，完整覆盖采纳/时间事件仍开放 | Mirador/Mirage 维护者；MIRADOR-20261019-001 跟踪，上游 M9-04/05 交付后再消费，不复制算法 |
+| 连续视觉/注意通用契约 | Accepted（部分消费）；2a9f483 已有覆盖采纳/时间事件，产品前置选择/供给仍开放 | Mirador/Mirage 维护者；MIRADOR-20261019-001 跟踪，继续消费上游公开能力，不复制算法 |
 | pet 可见采集与局部门控 | Proposed；平台能力和默认值待冻结 | Mirage 维护者；17/19 核对 compositor、输入接收与局部版本证明，再经 12 实测；现行 DEC-107 保留 |
 | 未执行性能/完成率 A/B | 待实施 | Mirage 维护者；01 冻结方法，真实 provider/授权桌面与固定任务集到位后 12 执行 |
 | 平台与 sanitizer 验证 | 未执行 | Mirage 维护者；目标机器/权重/测试构建到位后逐项补跑，不按其他平台关闭 |
@@ -533,3 +544,81 @@ OCR，非 display 结果不能发布为全局动作引用。M9-18 转 In Progres
 [本轮消费审计](../supply-chain/mirador-continuous-perception-20261022.md)。未执行真实
 设备/模型净收益、长期 soak 或新增平台共存取证，不关闭 M9 整项；负责人 Mirage
 维护者，在相应消费者/平台接线与授权/设备/预登记阈值到位后由 11/12 补跑。
+
+
+2026-10-22（覆盖/时间状态后续）：按维护者最新指示，Mirador 从 `23f7ed2` 升至
+master `2a9f483`（PR #53/#54），核对上游 M9-04/05 已实际交付。现有独立背景
+worker 消费 token 化 plan/accept、时间/焦点查询与有界事件 drain；仅对显式全帧
+刷新且全部成功的证据采纳，旧帧、缓存、部分/取消/超时结果不作为新完成。
+状态与事件保持 upstream 的确认窗口、epoch、unknown、drop/resync 语义。
+前置 ROI、独立无帧查询、生产任务注意/模型供给仍开放，不关闭 M9-05/07/18。
+契约、精确 pin、测试与限制见[本轮审计](../supply-chain/mirador-continuous-perception-20261022.md)。
+
+本轮验证：Debug 全量 110/110（290.95 s）；ASAN/UBSAN/TSAN/native-release 定向
+各 7/7，672 项消费检查零失败。变更 C++ 格式/公开边界与文档检查通过；仓库全量
+格式门禁受基线 model_layer.cpp:1528 的既有换行问题影响，已只读复现并记录负责
+人与补跑条件，未改动截断分类代码。实际模型/平台资源门禁继续由 M9-11/12 补齐。
+
+
+2026-10-22（空间 ROI 执行后续）：基线 `237f722`；核对 Mirador master 仍为
+`2a9f483`，没有新的依赖 pin。按 DEC-109 本轮实施边界，在既有 worker 上以当前
+空证据的无状态融合/plan_attention 先选空间 ROI，再调用 Mirador ROI OCR/Detector。
+未读取旧对象填充当前事实；区域数/累计面积在后端前整批校验，全部成功后再融合/
+plan_cycle/accept，局部失败不推进确认。显式刷新不受近似静态 gate 抑制，保留
+整屏轻量 change report。M9-07/18 保持 In Progress，生产供给/对象前置定位/真实
+净收益未验收；命令、结果和负责人/补跑条件见[本轮证据](../compatibility/continuous-spatial-execution-20261022.md)。
+
+本轮验证：Debug 110/110（305.52 s）；ASAN/UBSAN/TSAN/native-release 定向各 7/7，
+消费专项 894 检查零失败。测试的两块 2×2 ROI 在 8×8 帧上每帧送 OCR 8 源像素，
+不换算为实际模型/CPU 净收益。变更代码格式与公开边界通过，仓库全量格式仍受既有
+model_layer.cpp:1528 影响；具体命令和补跑条件见上述证据，M9-07/18 不关闭。
+
+
+2026-10-22（无帧焦点查询后续）：基线 `34bf01a`；Mirador master 重试 fetch 后
+仍为 `2a9f483`，pin 不变。新增 query_continuous，在既有 latest-wins worker
+直接调用上游时间/焦点查询，可选更新 attention 或显式 drain。独立 kQueried/
+queried 结果回显来源、策略、最后完成分析序号与年龄，不伪造当前快照或推进确认。
+默认 peek 不取走事件；失败源重建后的 old-epoch end 可以显式 drain，来源保留。
+并发发布与 queued 归属在同一锁内排序，try_publish 拒绝、关闭接纳与取消均显式；
+worker 单次 latest 读取保留停止检查，Executor 先关闭时待处理命令也取得取消信号。
+M9-18 继续 In Progress，产品供给/订阅/gap 恢复仍开放；完整证据见
+[本轮验证](../compatibility/continuous-state-query-20261022.md)。
+
+本轮验证：Debug 最终全量 110/110（303.49 s），ASAN/UBSAN/TSAN/native-release
+定向各 7/7；消费专项 1,908 checks 零失败，288 次受控混合命令均结算。变更 C++
+格式/公开边界及文档检查通过；全量格式门禁仍受原 model_layer.cpp:1528 影响，
+未修改该文件，负责人和补跑条件见上述证据。真实平台/模型净收益不作已验收声明。
+
+
+2026-10-22 最新会话修复与产品接线（M9-05/06/07/11/12/18，关联 M7-18/25/26）：
+修复 AT-SPI 应用层窗口遍历、env 启动器运行状态、ROI 像素预算、OCR 校验诊断和
+动作观察提示。生产 PP-OCR pipeline 开启同 worker 的独立 image session/coordinator，
+Runtime 接入 task/authority/ROI 来源键、OCR 2.1.0 的 text_only 和 state 1.0.0 查询。
+无 PNG 文本入口退休旧输入图引用；查询不获取新证据；部分 OCR 不采纳完整覆盖。
+契约/预算见[产品接线设计](../design/native-continuous-perception-wiring.md)，实机只读、
+自动回归与未验收范围见[本轮证据](../compatibility/native-observation-and-continuous-wiring-20261022.md)。
+后台采样、静态退避、焦点策略、增量订阅/gap 恢复和目标平台资源验收继续开放，
+不关闭 M9 整项。
+
+### 2026-10-22：M9-05/18 观察通路恢复回归
+
+结合 M7-18/26、M10-07 修复，迟到且已释放的输入不再销毁同一授权观察流；
+text_only OCR/state 保持只读且不能消除动作围栏。受控模型脚本验证在尝试
+exec/write/edit 被拒绝后仍可观察、OCR 与查询状态。按需消费者与源/权限
+守卫沿用[接线设计](../design/native-continuous-perception-wiring.md)；
+证据见[恢复验证记录](../compatibility/native-action-recovery-20261022.md)。
+真实模型、后台采样、资源和 compositor 门禁继续开放。
+
+## 2026-10-23：M9-20 自主恢复首增量
+
+维护者要求纠正普通执行故障默认人工检查的方向。按 DEC-113 将执行事实、恢复
+检查点与条件结果分开，已释放的不确定动作经当前观察重新规划；独立应用路径
+保留自身权限和观察边界。Portal/Adapter 共用等待新帧与连续故障 episode 策略，
+基础工具不再因恢复等待进入永久黑名单。Mira 持续循环、供给和既有 M9 OCR/state
+承载自主恢复，不新增私有调度或第二个循环。源代码/受控回归与实机门禁分别登记在
+[验收记录](../compatibility/autonomous-action-recovery-20261022.md)，本项保持 In Progress。
+
+最终源码验证：Debug 110/110，ASAN/UBSAN/TSAN 专项各 10/10，native-release 14/14。
+TSAN 迭代阶段的原期限超时、单独重跑及最终全专项结果均保留在验收记录；没有放宽
+期限或新增 suppression。native-release 产品已重建，依赖指针未变。M9-20 仍待实机
+长任务及释放失败通道重建，源码首增量的通过不替代上述门禁。

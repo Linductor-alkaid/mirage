@@ -247,7 +247,7 @@ class ConversationCapture {
                  {"display_id", "visual_scope", "model_revision", "backend_calls",
                   "environment_epoch", "observed_at_ms", "source_kind", "image_artifact_id",
                   "width", "height", "coordinate_space", "truncated", "total_region_count",
-                  "actionable", "observation_only", "received_at_ms"})
+                  "actionable", "observation_only", "received_at_ms", "text_only", "continuous"})
                 if (const auto *v = result.value().find(key))
                     summary.emplace_back(key, *v);
             output = mira::to_json_string(mira::JsonValue{std::move(summary)});

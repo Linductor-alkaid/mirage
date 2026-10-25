@@ -21,6 +21,7 @@
 #include <unistd.h>
 
 #include <algorithm>
+#include <cctype>
 #include <cerrno>
 #include <chrono>
 #include <cstdio>
@@ -238,6 +239,7 @@ int main() {
     // the directory snapshot is cached per process.
     const std::string main_id = "mirage-m205-main-" + suffix + ".desktop";
     const std::string stuck_id = "mirage-m205-stuck-" + suffix + ".desktop";
+    const std::string case_id = "mirage-m205-case-" + suffix + ".desktop";
     const std::string foreign_id = "mirage-m205-foreign-" + suffix + ".desktop";
     const std::string quick_id = "mirage-m205-quick-" + suffix + ".desktop";
     const std::string dup_id = "mirage-m205-dup-" + suffix + ".desktop";
@@ -260,7 +262,12 @@ int main() {
     write_desktop_entry(data_first, stuck_id, "Mirage Stuck Fixture",
                         stuck_helper + " ignore-term 3600 " + stuck_ready.string());
     write_desktop_entry(data_first, foreign_id, "Mirage Foreign Fixture",
-                        foreign_helper + " hold 3600");
+                        "/usr/bin/env -i MIRAGE_FIXTURE=1 -- " + foreign_helper + " hold 3600");
+    std::string case_name = std::filesystem::path(main_helper).filename().string();
+    std::transform(case_name.begin(), case_name.end(), case_name.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
+    write_desktop_entry(data_first, case_id, "Case Alias",
+                        "/usr/bin/env MIRAGE_FIXTURE=1 " + case_name + " hold 3600");
     write_desktop_entry(data_first, quick_id, "Mirage Quick Fixture", quick_helper + " exit");
     // A launchable entry with no Exec key: GIO keeps it enumerable (entries
     // whose Exec target is missing or non-executable are dropped outright),
@@ -340,9 +347,9 @@ int main() {
         // system/fixture coexistence relies on).
         const auto listed = apps->list_applications();
         MIRAGE_CHECK(listed.ok);
-        // 6 pre-existing fixtures plus the 5 enumerable DEC-086 entries; the
+        // 6 pre-existing fixtures plus 5 enumerable DEC-086 entries and one reporting alias; the
         // unparseable-Exec DBusActivatable entry is dropped by GIO itself.
-        MIRAGE_CHECK(listed.applications.size() == 11);
+        MIRAGE_CHECK(listed.applications.size() == 12);
         bool sorted_by_id =
             std::is_sorted(listed.applications.begin(), listed.applications.end(),
                            [](const desktop::ApplicationInfo &a,
@@ -380,13 +387,13 @@ int main() {
         MIRAGE_CHECK(zero_list.error.code == "result_too_large");
         MIRAGE_CHECK(zero_list.applications.empty());
         desktop::ApplicationListLimits below_budget;
-        below_budget.max_applications = 10;
+        below_budget.max_applications = 11;
         MIRAGE_CHECK(apps->list_applications(below_budget, {}).error.code == "result_too_large");
         desktop::ApplicationListLimits exact_budget;
-        exact_budget.max_applications = 11;
+        exact_budget.max_applications = 12;
         const auto exact_list = apps->list_applications(exact_budget, {});
         MIRAGE_CHECK(exact_list.ok);
-        MIRAGE_CHECK(exact_list.applications.size() == 11);
+        MIRAGE_CHECK(exact_list.applications.size() == 12);
         // Cancelled before any work.
         desktop::CancelToken cancelled_list;
         cancelled_list.request_cancel();
@@ -459,6 +466,11 @@ int main() {
         MIRAGE_CHECK(running.instance_id == launched.instance_id);
 
         const auto listed_while_running = apps->list_applications();
+        const auto *case_alias = find_entry(listed_while_running, case_id);
+        MIRAGE_CHECK(case_alias && case_alias->running);
+        // Reporting aliases must not pick a PID for destructive control.
+        MIRAGE_CHECK(!apps->running_state(case_id, {}).running);
+        MIRAGE_CHECK(apps->terminate(case_id, {}, {}).error.code == "not_found");
         MIRAGE_CHECK(listed_while_running.ok);
         const desktop::ApplicationInfo *running_entry = find_entry(listed_while_running, main_id);
         MIRAGE_CHECK(running_entry != nullptr);
