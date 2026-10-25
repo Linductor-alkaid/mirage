@@ -1750,9 +1750,9 @@ void dialog_output_limit_scenario() {
                     return layer.complete_dialog_turn({}, "output limit probe", context, "", false);
                 })
                 .get();
-        std::fprintf(stderr,
-                     "dialog output-limit [%s]: ok=%d failed=%d truncated=%d error=%s\n", label,
-                     result.ok, result.failed, result.output_limit_truncated, result.error.c_str());
+        std::fprintf(stderr, "dialog output-limit [%s]: ok=%d failed=%d truncated=%d error=%s\n",
+                     label, result.ok, result.failed, result.output_limit_truncated,
+                     result.error.c_str());
         layer.shutdown();
         owner.shutdown(true);
         return result;
