@@ -1359,7 +1359,8 @@ void scenario_session_context_usage() {
 // "output_limit" rides failed settlements only, from the closed vocabulary,
 // and is absent on unclassified failures; every violation is a decode error.
 void scenario_dialog_turn_error_kind() {
-    constexpr const char *kTruncationError = "the reply was cut off by the model output token limit";
+    constexpr const char *kTruncationError =
+        "the reply was cut off by the model output token limit";
     // session.chat_updated: the classified failed settlement round-trips.
     {
         ipc::ChatTurnUpdatedEvent event;
@@ -1424,7 +1425,7 @@ void scenario_dialog_turn_error_kind() {
     }
     // Wire-level rejections over the same envelope: unknown category,
     // non-string category.
-    for (const char *payload : std::vector<const char*>{
+    for (const char *payload : std::vector<const char *>{
              R"({"v":1,"seq":1,"event":"session.chat_updated","session_id":"s","turn_id":"t",)"
              R"("status":"failed","user_text":"u","sequence":1,"error":"boom",)"
              R"("error_kind":"mystery"})",
@@ -1490,8 +1491,7 @@ void scenario_dialog_turn_error_kind() {
     const std::string miscategorized_turn =
         R"({"turn_id":"t","status":"ok","user_text":"u","sequence":1,)"
         R"("recorded_at_ms":1,"reply_text":"r","error_kind":)";
-    for (const std::string &turn : {classified_turn + R"("mystery"})",
-                                    classified_turn + "7}",
+    for (const std::string &turn : {classified_turn + R"("mystery"})", classified_turn + "7}",
                                     miscategorized_turn + R"("output_limit"})"}) {
         const std::string wire =
             R"({"v":1,"id":22,"ok":true,"session_id":"s","truncated":false,"turns":[)" + turn +
