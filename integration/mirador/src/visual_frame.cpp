@@ -22,6 +22,38 @@ struct PixelOwner {
 
 } // namespace
 
+mirador::Result<mirador::Frame> to_mirador_frame(std::shared_ptr<const SharedCaptureFrame> frame) {
+    if (!frame || frame->source_id.empty())
+        return mirador::Status{mirador::ErrorCode::kInvalidArgument,
+                               "shared capture and source id are required"};
+    const auto &image = frame->image;
+    if (image.format != desktop::ImageFormat::Bgra8)
+        return mirador::Status{mirador::ErrorCode::kUnsupportedFormat,
+                               "only the canonical Bgra8 capture format is supported"};
+    if (image.height <= 0 ||
+        image.stride >
+            static_cast<std::size_t>(std::numeric_limits<std::int64_t>::max() / image.height) ||
+        image.pixels.size() < image.stride * static_cast<std::size_t>(image.height))
+        return mirador::Status{mirador::ErrorCode::kInvalidArgument,
+                               "shared capture buffer size invalid"};
+    mirador::ImageView view;
+    view.data = reinterpret_cast<const std::byte *>(image.pixels.data());
+    view.width = image.width;
+    view.height = image.height;
+    view.row_stride_bytes = static_cast<std::int64_t>(image.stride);
+    view.format = mirador::PixelFormat::kBgra8;
+    view.rotation = mirador::Rotation::k0;
+    if (const auto validated = mirador::validate(view); !validated.ok())
+        return validated.status();
+    mirador::Frame wrapped;
+    wrapped.image = view;
+    wrapped.sequence = frame->sequence;
+    wrapped.timestamp = frame->received_at;
+    wrapped.source_id = frame->source_id;
+    wrapped.owner = std::move(frame);
+    return wrapped;
+}
+
 mirador::Result<mirador::Frame> to_mirador_frame(const desktop::ImageFrame &frame,
                                                  std::string source_id, std::uint64_t sequence,
                                                  std::chrono::steady_clock::time_point timestamp) {

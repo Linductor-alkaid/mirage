@@ -64,6 +64,16 @@ owner，复用现有 kairo blocking worker；共享帧用 LatestMailbox 合并�
 
 #### 连续帧的性能与内存底线
 
+2026-10-22：按本节推进 M9-06/07 的 opt-in 采集基础层，首增量的 owner、
+需求代际、两代像素预算、失败与共享帧契约见
+[连续帧采集基础层](../design/continuous-capture-infrastructure.md)。该局部实现
+不代表 DEC-109 全部协议冻结，也不改变现有产品采集/pet 默认值。
+
+同日后续：从 Mirador `23f7ed2` 消费 Experimental 关系视图与注意规划，独立
+oriented 宿主使用当前帧快照，不改变原 display 观察的坐标/动作契约；新增来源
+代际与预算见[消费设计](../design/continuous-visual-analysis.md)。完整前置 ROI、
+覆盖采纳及事件仍按 M9-07/18 与上游后续交付推进，不在 Mirage 重写算法。
+
 - 连续帧是输入源，不要求每一帧都复制、编码、识别、融合和发送。优先消费平台
   可用的 damage/dirty-region 信息，再用 Mirador 变化检测确认相关区域；平台
   只提供完整帧时仍允许取完整帧，但不能因此重跑全屏 OCR/YOLO。平台差异留在
@@ -254,7 +264,9 @@ provider input tokens、OCR/detector 实际调用数、P50/P95 时延及本地�
 - 首增量：[状态层契约](../design/visual-scene-incremental-state.md)、
   [资源清单](../design/m9-resource-and-progress-policy.md)、
   [验证记录](../compatibility/m9-incremental-scene-and-pet-build-20261015.md)。
-  当前只有 Core 状态/绑定与 Mirador 映射；native/LLM 接线和连续帧链路尚未实施。
+  2026-10-15 范围为 Core 状态/绑定与 Mirador 映射；2026-10-22 增加
+  [opt-in 采集基础层](../design/continuous-capture-infrastructure.md)。native/LLM
+  接线与生产连续帧链路仍待实施。
 - [M9 计划](../plans/m9-continuous-tasks-and-local-perception.md)：M9-05～13。
 - [DEC-090](DEC-090-continuous-task-execution.md)、[DEC-016](DEC-016-mirador-visual-integration-contract.md)、
   [DEC-059](DEC-059-visual-text-postconditions.md)、[DEC-069](DEC-069-local-visual-workflow-grounding.md)、

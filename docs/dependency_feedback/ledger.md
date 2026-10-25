@@ -2,12 +2,17 @@
 
 > 状态：Active
 > 负责人：Mirage维护者
-> 更新日期：2026-10-19
+> 更新日期：2026-10-22
 > 维护规则：[工程规范9.4](../project/project-standards.md)
 > 本轮工作项：[依赖复用整改](../plans/dependency-reuse-remediation.md)（REUSE-16/17/18
 > 台账一致性收口）；既有条目分别溯源至 M6、M7-06、M8/M9 各工作项
 
 ## 分依赖台账
+
+2026-10-22：[MIRADOR-20261019-001](mirador.md#mirador-20261019-001) 转 Accepted
+（部分交付与消费）：Mirador `23f7ed2` 已交付 Experimental 契约、关系视图与注意
+规划；完整覆盖采纳与时间事件仍待上游 M9-04/05。pin 和验证见
+[消费审计](../supply-chain/mirador-continuous-perception-20261022.md)，不将条目整体关闭。
 
 2026-10-19：M9 连续感知与注意策略诉求登记为
 [MIRADOR-20261019-001](mirador.md#mirador-20261019-001)（Proposed），关联已有

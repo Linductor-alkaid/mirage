@@ -80,6 +80,10 @@ desktop::VisualSceneObject to_visual_scene_object(const mirador::VisualRegion &r
 desktop::VisualPublishOutcome publish_visual_snapshot(const mirador::SemanticSnapshot &fusion,
                                                       desktop::VisualReferenceRegistry &registry,
                                                       const desktop::VisualSnapshotLimits &limits) {
+    if (fusion.coordinate_space != mirador::CoordinateSpaceId::kDisplay)
+        return {false,
+                {},
+                {"invalid_coordinate_space", "visual references require display coordinates"}};
     return registry.publish(to_visual_snapshot(fusion), limits);
 }
 

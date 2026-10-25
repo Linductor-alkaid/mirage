@@ -11,7 +11,7 @@ namespace mirage::integration {
 /// Maps one pinned mirador fusion snapshot onto the pinned-free desktop
 /// VisualSnapshot (DEC-016 decisions 2 and 3; the pinned boundary is the
 /// only place mirador types may appear, DEC-003). The fusion must target
-/// the kDisplay space (the session adapter fixes it, DEC-016 decision 3):
+/// the kDisplay space (the default session output, DEC-016 decision 3):
 /// the mapped bounds are then already global desktop coordinates and the
 /// registry entries drive input actions directly.
 ///
@@ -45,7 +45,8 @@ desktop::VisualSceneObject to_visual_scene_object(const mirador::VisualRegion &r
 /// `VisualReferenceRegistry::publish`, which renumbers the regions
 /// "@v1..@vN", assigns the next scope handle and replaces the active set
 /// atomically. Errors: the registry's (`snapshot_too_large` — the active
-/// set stays intact, nothing is truncated).
+/// set stays intact, nothing is truncated), and invalid_coordinate_space for
+/// non-display observations (the active registry stays intact).
 desktop::VisualPublishOutcome
 publish_visual_snapshot(const mirador::SemanticSnapshot &fusion,
                         desktop::VisualReferenceRegistry &registry,
