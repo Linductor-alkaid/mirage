@@ -239,6 +239,66 @@ bool wait_image_gone(const std::wstring &image) {
     return wait_until([&] { return pids_by_image(image).empty(); });
 }
 
+// BUG-20261026-002: a single remove_all can leave a fixture behind. Allow
+// bounded filesystem settling, retaining the first and final error instead
+// of discarding it. Success still requires the entire directory to be gone.
+bool remove_fixture_tree(const std::filesystem::path &root,
+                         std::chrono::milliseconds budget = std::chrono::seconds{10}) {
+    const auto deadline = std::chrono::steady_clock::now() + budget;
+    const std::string leaf = root.filename().string();
+    std::size_t attempts = 0;
+    std::error_code error;
+    for (;;) {
+        ++attempts;
+        std::filesystem::remove_all(root, error);
+        std::error_code query_error;
+        const bool remains = std::filesystem::exists(root, query_error);
+        if (!remains && !query_error) {
+            if (attempts > 1) {
+                std::fprintf(stderr, "[win32-app-test] cleanup %s settled after %zu attempts\n",
+                             leaf.c_str(), attempts);
+            }
+            return true;
+        }
+        if (query_error) {
+            error = query_error;
+        }
+        if (attempts == 1) {
+            std::fprintf(stderr, "[win32-app-test] cleanup %s pending: %d (%s)\n", leaf.c_str(),
+                         error.value(), error.message().c_str());
+        }
+        if (std::chrono::steady_clock::now() >= deadline) {
+            std::fprintf(stderr,
+                         "[win32-app-test] cleanup %s exhausted after %zu attempts: %d (%s)\n",
+                         leaf.c_str(), attempts, error.value(), error.message().c_str());
+            return false;
+        }
+        ::Sleep(25);
+    }
+}
+
+// A real non-share-delete handle must remain a failure while held; closing
+// it permits cleanup, and an already absent directory is idempotent success.
+void cleanup_rejection_contract(const std::filesystem::path &temp_root) {
+    const auto probe = temp_root / L"cleanup-probe";
+    std::error_code error;
+    std::filesystem::create_directories(probe, error);
+    MIRAGE_CHECK(!error);
+    const auto file = probe / L"held.txt";
+    const HANDLE held =
+        ::CreateFileW(file.c_str(), GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
+                      CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    MIRAGE_CHECK(held != INVALID_HANDLE_VALUE);
+    if (held == INVALID_HANDLE_VALUE) {
+        return;
+    }
+    MIRAGE_CHECK(!remove_fixture_tree(probe, std::chrono::milliseconds{75}));
+    MIRAGE_CHECK(std::filesystem::exists(probe));
+    MIRAGE_CHECK(::CloseHandle(held) != 0);
+    MIRAGE_CHECK(remove_fixture_tree(probe));
+    MIRAGE_CHECK(remove_fixture_tree(probe));
+}
+
 /// Force-terminates one pid (test-side cleanup of a stuck fixture instance;
 /// the provider itself never does this).
 bool force_terminate(DWORD pid) {
@@ -997,6 +1057,7 @@ int main() {
     }
     std::filesystem::create_directories(fixtures.temp_root, fs_error);
     MIRAGE_CHECK(!fs_error);
+    cleanup_rejection_contract(fixtures.temp_root);
 
     wchar_t module_path[4096]{};
     ::GetModuleFileNameW(nullptr, module_path, 4096);
@@ -1120,10 +1181,8 @@ int main() {
         const std::filesystem::path lnk = fixtures.start_menu_dir / leaf;
         ::SetFileAttributesW(lnk.c_str(), FILE_ATTRIBUTE_NORMAL); // hidden fixture deattribution
     }
-    std::filesystem::remove_all(fixtures.start_menu_dir, fs_error);
-    MIRAGE_CHECK(!std::filesystem::exists(fixtures.start_menu_dir));
-    std::filesystem::remove_all(fixtures.temp_root, fs_error);
-    MIRAGE_CHECK(!std::filesystem::exists(fixtures.temp_root));
+    MIRAGE_CHECK(remove_fixture_tree(fixtures.start_menu_dir));
+    MIRAGE_CHECK(remove_fixture_tree(fixtures.temp_root));
 
     ::CoUninitialize();
     return mirage::testing::finish("win32_application_test");
