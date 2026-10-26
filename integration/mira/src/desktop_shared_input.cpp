@@ -162,8 +162,10 @@ void DesktopImageTurn::register_shared_input(mira::BuiltinToolRegistry &registry
             DesktopActionVerification::configure_policy(spec);
             handler = decorate(spec.wire_name, std::move(handler));
         }
-        if (!registry.register_tool(std::move(spec), std::move(handler)))
-            throw std::runtime_error("shared input tool registration failed");
+        const auto registered = registry.register_tool(std::move(spec), std::move(handler));
+        if (!registered)
+            throw std::runtime_error("shared input tool registration failed (" + name +
+                                     "): " + registered.error().safe_message);
     }
 }
 
