@@ -10,9 +10,15 @@ native-release 与 DEB 交付完成；Release 120/120、真实推理与包校验
 > 版本：0.1
 > 负责人：Mirage 维护者
 > 依据：[《Mirage：Linux - Windows 桌面端设计方案》](../design/Mirage：Linux%20-%20Windows%20桌面端设计方案.md)（下称"设计文档"）
-> 更新日期：2026-10-26（工作分支集成与 CI 验收收口；既有里程碑状态保留）
+> 更新日期：2026-10-27（native-release 纳入当前工作区进展；既有里程碑状态保留）
 
 ## 当前状态
+
+2026-10-27：维护者要求将 `feat/continuous-semantic-binding` 工作区的连续对象
+语义与桌面共享恢复更新一并纳入 native-release 和 DEB，
+[构建交付验收](../compatibility/native-package-refresh-20261027.md)已完成：
+完整 native-release 与 DEB、124/124 测试（0 skip，148.64 s）、资源/摘要验证通过。
+产物以工作区源码摘要追溯，功能分支和原有里程碑/平台门禁保持原状态。
 
 2026-10-26：维护者要求将 native-release 与 DEB 更新到集成主干 `8779844`，
 保留完整 OCR/YOLO 配置；[构建交付验收](../compatibility/native-package-refresh-20261026.md)
