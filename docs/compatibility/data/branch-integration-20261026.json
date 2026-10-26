@@ -1,0 +1,414 @@
+{
+  "date": "2026-10-26",
+  "timezone": "Asia/Shanghai",
+  "initial_master": "4ec413a2b7690b4fa7e7b476235f94cbebb72400",
+  "integrated_master": "877853f07d0b25da065fbadedd84005221b07a1d",
+  "original_dirty_snapshot_commit": "ff2f0b9",
+  "original_dirty_snapshot_files": 71,
+  "pull_requests": [
+    {
+      "pr": 114,
+      "branch": "feat/m7-27-held-pointer-travel",
+      "head": "01b4308f846e03c7fee32c802ec60d8037475670",
+      "tested_tree": "faa024f67b48997a479fca6ca3150d40fa19bb4d",
+      "base_before_merge": "4ec413a2b7690b4fa7e7b476235f94cbebb72400",
+      "merge": "51e57b284576df8cc6a2835fc29633c0e7ccae92",
+      "merged_at": "2026-10-25T16:38:54Z",
+      "checks": [
+        {
+          "name": "format & public-header boundaries",
+          "conclusion": "SUCCESS",
+          "url": "https://github.com/Linductor-alkaid/mirage/actions/runs/40210311899/job/121219935080"
+        },
+        {
+          "name": "build & test (debug)",
+          "conclusion": "SUCCESS",
+          "url": "https://github.com/Linductor-alkaid/mirage/actions/runs/40210311899/job/121219935078"
+        },
+        {
+          "name": "build & test (release)",
+          "conclusion": "SUCCESS",
+          "url": "https://github.com/Linductor-alkaid/mirage/actions/runs/40210311899/job/121219935110"
+        },
+        {
+          "name": "build & test (asan)",
+          "conclusion": "SUCCESS",
+          "url": "https://github.com/Linductor-alkaid/mirage/actions/runs/40210311899/job/121219935031"
+        },
+        {
+          "name": "build & test (ubsan)",
+          "conclusion": "SUCCESS",
+          "url": "https://github.com/Linductor-alkaid/mirage/actions/runs/40210311899/job/121219935012"
+        },
+        {
+          "name": "build & test (tsan)",
+          "conclusion": "SUCCESS",
+          "url": "https://github.com/Linductor-alkaid/mirage/actions/runs/40210311899/job/121219935023"
+        },
+        {
+          "name": "windows msvc (full tree)",
+          "conclusion": "SUCCESS",
+          "url": "https://github.com/Linductor-alkaid/mirage/actions/runs/40210311899/job/121219934895"
+        },
+        {
+          "name": "native EUI frontend (DEC-037)",
+          "conclusion": "SUCCESS",
+          "url": "https://github.com/Linductor-alkaid/mirage/actions/runs/40210311899/job/121219934981"
+        }
+      ],
+      "review_threads": "none unresolved",
+      "source_review": "boundary/lifecycle/contracts inspected by Codex during integration"
+    },
+    {
+      "pr": 115,
+      "branch": "feat/continuous-capture-infrastructure",
+      "head": "54f8d97ba8c52c74b2c33fae1fde4c5f191419c8",
+      "tested_tree": "1eaa643c89c8b088b30e124623190e0d9310b1ad",
+      "base_before_merge": "51e57b284576df8cc6a2835fc29633c0e7ccae92",
+      "merge": "76542929e4485ce21c1044fc956bfd282a562921",
+      "merged_at": "2026-10-25T16:40:59Z",
+      "checks": [
+        {
+          "name": "format & public-header boundaries",
+          "conclusion": "SUCCESS",
+          "url": "https://github.com/Linductor-alkaid/mirage/actions/runs/40210468329/job/121220403198"
+        },
+        {
+          "name": "build & test (debug)",
+          "conclusion": "SUCCESS",
+          "url": "https://github.com/Linductor-alkaid/mirage/actions/runs/40210468329/job/121220403274"
+        },
+        {
+          "name": "build & test (release)",
+          "conclusion": "SUCCESS",
+          "url": "https://github.com/Linductor-alkaid/mirage/actions/runs/40210468329/job/121220403325"
+        },
+        {
+          "name": "build & test (asan)",
+          "conclusion": "SUCCESS",
+          "url": "https://github.com/Linductor-alkaid/mirage/actions/runs/40210468329/job/121220403213"
+        },
+        {
+          "name": "build & test (ubsan)",
+          "conclusion": "SUCCESS",
+          "url": "https://github.com/Linductor-alkaid/mirage/actions/runs/40210468329/job/121220403133"
+        },
+        {
+          "name": "build & test (tsan)",
+          "conclusion": "SUCCESS",
+          "url": "https://github.com/Linductor-alkaid/mirage/actions/runs/40210468329/job/121220403362"
+        },
+        {
+          "name": "windows msvc (full tree)",
+          "conclusion": "SUCCESS",
+          "url": "https://github.com/Linductor-alkaid/mirage/actions/runs/40210468329/job/121220403060"
+        },
+        {
+          "name": "native EUI frontend (DEC-037)",
+          "conclusion": "SUCCESS",
+          "url": "https://github.com/Linductor-alkaid/mirage/actions/runs/40210468329/job/121220403199"
+        }
+      ],
+      "review_threads": "none unresolved",
+      "source_review": "boundary/lifecycle/contracts inspected by Codex during integration"
+    },
+    {
+      "pr": 116,
+      "branch": "feat/output-limit-failure-category",
+      "head": "6056fed464925174041061ff94f8b9a5bf68678f",
+      "tested_tree": "0d4a21eb52b46133976aa5f8ee48fb5b125bac07",
+      "base_before_merge": "76542929e4485ce21c1044fc956bfd282a562921",
+      "merge": "58284dabb3e14519f37fd50607816d6b63c8fee8",
+      "merged_at": "2026-10-25T16:53:34Z",
+      "checks": [
+        {
+          "name": "format & public-header boundaries",
+          "conclusion": "SUCCESS",
+          "url": "https://github.com/Linductor-alkaid/mirage/actions/runs/40210813881/job/121221749251"
+        },
+        {
+          "name": "build & test (debug)",
+          "conclusion": "SUCCESS",
+          "url": "https://github.com/Linductor-alkaid/mirage/actions/runs/40210813881/job/121221749323"
+        },
+        {
+          "name": "build & test (release)",
+          "conclusion": "SUCCESS",
+          "url": "https://github.com/Linductor-alkaid/mirage/actions/runs/40210813881/job/121221749346"
+        },
+        {
+          "name": "build & test (asan)",
+          "conclusion": "SUCCESS",
+          "url": "https://github.com/Linductor-alkaid/mirage/actions/runs/40210813881/job/121221749266"
+        },
+        {
+          "name": "build & test (ubsan)",
+          "conclusion": "SUCCESS",
+          "url": "https://github.com/Linductor-alkaid/mirage/actions/runs/40210813881/job/121221749306"
+        },
+        {
+          "name": "build & test (tsan)",
+          "conclusion": "SUCCESS",
+          "url": "https://github.com/Linductor-alkaid/mirage/actions/runs/40210813881/job/121221749302"
+        },
+        {
+          "name": "windows msvc (full tree)",
+          "conclusion": "SUCCESS",
+          "url": "https://github.com/Linductor-alkaid/mirage/actions/runs/40210813881/job/121221749239"
+        },
+        {
+          "name": "native EUI frontend (DEC-037)",
+          "conclusion": "SUCCESS",
+          "url": "https://github.com/Linductor-alkaid/mirage/actions/runs/40210813881/job/121221749125"
+        }
+      ],
+      "review_threads": "none unresolved",
+      "source_review": "boundary/lifecycle/contracts inspected by Codex during integration"
+    },
+    {
+      "pr": 117,
+      "branch": "feat/continuous-perception-cycle",
+      "head": "fd12b570258007feef2c9f5aea76ba2151f89b8c",
+      "tested_tree": "aba646117fe1ba3cdd6ef5bbffd29ef7922c623e",
+      "base_before_merge": "58284dabb3e14519f37fd50607816d6b63c8fee8",
+      "merge": "009cb6864adb136d6512ae6ee139f265380dcf2e",
+      "merged_at": "2026-10-25T16:54:29Z",
+      "checks": [
+        {
+          "name": "format & public-header boundaries",
+          "conclusion": "SUCCESS",
+          "url": "https://github.com/Linductor-alkaid/mirage/actions/runs/40210811943/job/121221659396"
+        },
+        {
+          "name": "build & test (debug)",
+          "conclusion": "SUCCESS",
+          "url": "https://github.com/Linductor-alkaid/mirage/actions/runs/40210811943/job/121221659614"
+        },
+        {
+          "name": "build & test (release)",
+          "conclusion": "SUCCESS",
+          "url": "https://github.com/Linductor-alkaid/mirage/actions/runs/40210811943/job/121221659735"
+        },
+        {
+          "name": "build & test (asan)",
+          "conclusion": "SUCCESS",
+          "url": "https://github.com/Linductor-alkaid/mirage/actions/runs/40210811943/job/121221659621"
+        },
+        {
+          "name": "build & test (ubsan)",
+          "conclusion": "SUCCESS",
+          "url": "https://github.com/Linductor-alkaid/mirage/actions/runs/40210811943/job/121221659706"
+        },
+        {
+          "name": "build & test (tsan)",
+          "conclusion": "SUCCESS",
+          "url": "https://github.com/Linductor-alkaid/mirage/actions/runs/40210811943/job/121221659623"
+        },
+        {
+          "name": "windows msvc (full tree)",
+          "conclusion": "SUCCESS",
+          "url": "https://github.com/Linductor-alkaid/mirage/actions/runs/40210811943/job/121221659607"
+        },
+        {
+          "name": "native EUI frontend (DEC-037)",
+          "conclusion": "SUCCESS",
+          "url": "https://github.com/Linductor-alkaid/mirage/actions/runs/40210811943/job/121221659627"
+        }
+      ],
+      "review_threads": "none unresolved",
+      "source_review": "boundary/lifecycle/contracts inspected by Codex during integration"
+    },
+    {
+      "pr": 118,
+      "branch": "perf/frontend-long-session",
+      "head": "ad73b31df2b2d6a5fd6cce39947fcfae87d754ed",
+      "tested_tree": "9c57e1c222de1a991e0854e4f8d4e6ffade1aeff",
+      "base_before_merge": "009cb6864adb136d6512ae6ee139f265380dcf2e",
+      "merge": "46b5f0bb3a0637737dd6a3b89b08adb437445167",
+      "merged_at": "2026-10-25T16:54:45Z",
+      "checks": [
+        {
+          "name": "format & public-header boundaries",
+          "conclusion": "SUCCESS",
+          "url": "https://github.com/Linductor-alkaid/mirage/actions/runs/40210812477/job/121221427859"
+        },
+        {
+          "name": "build & test (debug)",
+          "conclusion": "SUCCESS",
+          "url": "https://github.com/Linductor-alkaid/mirage/actions/runs/40210812477/job/121221428071"
+        },
+        {
+          "name": "build & test (release)",
+          "conclusion": "SUCCESS",
+          "url": "https://github.com/Linductor-alkaid/mirage/actions/runs/40210812477/job/121221428128"
+        },
+        {
+          "name": "build & test (asan)",
+          "conclusion": "SUCCESS",
+          "url": "https://github.com/Linductor-alkaid/mirage/actions/runs/40210812477/job/121221428304"
+        },
+        {
+          "name": "build & test (ubsan)",
+          "conclusion": "SUCCESS",
+          "url": "https://github.com/Linductor-alkaid/mirage/actions/runs/40210812477/job/121221428151"
+        },
+        {
+          "name": "build & test (tsan)",
+          "conclusion": "SUCCESS",
+          "url": "https://github.com/Linductor-alkaid/mirage/actions/runs/40210812477/job/121221428043"
+        },
+        {
+          "name": "windows msvc (full tree)",
+          "conclusion": "SUCCESS",
+          "url": "https://github.com/Linductor-alkaid/mirage/actions/runs/40210812477/job/121221428044"
+        },
+        {
+          "name": "native EUI frontend (DEC-037)",
+          "conclusion": "SUCCESS",
+          "url": "https://github.com/Linductor-alkaid/mirage/actions/runs/40210812477/job/121221427971"
+        }
+      ],
+      "review_threads": "none unresolved",
+      "source_review": "boundary/lifecycle/contracts inspected by Codex during integration"
+    },
+    {
+      "pr": 119,
+      "branch": "build/mira-upstream-sync",
+      "head": "1bdba72d76f92ca9679d69c7634ef3eecaa28c3d",
+      "tested_tree": "9ef98bfd709ac21310644bcd72d60a7e3b08bfab",
+      "base_before_merge": "46b5f0bb3a0637737dd6a3b89b08adb437445167",
+      "merge": "a7ec94dfaa9bff7a265c4d4584661f148f92bbae",
+      "merged_at": "2026-10-25T16:55:03Z",
+      "checks": [
+        {
+          "name": "format & public-header boundaries",
+          "conclusion": "SUCCESS",
+          "url": "https://github.com/Linductor-alkaid/mirage/actions/runs/40210812453/job/121221428603"
+        },
+        {
+          "name": "build & test (debug)",
+          "conclusion": "SUCCESS",
+          "url": "https://github.com/Linductor-alkaid/mirage/actions/runs/40210812453/job/121221428778"
+        },
+        {
+          "name": "build & test (release)",
+          "conclusion": "SUCCESS",
+          "url": "https://github.com/Linductor-alkaid/mirage/actions/runs/40210812453/job/121221428884"
+        },
+        {
+          "name": "build & test (asan)",
+          "conclusion": "SUCCESS",
+          "url": "https://github.com/Linductor-alkaid/mirage/actions/runs/40210812453/job/121221428780"
+        },
+        {
+          "name": "build & test (ubsan)",
+          "conclusion": "SUCCESS",
+          "url": "https://github.com/Linductor-alkaid/mirage/actions/runs/40210812453/job/121221428617"
+        },
+        {
+          "name": "build & test (tsan)",
+          "conclusion": "SUCCESS",
+          "url": "https://github.com/Linductor-alkaid/mirage/actions/runs/40210812453/job/121221428747"
+        },
+        {
+          "name": "windows msvc (full tree)",
+          "conclusion": "SUCCESS",
+          "url": "https://github.com/Linductor-alkaid/mirage/actions/runs/40210812453/job/121221428767"
+        },
+        {
+          "name": "native EUI frontend (DEC-037)",
+          "conclusion": "SUCCESS",
+          "url": "https://github.com/Linductor-alkaid/mirage/actions/runs/40210812453/job/121221428885"
+        }
+      ],
+      "review_threads": "none unresolved",
+      "source_review": "boundary/lifecycle/contracts inspected by Codex during integration"
+    },
+    {
+      "pr": 120,
+      "branch": "feat/keyboard-ime-state",
+      "head": "b8383260f824261d2c7abf7b9c7dcfb7a3d5bbdb",
+      "tested_tree": "bce6ca389e37b6271458ea470c60f1dc3a7351fc",
+      "base_before_merge": "a7ec94dfaa9bff7a265c4d4584661f148f92bbae",
+      "merge": "877853f07d0b25da065fbadedd84005221b07a1d",
+      "merged_at": "2026-10-25T17:00:21Z",
+      "checks": [
+        {
+          "name": "format & public-header boundaries",
+          "conclusion": "SUCCESS",
+          "url": "https://github.com/Linductor-alkaid/mirage/actions/runs/40211554643/job/121223783892"
+        },
+        {
+          "name": "build & test (debug)",
+          "conclusion": "SUCCESS",
+          "url": "https://github.com/Linductor-alkaid/mirage/actions/runs/40211554643/job/121223784022"
+        },
+        {
+          "name": "build & test (release)",
+          "conclusion": "SUCCESS",
+          "url": "https://github.com/Linductor-alkaid/mirage/actions/runs/40211554643/job/121223783876"
+        },
+        {
+          "name": "build & test (asan)",
+          "conclusion": "SUCCESS",
+          "url": "https://github.com/Linductor-alkaid/mirage/actions/runs/40211554643/job/121223783799"
+        },
+        {
+          "name": "build & test (ubsan)",
+          "conclusion": "SUCCESS",
+          "url": "https://github.com/Linductor-alkaid/mirage/actions/runs/40211554643/job/121223783858"
+        },
+        {
+          "name": "build & test (tsan)",
+          "conclusion": "SUCCESS",
+          "url": "https://github.com/Linductor-alkaid/mirage/actions/runs/40211554643/job/121223783779"
+        },
+        {
+          "name": "windows msvc (full tree)",
+          "conclusion": "SUCCESS",
+          "url": "https://github.com/Linductor-alkaid/mirage/actions/runs/40211554643/job/121223783802"
+        },
+        {
+          "name": "native EUI frontend (DEC-037)",
+          "conclusion": "SUCCESS",
+          "url": "https://github.com/Linductor-alkaid/mirage/actions/runs/40211554643/job/121223783650"
+        }
+      ],
+      "review_threads": "none unresolved",
+      "source_review": "boundary/lifecycle/contracts inspected by Codex during integration"
+    }
+  ],
+  "deleted_original_branches": [
+    "feat/m7-27-held-pointer-travel",
+    "feat/continuous-capture-infrastructure",
+    "feat/output-limit-failure-category",
+    "feat/continuous-perception-cycle",
+    "perf/frontend-long-session",
+    "build/mira-upstream-sync",
+    "feat/keyboard-ime-state",
+    "feat/m4-world-projection"
+  ],
+  "archived_worktree": "/home/linductor/.codex/worktrees/mira-upgrade/mirage",
+  "pruned_missing_worktree": "/tmp/mirage-m7-27-validation",
+  "local_validation": {
+    "debug_original": {
+      "passed": 113,
+      "failed": 0,
+      "skipped": 0,
+      "elapsed_seconds": 76.55
+    },
+    "debug_integrated": {
+      "passed": 113,
+      "failed": 0,
+      "skipped": 0,
+      "elapsed_seconds": 80.36
+    },
+    "public_headers": 67,
+    "boundary_violations": 0,
+    "full_format": "passed"
+  },
+  "limits": [
+    "CI Windows checks do not close real Windows IME/Portal/device acceptance",
+    "No installation, release or model weights changes"
+  ]
+}

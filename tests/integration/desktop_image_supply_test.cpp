@@ -4220,6 +4220,37 @@ void shared_long_press_contract() {
     }
 }
 
+// Registration rejections retain the operation and the public Mira reason.
+// A deliberate name conflict makes this error path deterministic.
+void shared_registration_rejection() {
+    auto tools = desktop();
+    auto env = std::make_shared<NativeEnvironment>();
+    env->interactive = true;
+    tools.environment = env;
+    const auto ctx = context();
+    detail::DesktopImageTurn turn(std::make_shared<detail::DesktopImageSource>(), tools, ctx, {});
+    mira::BuiltinToolRegistry registry;
+    mira::BuiltinToolSpec existing;
+    existing.wire_name = "desktop.session.click";
+    existing.description = "registration conflict fixture";
+    existing.parameters_schema = mira::JsonSchema{JsonValue{JsonValue::Object{{"type", "object"}}}};
+    check(bool(registry.register_tool(
+        std::move(existing),
+        [](const auto &, const auto &) -> mira::Result<JsonValue> { return JsonValue{}; })));
+    bool rejected = false;
+    try {
+        turn.register_tool(registry, {}, true);
+    } catch (const std::runtime_error &error) {
+        const std::string message = error.what();
+        rejected =
+            message.find("shared input tool registration failed (click)") != std::string::npos &&
+            message.find("wire_name already registered: desktop.session.click") !=
+                std::string::npos;
+    }
+    check(rejected);
+    check(registry.size() == 1 && env->created == 0 && env->inputs == 0);
+}
+
 int main() {
     try {
         if (const auto *mode = std::getenv("MIRAGE_IMAGE_LIVE");
@@ -4318,6 +4349,7 @@ int main() {
             executor.submit_auto([&] { ime_fill_tool(fault); }).get();
         task_feed_model_layer(executor);
         task_feed_model_layer(executor, true);
+        shared_registration_rejection();
         contracts(executor);
         budget_degradation();
         anchored_remaining_unit();
