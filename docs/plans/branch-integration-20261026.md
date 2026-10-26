@@ -107,8 +107,45 @@ PR #116 当前 CI 揭示旧 harness 诊断 `fprintf` 换行问题，按仓库 cl
 七条原工作分支的本地/远端引用已删除；旧 World 分支按维护者最后要求直接删除，
 不归档、不恢复退役前端。升级 worktree 经 Codex archive_worktree 归档并移除，
 `/tmp/mirage-m7-27-validation` 的失效元数据已 prune；主工作树保留并同步 master。
-文档收口以独立 PR 提交，其 CI 和合并状态由该 PR 的检查与合并事实记录。
+收口以独立 PR #121 提交，含以下注册拒绝诊断补全；其最新 head 的 CI 和合并
+状态由该 PR 的检查与合并事实记录。
 
 Windows CI 包含全树编译和既有受控运行门禁，不等于新增 IME、Portal、真实设备、
 在线模型或长时资源验收。这些原有 M7/M9 未完成项继续保留，不因分支合并勾选。
 此次未安装产品、创建 release/tag 或修改模型资源。
+
+## 2026-10-26：收口 CI 的注册拒绝诊断
+
+PR #121 的首轮 [Release job](https://github.com/Linductor-alkaid/mirage/actions/runs/40214776183/job/121233559128)
+在 `desktop_png_decode_check` 中失败：Python 再次启动
+`desktop_image_supply_test` 时抛出 `shared input tool registration failed`；同一
+job 的独立二进制测试通过，其余七项 CI 也成功。该 head `3624573` 仅修改文档，
+产品源码与 PR #120 已验收 tree 的源码一致。旧错误文本丢弃了 Mira 返回的原因，
+现有日志不足以归因，不将其认定为依赖缺陷或已修复的偶发问题。
+
+维护项 `BR-09` 补全注册拒绝诊断：`e9126d5` 保留具体操作名以及公开
+`Result::error().safe_message`，继续在首次拒绝时失败，不重试或放宽门禁。
+确定性回归预注册 `desktop.session.click`，验证工具名冲突原因完整到达异常，
+并确认失败前没有创建桌面会话或执行输入。未改变公开 API、并发或依赖 pin。
+
+Linux x86_64 / GCC 13.3.0，Mira `68a8bf1`，默认 Debug/Release 选项，
+native/PPOCR/Mbed TLS 未开启；本地验证：
+
+```bash
+cmake --preset release
+cmake --build --preset release --target desktop_image_supply_test -j4
+ctest --preset release -R '^(desktop_image_supply_test|desktop_png_decode_check)$' --repeat until-fail:12 --output-on-failure
+cmake --build --preset debug --target desktop_image_supply_test -j4
+ctest --preset debug -R '^(desktop_image_supply_test|desktop_png_decode_check)$' --output-on-failure
+ctest --preset release -R '^(desktop_image_supply_test|desktop_png_decode_check)$' --output-on-failure
+```
+
+诊断补丁下两项 Release 检查各重复 12 次，24 次完整二进制/PNG 检查均通过
+（263.04 s），原失败未复现。加入冲突回归后 Debug、Release 各 4/4（含状态
+setup/cleanup），分别为 31.91 s、22.14 s。上述结果证明诊断路径与受控场景，
+不证明原失败根因消失；最新完整跨平台 CI 由 PR #121 记录。
+
+`BUG-20261026-001`：In Progress，负责人 Mirage 维护者。保留本次失败链接；
+后续 CI 若再发生拒绝，按补全后的操作名和安全错误定位注册输入，再给出根因与
+确定性回归。若确认是依赖能力缺口，再按工程规范登记 MIRA 台账。当前未达到
+可复现条件，不用盲目重跑、禁用测试或修改 pinned 依赖掩盖该记录。

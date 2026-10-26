@@ -17,6 +17,8 @@ native-release 与 DEB 交付完成；Release 120/120、真实推理与包校验
 2026-10-26：[全部工作分支集成与清理](branch-integration-20261026.md)完成：
 七条工作分支分别通过 8 项 CI 后按 PR #114～120 合入 master，原未提交 IME/连续感知
 实现已保存；工作分支已删除，升级工作树已归档。功能主干为 `877853f`，既有真机/产品门禁保留。
+收口 PR #121 首轮 Release 注册拒绝未复现，补全安全错误诊断并登记
+`BUG-20261026-001`（In Progress）；详细失败、回归和后续定位条件见上述集成记录。
 
 2026-10-25：[Mira 同步维护](mira-upstream-sync-20261025.md)消费 master `68a8bf1`，
 截断终态改用上游结构化原因，接入 incomplete fail-closed 与方言拒绝/过滤修复；
