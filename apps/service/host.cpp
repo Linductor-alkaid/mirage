@@ -10,6 +10,8 @@
 #include <mirage/runtime/persistence/store.hpp>
 #include <mirage/runtime/runtime_service.hpp>
 
+#include <charconv>
+
 // The reference topology binds the platform backend (DEC-008 item 3):
 // the Linux desktop environment on Linux, the Windows one on Windows
 // (M4-06; a service context reports no desktop surface and every
@@ -96,6 +98,8 @@ void print_usage(std::ostream &out) {
         << "\n"
         << "Options:\n"
         << "  --ocr-manifest PATH  Verified local PP-OCR resources (opt-in build)\n"
+        << "  --perception-period-ms N  Continuous sampling period 0 or 100..1000\n"
+        << "                    (default 250ms; DEC-118)\n"
         << "  --socket PATH     IPC endpoint (default: XDG runtime dir)\n"
         << "  --read-root PATH  Filesystem path tasks may read (repeatable;\n"
         << "                    without one, filesystem reads are denied)\n"
@@ -275,6 +279,21 @@ int mirage::apps::run_service_host(int argc, char **argv, bool product) {
             }
             ocr_from_flags = true;
             config.ocr_manifest = path;
+            continue;
+        }
+        if (argument == "--perception-period-ms" && index + 1 < argc) {
+            const std::string value = argv[++index];
+            int parsed = 0;
+            const auto [end, ec] =
+                std::from_chars(value.data(), value.data() + value.size(), parsed);
+            if (ec != std::errc{} || end != value.data() + value.size() || parsed < 0 ||
+                parsed > 1000 || (parsed > 0 && parsed < 100)) {
+                std::cerr << kProgramName
+                          << ": --perception-period-ms expects 0 or 100..1000 (got '"
+                          << value << "')\n";
+                return 2;
+            }
+            config.perception_sample_period_ms = parsed;
             continue;
         }
         if (argument == "--config" && index + 1 < argc) {

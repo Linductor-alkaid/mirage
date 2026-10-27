@@ -790,10 +790,20 @@ AtomRegistration accessibility_semantic_snapshot(
     registration.spec.wire_name = "desktop.accessibility.semantic_snapshot";
     registration.spec.description =
         "Takes the semantic snapshot (interactable element tree) of one window and returns it in "
-        "the deterministic rendered form. Budget: 4096 nodes. If unavailable or too large, "
-        "use desktop.vision.ocr/mark with a bounded ROI. Never invent @e refs.";
+        "the deterministic rendered form. Budget: 4096 nodes. Very large trees fail with "
+        "snapshot_too_large: instead of falling back to screenshots, pass max_depth to collect "
+        "the top levels first — frontier nodes render '(+N children)' and are expanded by a "
+        "follow-up call with subtree=@eN. Window ids embed the window title; when a page "
+        "renames the window the id may stop resolving: re-run desktop.window.list. Never "
+        "invent @e refs.";
     registration.spec.parameters_schema = mira::JsonSchema{object_schema(
-        {{"window_id", string_schema("Window id from desktop.window.list")}}, {"window_id"})};
+        {{"window_id", string_schema("Window id from desktop.window.list")},
+         {"max_depth",
+          integer_schema(1, 64, "Collect at most this many levels (1 = window node only); "
+                                "frontier nodes report (+N children)")},
+         {"subtree", string_schema("Expand the subtree of an @eN node from the most recent "
+                                   "snapshot of this window")}},
+        {"window_id"})};
     registration.handler = [&accessibility, feed, scoped,
                             cancel](const JsonValue &arguments,
                                     const mira::OperationContext &context) -> Result<JsonValue> {
@@ -802,6 +812,23 @@ AtomRegistration accessibility_semantic_snapshot(
         }
         mirage::desktop::SemanticSnapshotLimits limits;
         limits.max_nodes = kAtomSnapshotNodes;
+        if (const auto depth = int_member(arguments, "max_depth")) {
+            if (!accessibility.scoped_snapshots_supported())
+                return atom_error(ErrorCode::InvalidArgument,
+                                  "platform backend does not support scoped semantic snapshots");
+            if (*depth < 1 || *depth > 64)
+                return atom_error(ErrorCode::InvalidArgument, "max_depth must be 1..64");
+            limits.max_depth = static_cast<std::size_t>(*depth);
+        }
+        const auto subtree = string_member(arguments, "subtree");
+        if (!subtree.empty()) {
+            if (!accessibility.scoped_snapshots_supported())
+                return atom_error(ErrorCode::InvalidArgument,
+                                  "platform backend does not support scoped semantic snapshots");
+            if (subtree.rfind("@e", 0) != 0)
+                return atom_error(ErrorCode::InvalidArgument, "subtree must be a snapshot @e ref");
+            limits.subtree_ref = subtree;
+        }
         const auto outcome =
             accessibility.semantic_snapshot(string_member(arguments, "window_id"), limits, cancel);
         if (!outcome.ok) {
@@ -828,6 +855,7 @@ AtomRegistration accessibility_semantic_snapshot(
         result.emplace_back("node_count",
                             json_int(static_cast<std::int64_t>(outcome.snapshot.nodes.size())));
         result.emplace_back("snapshot_truncated", json_bool(truncated));
+        result.emplace_back("depth_limited", json_bool(limits.max_depth != 0));
         return JsonValue{std::move(result)};
     };
     return registration;
@@ -1230,7 +1258,8 @@ AtomRegistration knowledge_activate(const DesktopToolContext &desktop) {
                 return action_failure(front.error);
             if (!front.found || front.window.title != string_member(args, "window_title"))
                 return failure("knowledge_page_mismatch");
-            const auto read = accessibility->semantic_snapshot(front.window.id, {512}, cancel);
+            const auto read =
+                accessibility->semantic_snapshot(front.window.id, {512, 0, {}}, cancel);
             if (read.cancelled)
                 return failure("cancelled");
             if (!read.ok)

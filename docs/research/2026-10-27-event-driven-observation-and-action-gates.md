@@ -1,7 +1,11 @@
 # 最新会话的动作误拦截与事件驱动观察
 
 > 后续：维护者已接受建议；当前实现以 [DEC-117](../decisions/DEC-117-runtime-resident-perception-and-autonomous-input.md)
-> 与[常驻设计](../design/runtime-resident-perception.md)为准。下文“尚未修改/待实施”是调查时点的历史。
+> 与[常驻设计](../design/runtime-resident-perception.md)为准。2026-10-27 14:47 复盘
+> （重复取帧、事件噪音、semantic_snapshot 失败、媒体任务未消费内容）由
+> [DEC-118](../decisions/DEC-118-significance-gated-perception-and-scoped-snapshots.md)
+> 与[分层视觉感知设计](../design/layered-visual-perception.md)承接。下文"尚未修改/
+> 待实施"是调查时点的历史。
 
 > 状态：调查完成；产品修改待实施（M9-22 Planned）
 > 日期：2026-10-27（Asia/Shanghai）

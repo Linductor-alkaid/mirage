@@ -1453,6 +1453,20 @@ DialogCompletion ModelLayer::complete_harness_turn(
             "moving the pointer does not mean a click was sent. Use desktop.vision.wait for "
             "a local event subscription when waiting for desktop progress, rather than repeated "
             "wait/capture/model cycles.\n";
+    if (image_turn && turn_desktop.continuous_session)
+        spec.goal +=
+            "\nSignificance gating (DEC-118): video playback, animations, cursors and caret "
+            "blinks are already suppressed at the observer — the media member of the observation "
+            "summary tracks the active media region and media_playback/keyframe events carry "
+            "scene changes at a bounded rate. For watch/media tasks: set desktop.vision.focus to "
+            "the region of interest, then rely on desktop.vision.wait plus event text and "
+            "event_frame keyframes instead of repeated captures; a capture only grounds a new "
+            "input target. Do not treat a opened-but-unwatched page as task progress: watching "
+            "means consuming the media events or keyframes over time. The semantic_scene already "
+            "contains automatically recognized text for its objects; consult it before calling "
+            "desktop.vision.ocr. For very large windows, prefer "
+            "desktop.accessibility.semantic_snapshot with max_depth and subtree=@eN drill-down "
+            "over screenshots.\n";
     // DEC-081: current registry facts outrank examples and prior tool history.
     spec.goal += "\nAvailable tools for THIS turn (closed set):";
     bool shared_click_available = false;

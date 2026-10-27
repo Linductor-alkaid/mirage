@@ -2495,7 +2495,10 @@ class TaskFeedFixture : public integration::DesktopPerceptionFeed {
         state.previews.clear();
         return true;
     }
-    void focus(const mirage::desktop::WindowGeometry &) override {}
+    std::vector<mirage::desktop::WindowGeometry> focus_calls;
+    void focus(const mirage::desktop::WindowGeometry &region) override {
+        focus_calls.push_back(region);
+    }
     struct Pause final : integration::PerceptionPause {
         int &depth;
         explicit Pause(int &value) : depth(value) { ++depth; }
@@ -2540,6 +2543,98 @@ void resident_wait_registry_without_capture() {
     spec.task_epoch = ctx.task_epoch;
     const auto supplied = restricted.supply(spec);
     check(supplied && supplied.value().empty() && env->created == created);
+}
+
+// DEC-118: the desktop.vision.focus tool surfaces the task feed's attention
+// region to the model. Argument validation happens before any feed effect, a
+// resident feed is required, and zero extents mean "clear".
+void focus_tool_contract() {
+    auto ctx = context();
+    mira::AgentLoopSpec spec;
+    spec.task_id = ctx.task;
+    spec.session_id = ctx.session;
+    spec.task_epoch = ctx.task_epoch;
+    const auto invoke = [&](const char *args) {
+        auto env = std::make_shared<NativeEnvironment>();
+        auto feed = std::make_shared<TaskFeedFixture>();
+        auto tools = desktop();
+        tools.environment = env;
+        tools.resident_session = [env, feed](bool, auto) {
+            return integration::PerceptionConnection{env->create_desktop_capture_session(), feed};
+        };
+        tools.continuous_session = [feed](auto session, auto) {
+            return integration::PerceptionConnection{std::move(session), feed};
+        };
+        detail::DesktopImageTurn turn(std::make_shared<detail::DesktopImageSource>(), tools, ctx,
+                                      {});
+        mira::BuiltinToolRegistry registry;
+        turn.register_tool(registry, {}, false);
+        const auto exposed = registry.exposed_tools();
+        check(std::any_of(exposed.begin(), exposed.end(), [](const auto &tool) {
+            return tool.wire_name == "desktop.vision.focus";
+        }));
+        return std::pair{execute_native_tool(registry, ctx, "desktop.vision.focus", args),
+                         std::move(feed)};
+    };
+    // Schema rejections (fractional and negative extents) fail before the feed.
+    for (const char *args :
+         {R"({"x":1.5,"y":0,"width":1,"height":1})", R"({"x":-1,"y":0,"width":1,"height":1})"}) {
+        const auto [result, feed] = invoke(args);
+        check(result && result.value().failed && feed->focus_calls.empty());
+    }
+    // Handler rejections: missing members and missing resident feed.
+    for (const char *args :
+         {"{}", R"({"x":1,"y":2,"width":3})", R"({"x":1,"y":2,"height":3})"}) {
+        const auto [result, feed] = invoke(args);
+        check(result && !result.value().failed &&
+              *result.value().result.find("applied")->as_boolean() == false &&
+              *result.value().result.find("reason")->as_string() == std::string("invalid_argument") &&
+              feed->focus_calls.empty());
+    }
+    {
+        // A continuous session wired but never upgraded by a capture: the
+        // perception tools register and focus reports no_resident_feed instead
+        // of touching a feed.
+        auto feed = std::make_shared<TaskFeedFixture>();
+        auto tools = desktop();
+        tools.continuous_session = [feed](auto session, auto) {
+            return integration::PerceptionConnection{std::move(session), feed};
+        };
+        detail::DesktopImageTurn turn(std::make_shared<detail::DesktopImageSource>(), tools, ctx,
+                                      {});
+        mira::BuiltinToolRegistry registry;
+        turn.register_tool(registry, {}, false);
+        const auto result = execute_native_tool(registry, ctx, "desktop.vision.focus",
+                                                R"({"x":1,"y":2,"width":3,"height":4})");
+        check(result && !result.value().failed &&
+              *result.value().result.find("applied")->as_boolean() == false &&
+              *result.value().result.find("reason")->as_string() == std::string("no_resident_feed") &&
+              feed->focus_calls.empty());
+    }
+    // Valid region: applied, not cleared, delivered to the feed unchanged.
+    {
+        const auto [result, feed] =
+            invoke(R"({"x":10,"y":20,"width":300,"height":200})");
+        check(result && !result.value().failed &&
+              *result.value().result.find("applied")->as_boolean() == true);
+        const auto *focus = result.value().result.find("focus");
+        check(focus && *focus->find("cleared")->as_boolean() == false &&
+              *focus->find("x")->as_integer() == 10 && *focus->find("y")->as_integer() == 20 &&
+              *focus->find("width")->as_integer() == 300 &&
+              *focus->find("height")->as_integer() == 200);
+        check(feed->focus_calls.size() == 1 && feed->focus_calls.back().x == 10 &&
+              feed->focus_calls.back().y == 20 && feed->focus_calls.back().width == 300 &&
+              feed->focus_calls.back().height == 200);
+    }
+    // Zero extents clear the attention region (width=height=0).
+    {
+        const auto [result, feed] = invoke(R"({"x":0,"y":0,"width":0,"height":0})");
+        check(result && !result.value().failed &&
+              *result.value().result.find("applied")->as_boolean() == true);
+        check(*result.value().result.find("focus")->find("cleared")->as_boolean() == true);
+        check(feed->focus_calls.size() == 1 && feed->focus_calls.back().width == 0 &&
+              feed->focus_calls.back().height == 0);
+    }
 }
 class TaskFeedScript final : public mira::IModelProvider {
   public:
@@ -4849,6 +4944,7 @@ int main() {
         native_roi_pixel_budget();
         native_text_only_and_state_wiring();
         resident_wait_registry_without_capture();
+        focus_tool_contract();
         native_session_poison_discipline();
         native_transient_recovery_contract();
         native_observation_efficiency();

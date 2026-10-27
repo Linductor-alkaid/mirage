@@ -30,6 +30,11 @@ class AccessibilityProvider {
     virtual ~AccessibilityProvider() = default;
     virtual bool scoped_references_supported() const { return false; }
 
+    /// DEC-118: whether semantic_snapshot honors `max_depth` and
+    /// `subtree_ref` scope reductions. Backends that would ignore them must
+    /// report false so callers never receive a wider snapshot than requested.
+    virtual bool scoped_snapshots_supported() const { return false; }
+
     /// DEC-111: independent opt-in, not implied by set_text or tree support.
     virtual bool text_value_read_supported() const { return false; }
     virtual TextValueReadOutcome read_text_value(const ElementTarget &, const TextValueReadLimits &,

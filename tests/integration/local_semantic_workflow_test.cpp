@@ -227,7 +227,7 @@ void negative(kairo::Executor &executor, const std::string &mode) {
             if (mode == "cancel_gate")
                 cancel = true;
             if (mode == "stale_scope")
-                env.fake.accessibility()->semantic_snapshot("w1", {512}, {});
+                env.fake.accessibility()->semantic_snapshot("w1", {512, 0, {}}, {});
             return mode != "denied";
         },
         {}, actions);

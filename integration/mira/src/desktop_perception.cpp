@@ -1,6 +1,8 @@
 #include "desktop_image_supply.hpp"
 #include <algorithm>
+#include <cstdint>
 #include <mirage/conversation.hpp>
+#include <optional>
 #include <set>
 #include <stdexcept>
 
@@ -91,6 +93,13 @@ std::vector<mira::ModelInputItem> DesktopImageTurn::supply_perception() {
                               {"analyzed_frames", static_cast<std::int64_t>(view.analyzed)},
                               {"skipped_frames", static_cast<std::int64_t>(view.skipped)},
                               {"analysis_failed", static_cast<std::int64_t>(view.analysis_failed)},
+                              {"media",
+                               Json{Json::Object{
+                                   {"active", view.media.active},
+                                   {"x", view.media.x},
+                                   {"y", view.media.y},
+                                   {"width", view.media.width},
+                                   {"height", view.media.height}}}},
                               {"semantic_scene", std::move(semantic_scene)},
                               {"recent_read_context", Json{std::move(recent)}},
                               {"events", Json{events}}}};
@@ -210,6 +219,70 @@ void DesktopImageTurn::register_perception_tool(mira::BuiltinToolRegistry &regis
         wait_handler = decorate(wait.wire_name, std::move(wait_handler));
     if (!registry.register_tool(std::move(wait), std::move(wait_handler)))
         throw std::logic_error("desktop event wait registration failed");
+    mira::BuiltinToolSpec focus;
+    focus.wire_name = "desktop.vision.focus";
+    focus.version = {1, 0, 0};
+    focus.description =
+        "Declare this task's attention region in continuous-feed pixels (the same coordinates "
+        "events carry). Ordinary events outside it stop reaching your feed; appeared, "
+        "disappeared and source resets always arrive, and media_playback/keyframe events inside "
+        "it are kept. Use it before desktop.vision.wait when a media or long-running task only "
+        "depends on one region, and clear it with width=height=0 when the task moves on. "
+        "Consumer-local: it never changes sampling, other tasks or permissions. No capture, no "
+        "input.";
+    focus.parameters_schema = mira::JsonSchema{Json{Json::Object{
+        {"type", "object"},
+        {"properties",
+         Json{Json::Object{{"x", Json{Json::Object{{"type", "integer"}, {"minimum", 0}}}},
+                           {"y", Json{Json::Object{{"type", "integer"}, {"minimum", 0}}}},
+                           {"width", Json{Json::Object{{"type", "integer"},
+                                                       {"minimum", 0},
+                                                       {"maximum", 1000000}}}},
+                           {"height", Json{Json::Object{{"type", "integer"},
+                                                        {"minimum", 0},
+                                                        {"maximum", 1000000}}}}}}},
+        {"additionalProperties", false}}}};
+    mira::BuiltinToolHandler focus_handler = [this](const auto &args,
+                                                    const auto &ctx) -> mira::Result<Json> {
+        if (ctx.task != owner_.task || ctx.session != owner_.session ||
+            ctx.task_epoch != owner_.task_epoch || cancel_.cancelled() ||
+            ctx.cancelled_or_expired(mira::Timestamp::now())) {
+            mira::Error error;
+            error.code = mira::ErrorCode::Cancelled;
+            error.safe_message = "desktop focus owner retired";
+            return error;
+        }
+        if (!perception_)
+            return Json{Json::Object{{"applied", false}, {"reason", "no_resident_feed"}}};
+        const auto member = [&args](const char *name) -> std::optional<std::int64_t> {
+            const auto *value = args.find(name);
+            return value && value->is_integer() ? std::optional{*value->as_integer()}
+                                                : std::nullopt;
+        };
+        const auto x = member("x"), y = member("y"), width = member("width"),
+                   height = member("height");
+        if (!x || !y || !width || !height || *x < 0 || *y < 0)
+            return Json{Json::Object{{"applied", false}, {"reason", "invalid_argument"}}};
+        const desktop::WindowGeometry region{static_cast<std::int32_t>(*x),
+                                             static_cast<std::int32_t>(*y),
+                                             static_cast<std::int32_t>(*width),
+                                             static_cast<std::int32_t>(*height)};
+        perception_->focus(region);
+        return Json{Json::Object{
+            {"applied", true},
+            {"focus",
+             Json{Json::Object{{"x", *x},
+                               {"y", *y},
+                               {"width", *width},
+                               {"height", *height},
+                               {"cleared", *width <= 0 || *height <= 0}}}},
+            {"input_actionable", false},
+            {"verified", false}}};
+    };
+    if (decorate)
+        focus_handler = decorate(focus.wire_name, std::move(focus_handler));
+    if (!registry.register_tool(std::move(focus), std::move(focus_handler)))
+        throw std::logic_error("desktop vision focus registration failed");
     if (!supply_images_)
         return;
     mira::BuiltinToolSpec spec;

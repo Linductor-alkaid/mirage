@@ -6,6 +6,7 @@
 #include <map>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include <atspi/atspi.h>
@@ -122,6 +123,7 @@ inline constexpr std::size_t kObjectPoolCap = 8192;
 struct WalkNode {
     AtspiAccessible *object;
     std::size_t parent; // index into the collected vector, kNoParent at roots
+    std::size_t depth;  // levels below the collection root (root = 0)
 };
 
 std::vector<std::string> split_path(const std::string &path) {
@@ -240,14 +242,17 @@ struct AtspiBackend::Impl {
         return role.empty() || snapshot_role(atspi_accessible_get_role(object, nullptr)) == role;
     }
 
-    /// Walks the whole subtree of `root` in DFS order. Stops and returns
+    /// Walks the subtree of `root` in DFS order. `max_depth` (0 = unlimited)
+    /// stops descent below that depth (DEC-118): the frontier node is still
+    /// collected and records its direct child count as `collapsed_children`
+    /// — a requested scope, not a silent truncation. Stops and returns
     /// nullopt as soon as collecting another node would exceed `budget`
     /// (refusal, never truncation). `nodes` collects owning references.
-    std::optional<std::vector<SemanticNode>> collect_tree(AtspiAccessible *root, std::size_t budget,
-                                                          std::vector<AtspiAccessible *> &objects,
-                                                          const CancelToken &cancel) {
+    std::optional<std::vector<SemanticNode>>
+    collect_tree(AtspiAccessible *root, std::size_t budget, std::size_t max_depth,
+                 std::vector<AtspiAccessible *> &objects, const CancelToken &cancel) {
         std::vector<SemanticNode> nodes;
-        std::vector<WalkNode> stack{{root, mirage::desktop::kNoParent}};
+        std::vector<WalkNode> stack{{root, mirage::desktop::kNoParent, 0}};
         const auto reject = [&]() -> std::optional<std::vector<SemanticNode>> {
             adopt_all(objects);
             for (const WalkNode &pending : stack)
@@ -287,6 +292,14 @@ struct AtspiBackend::Impl {
             node.ref = "@e" + std::to_string(nodes.size() + 1);
             nodes.push_back(std::move(node));
             objects.push_back(current.object); // registry keeps it alive
+            if (max_depth != 0 && current.depth + 1 >= max_depth) {
+                // Depth frontier: report the direct child count (one cheap
+                // call) instead of walking the subtree. The children stay
+                // reachable through a follow-up scoped snapshot on this ref.
+                const gint count = atspi_accessible_get_child_count(current.object, nullptr);
+                nodes.back().collapsed_children = count > 0 ? static_cast<std::size_t>(count) : 0;
+                continue;
+            }
             // Children keep the DFS order; push reversed so the first child
             // is visited first (stable, deterministic snapshots).
             bool refused = false;
@@ -295,7 +308,7 @@ struct AtspiBackend::Impl {
             if (refused)
                 return reject();
             for (auto it = kids.rbegin(); it != kids.rend(); ++it) {
-                stack.push_back({*it, nodes.size() - 1});
+                stack.push_back({*it, nodes.size() - 1, current.depth + 1});
             }
         }
         return nodes;
@@ -469,6 +482,20 @@ std::unique_ptr<AtspiBackend> AtspiBackend::open(WindowProvider *windows) {
     return backend;
 }
 
+namespace {
+/// Parses the application segment of a WindowProvider id ("atspi:<app>/<title>[#N]").
+/// Returns an empty string for foreign or malformed ids.
+std::string window_id_application(const std::string &window_id) {
+    constexpr std::string_view prefix = "atspi:";
+    if (window_id.rfind(prefix, 0) != 0)
+        return {};
+    const auto slash = window_id.find('/', prefix.size());
+    if (slash == std::string::npos || slash == prefix.size())
+        return {};
+    return window_id.substr(prefix.size(), slash - prefix.size());
+}
+} // namespace
+
 SnapshotOutcome AtspiBackend::semantic_snapshot(const std::string &window_id,
                                                 const SemanticSnapshotLimits &limits,
                                                 const CancelToken &cancel) {
@@ -483,28 +510,49 @@ SnapshotOutcome AtspiBackend::semantic_snapshot(const std::string &window_id,
         outcome.error = error("invalid_argument", "window id must not be empty");
         return outcome;
     }
+    if (!limits.subtree_ref.empty() && limits.subtree_ref.rfind("@e", 0) != 0) {
+        outcome.error = error("invalid_argument", "subtree ref must be a snapshot @e handle");
+        return outcome;
+    }
     // Map the opaque window id to a title via the environment's window
     // surface (honest v1 mapping: accessibility window name == provider title).
+    // Titles rename on navigation; when the exact id no longer resolves,
+    // fall back to the application segment when it identifies exactly one
+    // window (DEC-118) so a stale id still reaches the renamed window.
     std::string title;
+    std::vector<WindowInfo> listed;
     if (impl_->windows != nullptr) {
         WindowListLimits unlimited;
         unlimited.max_windows = 4096;
-        const auto listed = impl_->windows->list_windows(unlimited, cancel);
-        for (const auto &window : listed.windows) {
+        listed = impl_->windows->list_windows(unlimited, cancel).windows;
+        for (const auto &window : listed) {
             if (window.id == window_id) {
                 title = window.title;
                 break;
             }
         }
+        if (title.empty()) {
+            const auto application = window_id_application(window_id);
+            std::vector<const WindowInfo *> matches;
+            if (!application.empty()) {
+                for (const auto &window : listed)
+                    if (window_id_application(window.id) == application && !window.title.empty())
+                        matches.push_back(&window);
+            }
+            if (matches.size() == 1)
+                title = matches.front()->title;
+        }
         if (!title.empty() &&
-            std::count_if(listed.windows.begin(), listed.windows.end(),
+            std::count_if(listed.begin(), listed.end(),
                           [&](const auto &window) { return window.title == title; }) > 1) {
             outcome.error = error("unsupported_window", "window title mapping is ambiguous");
             return outcome;
         }
     }
     if (title.empty()) {
-        outcome.error = error("not_found", "no such window");
+        outcome.error =
+            error("not_found", "no such window; the window title may have changed, "
+                               "re-run desktop.window.list");
         return outcome;
     }
     AtspiAccessible *desktop = atspi_get_desktop(0); // borrowed singleton
@@ -518,8 +566,22 @@ SnapshotOutcome AtspiBackend::semantic_snapshot(const std::string &window_id,
         return outcome;
     }
     auto [application_name, window_object] = *found;
+    // A scoped snapshot (DEC-118) collects the subtree of a node from the
+    // most recent snapshot instead of the whole window. The registry owns
+    // its references, so the node stays alive under the backend mutex.
+    AtspiAccessible *root = window_object;
+    if (!limits.subtree_ref.empty()) {
+        const auto entry = impl_->registry.find(limits.subtree_ref);
+        if (entry == impl_->registry.end()) {
+            outcome.error = error("not_found", "subtree ref is from an older snapshot; "
+                                               "take a fresh semantic snapshot");
+            return outcome;
+        }
+        root = entry->second;
+    }
     std::vector<AtspiAccessible *> objects;
-    auto nodes = impl_->collect_tree(window_object, limits.max_nodes, objects, cancel);
+    auto nodes =
+        impl_->collect_tree(root, limits.max_nodes, limits.max_depth, objects, cancel);
     if (!nodes.has_value()) {
         if (cancel.cancelled()) {
             outcome.cancelled = true;

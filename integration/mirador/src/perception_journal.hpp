@@ -25,6 +25,7 @@ class PerceptionJournal {
     std::optional<desktop::WindowGeometry> focus_;
     bool resync_ = false;
     std::uint64_t next_ = 0, dropped_ = 0, filtered_ = 0, epoch_ = 0, upstream_dropped_ = 0;
+    PerceptionMediaActivity media_;
     static std::size_t bytes(const PerceptionEvent &e) {
         return sizeof(Entry) + e.kind.size() + e.text.size() + e.frame_id.size();
     }
@@ -43,6 +44,7 @@ class PerceptionJournal {
     void clear() {
         entries_.clear();
         frames_.clear();
+        media_ = {};
         scene_ = desktop::VisualScene(scene_.snapshot().source_session);
         scene_valid_ = false;
     }
@@ -99,6 +101,7 @@ class PerceptionJournal {
             resync_ = true;
         }
         epoch_ = sample.source_epoch;
+        media_ = sample.media;
         if (sample.objects_complete && sample.objects.size() <= 256) {
             std::vector<desktop::VisualSceneObject> objects;
             const bool gap = sample.resync || sample.dropped > upstream_dropped_;
@@ -178,6 +181,7 @@ class PerceptionJournal {
         out.newest = next_;
         out.oldest = entries_.empty() ? next_ + 1 : entries_.front().event.sequence;
         out.source_epoch = epoch_;
+        out.media = media_;
         out.resync = resync_;
         out.dropped = dropped_;
         out.filtered = filtered_;

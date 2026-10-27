@@ -14,6 +14,15 @@
 
 ### 功能
 
+- DEC-118 分层视觉感知首增量（见
+  [设计](docs/design/layered-visual-perception.md)）：连续感知管线显著性门控
+  （媒体活动区状态机、实体无关微变化抑制、kGlobal 不作媒体确认证据、关键帧
+  节流事件）；新增 `desktop.vision.focus` 注意力范围工具与观察摘要 `media`
+  状态；`desktop.accessibility.semantic_snapshot` 支持 `max_depth`/`subtree`
+  渐进下钻（折叠前沿节点渲染 `(+N children)`），窗口 ID 在标题变化后按应用段
+  回退解析；常驻采样周期可配置 100–1000ms（`--perception-period-ms`，默认
+  250ms）。媒体周期 OCR 跳过因上游周期账本证据声明契约撤回，登记
+  MIRADOR-20261027-001。10Hz 端资源验收未跑，不宣称高频结论。
 - DEC-076 交互图片 OCR 路径切换到预算执行（上游 M8-07 消费，见
   [兼容性报告](docs/compatibility/mirador-budgeted-ocr-20261021.md)）：
   `PpOcrPipeline` 并列装载 `PpOcrBudgetedBackend`（缺失即创建失败，不静默

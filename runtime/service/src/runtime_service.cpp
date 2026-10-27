@@ -710,6 +710,7 @@ struct RuntimeService::Impl {
         options.source_id = "runtime-desktop-" + mira::OperationId::generate().to_string();
         options.cancelled = resident_stop;
         options.presentation = std::move(presentation);
+        options.sample_period = std::chrono::milliseconds{config.perception_sample_period_ms};
         options.authorized = [actions = core->actions, permission = core->permission,
                               authority = core->actions->authority_epoch()] {
             return authority && actions->authority_epoch() == authority && permission &&

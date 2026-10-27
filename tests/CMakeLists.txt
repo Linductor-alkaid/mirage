@@ -497,6 +497,23 @@ if(ATSPI_TEST_FOUND AND X11_FOUND)
     )
 endif()
 
+# DEC-118 scoped semantic snapshots: max_depth / subtree_ref drill-down and
+# the stale-window-id application fallback, over the fake AT-SPI desktop on
+# a private D-Bus with a scripted window surface (no display server needed;
+# same fixture topology as atspi_backend_test).
+if(ATSPI_TEST_FOUND)
+    mirage_add_test(atspi_scoped_snapshot_test
+        SOURCES platform/atspi_scoped_snapshot_test.cpp
+        LIBS Mirage::platform Mirage::desktop PkgConfig::ATSPI_TEST
+        LABELS "integration"
+        TIMEOUT 120
+        )
+    # Same system-glib TSan suppression discipline as atspi_backend_test.
+    set_tests_properties(atspi_scoped_snapshot_test PROPERTIES
+        ENVIRONMENT "TSAN_OPTIONS=suppressions=${CMAKE_SOURCE_DIR}/tests/support/tsan-glib.supp"
+    )
+endif()
+
 # M2-06 observation end-to-end (DEC-015 topology, M2 exit condition): the
 # MiraEnvironmentBinding observe() loop over the real Linux backends —
 # private D-Bus session with the wire-exact AT-SPI2 fixture desktop plus a
@@ -1058,6 +1075,16 @@ set_tests_properties(visual_session_test PROPERTIES
 
 mirage_add_test(task_perception_test
     SOURCES integration/task_perception_test.cpp
+    LIBS Mirage::integration_mirador mirador::fusion Mirage::kairo_consumer
+    LABELS "integration;perception"
+    TIMEOUT 60
+    )
+
+# DEC-118 significance gating: the media-activity state machine and the
+# bare-ROI significance classification of the continuous observation pipeline,
+# driven directly with synthetic frames and deterministic thresholds.
+mirage_add_test(significance_gating_test
+    SOURCES integration/significance_gating_test.cpp
     LIBS Mirage::integration_mirador mirador::fusion Mirage::kairo_consumer
     LABELS "integration;perception"
     TIMEOUT 60

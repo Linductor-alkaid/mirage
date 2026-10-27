@@ -430,6 +430,67 @@ void resident_blocking_shutdown_and_failure() {
     resident.stop();
     MIRAGE_CHECK(fault->closed == 1);
 }
+// DEC-118: the FeedLease focus is the model-facing attention region. Ordinary
+// events outside it stop reaching the task's view, barrier events (appeared)
+// still arrive, and a non-positive extent clears the region again.
+void feed_focus_clear_semantics() {
+    Owner owner;
+    std::atomic<bool> emit_text{false}, emit_appeared{false}, delivered{false};
+    ResidentDesktopPerception resident([&](auto raw, auto options) {
+        return connect_continuous_desktop(
+            owner.executor, std::move(raw), std::move(options),
+            [&](const auto &, const auto &, const auto &, const auto &, const auto &) {
+                PerceptionSample sample;
+                sample.ok = true;
+                sample.source_epoch = 1;
+                if (emit_text.exchange(false)) {
+                    PerceptionEvent event;
+                    event.entity = 9;
+                    event.kind = "text_changed";
+                    event.x = 40;
+                    event.width = 8;
+                    event.height = 8;
+                    event.text = "outside";
+                    sample.events.push_back(event);
+                    delivered = true;
+                } else if (emit_appeared.exchange(false)) {
+                    PerceptionEvent event;
+                    event.entity = 9;
+                    event.kind = "appeared";
+                    event.x = 40;
+                    event.width = 8;
+                    event.height = 8;
+                    event.text = "barrier";
+                    sample.events.push_back(event);
+                    delivered = true;
+                }
+                return sample;
+            });
+    });
+    PerceptionSessionOptions options;
+    options.source_id = "focus-lease";
+    MIRAGE_CHECK(resident.adopt(std::make_unique<Raw>(std::make_shared<SessionState>()), options,
+                                true));
+    auto lease = resident.attach(true, {});
+    MIRAGE_CHECK(lease.session && lease.feed);
+    const auto has_kind = [&](const char *kind) {
+        const auto view = lease.feed->view();
+        return std::any_of(view.events.begin(), view.events.end(),
+                           [&](const auto &event) { return event.kind == kind; });
+    };
+    lease.feed->focus({0, 0, 8, 8}); // attention region far from x=40
+    emit_text = true;
+    MIRAGE_CHECK(until([&] { return delivered.exchange(false); }));
+    MIRAGE_CHECK(!has_kind("text_changed")); // filtered from the task view
+    emit_appeared = true;
+    MIRAGE_CHECK(until([&] { return has_kind("appeared"); })); // barrier retained
+    // DEC-118: zero extents clear the attention region; ordinary events flow again.
+    lease.feed->focus({0, 0, 0, 0});
+    emit_text = true;
+    MIRAGE_CHECK(until([&] { return delivered.exchange(false); }));
+    MIRAGE_CHECK(until([&] { return has_kind("text_changed"); }));
+    resident.stop();
+}
 void task_adapter() {
     Owner owner;
     auto state = std::make_shared<SessionState>();
@@ -502,6 +563,25 @@ void task_adapter() {
     MIRAGE_CHECK(rejected.feed->view().state == "failed");
     MIRAGE_CHECK(rejected.session->capture({}, {}).ok);
 }
+// DEC-118: the continuous sampling period is caller-configurable; the session
+// clamps out-of-range values into 100–1000ms and keeps sampling normally.
+void sample_period_configuration() {
+    Owner owner;
+    for (const auto period : {std::chrono::milliseconds{50}, std::chrono::milliseconds{150}}) {
+        PerceptionSessionOptions options;
+        options.source_id = "sampled-" + std::to_string(period.count());
+        options.sample_period = period;
+        auto connection = connect_continuous_desktop(
+            owner.executor, std::make_unique<Raw>(std::make_shared<SessionState>()), options,
+            [](const auto &, const auto &, const auto &, const auto &, const auto &) {
+                return event("appeared");
+            });
+        MIRAGE_CHECK(connection.session && connection.feed);
+        MIRAGE_CHECK(until([&] { return connection.feed->view().frames >= 2; }));
+        MIRAGE_CHECK(connection.feed->view().state == "sampling");
+        connection.session.reset();
+    }
+}
 void committed_event_survives_late_foreground_pause() {
     Owner owner;
     std::atomic<bool> entered{false}, deliver{false};
@@ -568,11 +648,13 @@ void cancellation_exception_and_shutdown() {
 int main() {
     try {
         resident_lifetime_and_consumers();
+        feed_focus_clear_semantics();
         resident_blocking_shutdown_and_failure();
         retention();
         production_stage_settings_and_large_frame();
         pipeline_events();
         task_adapter();
+        sample_period_configuration();
         committed_event_survives_late_foreground_pause();
         cancellation_exception_and_shutdown();
     } catch (const std::exception &e) {

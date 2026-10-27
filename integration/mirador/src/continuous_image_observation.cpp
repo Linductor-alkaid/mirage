@@ -33,6 +33,7 @@ PerceptionSample VisualObservationPipeline::observe_image(
             background_height_ = image.height;
             ++background_revision_;
             background_followup_ = true;
+            media_ = {}; // new source incarnation: media tracking restarts
         }
         const auto equal_focus = [&] {
             if (focus.has_value() != background_focus_.has_value())
@@ -170,7 +171,7 @@ PerceptionSample VisualObservationPipeline::observe_image(
             out.objects.push_back(std::move(entry));
         }
     const auto append = [&](std::uint64_t entity, const mirador::RectF &bounds, const char *kind,
-                            bool confirmed, std::uint64_t instance) {
+                            bool confirmed, std::uint64_t instance, const std::string &text = {}) {
         if (out.events.size() >= 256) {
             out.resync = true;
             return;
@@ -187,16 +188,21 @@ PerceptionSample VisualObservationPipeline::observe_image(
         event.y = bounds.y;
         event.width = bounds.width;
         event.height = bounds.height;
-        if (result.snapshot)
+        if (!text.empty()) {
+            event.text = text;
+            conversation::truncate_text(event.text, 256);
+        } else if (result.snapshot)
             if (const auto *region = mirador::find_region(*result.snapshot, entity)) {
                 event.text = region->text;
                 conversation::truncate_text(event.text, 256);
             }
         out.events.push_back(std::move(event));
     };
+    bool semantic_events = false;
     for (const auto &event : continuous.events.events) {
         if (event.window.source_epoch != out.source_epoch)
             continue;
+        semantic_events = true;
         const char *kind = "changed";
         switch (event.change_kind) {
         case mirador::SemanticChangeKind::kAppeared:
@@ -220,12 +226,149 @@ PerceptionSample VisualObservationPipeline::observe_image(
         }
         append(event.stable_id, event.bounds, kind, true, event.instance_generation);
     }
-    if (result.admission_change &&
-        result.admission_change->classification != mirador::ChangeClassification::kNone) {
-        for (const auto &roi : result.admission_change->changed_regions)
-            append(0,
-                   mirador::RectF{float(roi.x), float(roi.y), float(roi.width), float(roi.height)},
-                   "visual_region_changed", false, 0);
+    // DEC-118 significance gating. Semantic entity events above are never
+    // gated; this decides which bare pixel-change ROIs still reach the model,
+    // advances the media-activity state machine, and emits media playback
+    // state plus throttled keyframes instead of per-sample playback noise.
+    const mirador::ChangeReport *change = nullptr;
+    if (result.admission_change && result.admission_change->classification !=
+                                       mirador::ChangeClassification::kNone)
+        change = &*result.admission_change;
+    else if (result.change.classification != mirador::ChangeClassification::kNone)
+        change = &result.change;
+    const double frame_area = double(image.width) * double(image.height);
+    const auto rect_area = [](const mirador::RectF &r) {
+        return double(r.width) * double(r.height);
+    };
+    const auto overlap_ratio = [&](const mirador::RectF &a, const mirador::RectF &b) {
+        const double x = std::max(a.x, b.x), y = std::max(a.y, b.y);
+        const double w = std::min(a.x + a.width, b.x + b.width) - x;
+        const double h = std::min(a.y + a.height, b.y + b.height) - y;
+        return w > 0 && h > 0 ? w * h / std::min(rect_area(a), rect_area(b)) : 0.0;
+    };
+    const auto to_rect = [](const mirador::RectI &roi) {
+        return mirador::RectF{float(roi.x), float(roi.y), float(roi.width), float(roi.height)};
+    };
+    if (change == nullptr || !config_.significance_gate) {
+        if (change != nullptr)
+            for (const auto &roi : change->changed_regions)
+                append(0, to_rect(roi), "visual_region_changed", false, 0);
+        std::lock_guard lock(sequence_mutex_);
+        out.media.active = media_.active;
+        out.media.x = media_.x;
+        out.media.y = media_.y;
+        out.media.width = media_.width;
+        out.media.height = media_.height;
+    } else {
+        mirador::RectF largest{};
+        bool have_largest = false;
+        for (const auto &roi : change->changed_regions) {
+            const auto rect = to_rect(roi);
+            if (!have_largest || rect_area(rect) > rect_area(largest)) {
+                largest = rect;
+                have_largest = true;
+            }
+        }
+        // Stored media coordinates are frame-normalized; comparisons run in
+        // analysis-frame pixels.
+        const auto denorm = [&](double x, double y, double w, double h) {
+            return mirador::RectF{float(x * image.width), float(y * image.height),
+                                  float(w * image.width), float(h * image.height)};
+        };
+        const double min_media_area = config_.media_region_min_area_ratio * frame_area;
+        const double tiny_area = config_.tiny_region_area_ratio * frame_area;
+        const auto now = std::chrono::steady_clock::now();
+        // A global layout/scene replacement (ratio >= 0.5 of the frame) is a
+        // layout barrier, not playback evidence: it never confirms a media
+        // candidate. An already-active region survives it — a windowed video
+        // going fullscreen stays suppressed through the tracked geometry and
+        // ends through the regular miss counting instead.
+        const bool global =
+            change->classification == mirador::ChangeClassification::kGlobal;
+        std::lock_guard lock(sequence_mutex_);
+        if (global) {
+            media_.pending_x = media_.pending_y = media_.pending_width = media_.pending_height = 0;
+            media_.hits = 0;
+        } else if (have_largest && rect_area(largest) >= min_media_area) {
+            const auto tracked = denorm(media_.x, media_.y, media_.width, media_.height);
+            if (media_.active) {
+                if (overlap_ratio(largest, tracked) >= 0.5) {
+                    media_.x = largest.x / image.width;
+                    media_.y = largest.y / image.height;
+                    media_.width = largest.width / image.width;
+                    media_.height = largest.height / image.height;
+                    media_.misses = 0;
+                    // Scene cuts and major content steps are the video's own
+                    // "events"; throttle them to a bounded model-visible rate.
+                    if (!semantic_events &&
+                        change->frame_similarity < config_.media_keyframe_similarity &&
+                        now - media_.last_event >= config_.media_event_min_interval) {
+                        media_.last_event = now;
+                        append(0, largest, "visual_region_changed", false, 0, "keyframe");
+                    }
+                } else if (++media_.misses >= config_.media_miss_samples) {
+                    media_.active = false;
+                    media_.hits = 0;
+                    append(0, tracked, "media_playback", false, 0, "stopped");
+                }
+            } else {
+                const auto pending =
+                    denorm(media_.pending_x, media_.pending_y, media_.pending_width,
+                           media_.pending_height);
+                if (media_.hits > 0 && overlap_ratio(largest, pending) >= 0.5) {
+                    ++media_.hits;
+                } else {
+                    media_.pending_x = largest.x / image.width;
+                    media_.pending_y = largest.y / image.height;
+                    media_.pending_width = largest.width / image.width;
+                    media_.pending_height = largest.height / image.height;
+                    media_.hits = 1;
+                }
+                if (media_.hits >= std::max(1, config_.media_confirm_samples)) {
+                    media_.active = true;
+                    media_.misses = 0;
+                    media_.x = media_.pending_x;
+                    media_.y = media_.pending_y;
+                    media_.width = media_.pending_width;
+                    media_.height = media_.pending_height;
+                    media_.last_event = now;
+                    append(0, largest, "media_playback", false, 0, "started");
+                }
+            }
+        } else if (media_.active) {
+            const auto tracked = denorm(media_.x, media_.y, media_.width, media_.height);
+            if (++media_.misses >= config_.media_miss_samples) {
+                media_.active = false;
+                media_.hits = 0;
+                append(0, tracked, "media_playback", false, 0, "stopped");
+            }
+        }
+        // Bare ROI events: suppress media-explained changes (keyframes carry
+        // the signal) and entity-free transient regions (cursor, caret, hover
+        // feedback). Regions next to real entity events stay untouched.
+        if (media_.active) {
+            const auto tracked = denorm(media_.x, media_.y, media_.width, media_.height);
+            for (const auto &roi : change->changed_regions) {
+                const auto rect = to_rect(roi);
+                if (overlap_ratio(rect, tracked) >= 0.5)
+                    continue;
+                if (!semantic_events && rect_area(rect) < tiny_area)
+                    continue;
+                append(0, rect, "visual_region_changed", false, 0);
+            }
+        } else {
+            for (const auto &roi : change->changed_regions) {
+                const auto rect = to_rect(roi);
+                if (!semantic_events && rect_area(rect) < tiny_area)
+                    continue;
+                append(0, rect, "visual_region_changed", false, 0);
+            }
+        }
+        out.media.active = media_.active;
+        out.media.x = media_.x;
+        out.media.y = media_.y;
+        out.media.width = media_.width;
+        out.media.height = media_.height;
     }
     for (const auto &entity : continuous.temporal.entities)
         if (!entity.confirmed_frame && entity.observed_frame == sequence &&

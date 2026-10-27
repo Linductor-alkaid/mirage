@@ -197,9 +197,15 @@ class FeedLease final : public DesktopPerceptionFeed {
         return true;
     }
     void focus(const desktop::WindowGeometry &region) override {
-        // Focus is consumer-local; one task must not suppress another task's events.
-        if (access_.valid() && region.width > 0 && region.height > 0)
-            focus_ = region;
+        // Focus is consumer-local; one task must not suppress another task's
+        // events. A non-positive extent clears the attention region (DEC-118).
+        if (!access_.valid())
+            return;
+        if (region.width <= 0 || region.height <= 0) {
+            focus_.reset();
+            return;
+        }
+        focus_ = region;
     }
     std::unique_ptr<PerceptionPause> pause() override {
         return access_.valid() ? access_.resource->feed->pause() : nullptr;

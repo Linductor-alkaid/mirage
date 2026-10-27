@@ -280,6 +280,21 @@ M9-14/15/16 依据
   本机 Debug 全量覆盖及失败用例复验、native 和 ASAN/UBSAN/TSAN 专项已完成；
   两轮隔离桌面真实 PP-OCR 均确认任务释放后源继续采样，极短提示仍存在漏报。
 
+- [ ] `M9-23` **In Progress**：按 [DEC-118](../decisions/DEC-118-significance-gated-perception-and-scoped-snapshots.md)
+  落实[分层视觉感知](../design/layered-visual-perception.md)。2026-10-27 14:47 会话
+  复盘（12 次显式 capture、22 次推理、2 次 semantic_snapshot 失败、媒体任务未真正
+  消费内容）驱动：连续管线显著性门控（媒体活动区状态机 + 实体无关微变化抑制 +
+  kGlobal 不作确认证据 + 关键帧节流）、`desktop.vision.focus` 注意力工具与 media
+  状态投影、`semantic_snapshot` 渐进下钻（max_depth/subtree）与窗口标题变化回退
+  解析、采样周期 100–1000ms 配置化（默认 250ms）。预测式媒体周期 OCR hold 经
+  独立验证撤回（周期账本证据声明契约冲突，登记
+  [MIRADOR-20261027-001](../dependency_feedback/mirador.md#mirador-20261027-001)）。
+  门控/快照/focus 单测已建，独立验证两轮（首轮两缺陷、复验 15/15 全绿），证据与
+  边界见[验收记录](../compatibility/dec118-significance-gating-20261027.md)；
+  10Hz 采样 CPU/RSS、真实媒体任务在线 A/B、
+  ObjectTracker 生产接入、平台 damage（XDamage/VideoDamage）与事件→推理唤醒为
+  后续项，未验收不得宣称。
+
 ## 拆分与建议交付顺序
 
 1. 先做 01/05，02 处理上游；04、06 与 M8-12 可独立推进，不等待依赖缺口关闭。

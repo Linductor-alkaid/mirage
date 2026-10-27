@@ -487,7 +487,8 @@ void DesktopActionVerification::observe(Record &r, const mira::OperationContext 
                 r.reason = "semantic_unavailable";
                 return;
             }
-            const auto tree = accessibility->semantic_snapshot(r.window, {4096}, bounded);
+            const auto tree =
+                accessibility->semantic_snapshot(r.window, {4096, 0, {}}, bounded);
             if (!tree.ok || tree.cancelled || tree.snapshot.nodes.size() > 4096) {
                 r.reason = "semantic_unavailable";
                 return;

@@ -403,6 +403,11 @@ PerceptionConnection connect_continuous_desktop(kairo::Executor &owner,
     ContinuousCaptureConfig config;
     config.max_frame_bytes = 32u << 20;
     config.capture_timeout = std::chrono::seconds(8);
+    // DEC-118: caller-tunable sampling period (0 keeps the 250ms default).
+    if (core->options.sample_period.count() > 0)
+        config.sample_period = std::clamp(core->options.sample_period,
+                                          std::chrono::milliseconds{100},
+                                          std::chrono::milliseconds{1000});
     auto host = std::make_unique<ContinuousCaptureHost>(
         owner, core->options.source_id,
         [core](const auto &l, const auto &c) {

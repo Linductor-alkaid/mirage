@@ -321,6 +321,30 @@ void scenario_snapshot_atom_renders_the_semantic_tree() {
         }
     }
 
+    // DEC-118: scope-reduction arguments refuse on backends without scoped
+    // snapshot support instead of being silently ignored (the fake provider
+    // does not opt in).
+    const auto depth_unsupported = dispatch(
+        *toolset->registry(), "desktop.accessibility.semantic_snapshot",
+        arguments({{"window_id", mira::JsonValue{"w1"}}, {"max_depth", mira::JsonValue{2}}}),
+        mira::make_control_context());
+    MIRAGE_CHECK(depth_unsupported.has_value() && depth_unsupported.value().failed);
+    if (depth_unsupported.has_value()) {
+        MIRAGE_CHECK(depth_unsupported.value().safe_error_summary.find(
+                         "platform backend does not support scoped semantic snapshots") !=
+                     std::string::npos);
+    }
+    const auto subtree_unsupported = dispatch(
+        *toolset->registry(), "desktop.accessibility.semantic_snapshot",
+        arguments({{"window_id", mira::JsonValue{"w1"}}, {"subtree", mira::JsonValue{"@e1"}}}),
+        mira::make_control_context());
+    MIRAGE_CHECK(subtree_unsupported.has_value() && subtree_unsupported.value().failed);
+    if (subtree_unsupported.has_value()) {
+        MIRAGE_CHECK(subtree_unsupported.value().safe_error_summary.find(
+                         "platform backend does not support scoped semantic snapshots") !=
+                     std::string::npos);
+    }
+
     // A window without a tree surfaces the provider's stable refusal.
     const auto unsupported =
         dispatch(*toolset->registry(), "desktop.accessibility.semantic_snapshot",

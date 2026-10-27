@@ -2,7 +2,7 @@
 
 > 状态：Active
 > 负责人：Mirage维护者；处理方：Mirador上游
-> 更新日期：2026-10-22
+> 更新日期：2026-10-27
 > 工作项：源头为 [M7-06](../plans/m7-visual-tools-and-input.md)；维护性收口见
 > [依赖复用整改计划](../plans/dependency-reuse-remediation.md)（REUSE-16）
 > 总入口：[依赖反馈](ledger.md)；维护规则：[工程规范9.4](../project/project-standards.md)
@@ -26,6 +26,34 @@ M7-06 本轮核对 PP-OCR 公开后端、集成指南与 smoke；复现见下表
 | MIRADOR-20261009-003 | PP-OCR 参考预处理偏离参考部署，真实模型 0/4 | Resolved（本地） | fb0dc3f；四语料公开复现 | [mirador#35](https://github.com/Linductor-alkaid/mirador/pull/35) 第 3 提交，随 pin ae8cf87 生效 | Mirage 维护者 |
 
 | MIRADOR-20261018-001 | PP-OCR rec 逐框串行且无批处理/截断，密集桌面帧无法进入交互预算 | Resolved | 上游 M8-01…06 交付（`5565436`）；pin 消费复验见 [M8-07 兼容性报告](../compatibility/mirador-budgeted-ocr-20261021.md) | [mirador#41](https://github.com/Linductor-alkaid/mirador/issues/41) 已提报 | Mirage 维护者 |
+
+| MIRADOR-20261027-001 | 连续周期无法在保留变化比较基线的同时跳过识别阶段 | Open | pin `23f7ed2`；独立验证证据见 DEC-118/M9-23 | 待提报 | Mirage 维护者 |
+
+## MIRADOR-20261027-001：连续周期无法在保留变化比较基线的同时跳过识别阶段
+
+状态：Open（2026-10-27）；负责人 Mirage 维护者，处理方 Mirador 上游；工作项
+[M9-23](../plans/m9-continuous-tasks-and-local-perception.md) / [DEC-118](../decisions/DEC-118-significance-gated-perception-and-scoped-snapshots.md)。
+
+已核对 pinned 公开契约（`third_party/mirador/include/mirador/continuous_perception.hpp`、
+`integration/mirador/src/visual_session_host.cpp:1466-1474` 准入校验）后排除 API
+选型与配置错误：后台连续请求携带 `full_frame_evidence_digest≠0` 时必须执行
+run_ocr 或 run_detector 的全帧刷新阶段，否则被
+"continuous adoption requires completed full-frame refresh stages" 拒绝；改置
+digest=0 提交无识别周期则通过准入，但周期账本以 digest 为周期身份，翻转后的
+下一周期失去 `admission_change` 比较基线——该周期对真实变化不可见（独立验证的
+合成帧序列实证：hold 进入与解除各产生一个盲周期，解除周期的区外 UI 变化事件
+整体丢失）。
+
+影响范围：桌面常驻感知在媒体（视频/动画）活跃期间希望以低成本周期"只做变化
+比较与几何跟踪、跳过全帧 OCR"，Mirage 集成侧（DEC-118 预测式 OCR hold）无法
+同时满足"不识别"与"保持变化可见"。期望语义：允许声明"本周期保留上一周期的
+比较基线与覆盖账本，仅执行 change/continuous 阶段，不重置证据声明"。建议最小
+能力：`VisualContinuousRequest` 增加显式的 evidence-carryover（或等价）标记，
+使无识别周期的 digest 身份保持稳定；或准入契约接受"digest≠0 + 无识别阶段"
+并让覆盖账本如实记录本周期未重识别。延期影响：媒体活跃期间每周期全帧预算化
+OCR 照常执行（p50 ≈0.9s/CPU），识别成本只能靠上游交付或采样周期放宽来降低。
+可验收结果：合成媒体序列上，hold 周期不调用 OCR 后端、区外真实 UI 变化在
+下一个周期照常产出 `admission_change` 与实体事件、无盲周期。
 
 ## MIRADOR-20261009-001
 

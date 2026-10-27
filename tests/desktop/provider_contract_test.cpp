@@ -1109,6 +1109,52 @@ void snapshot_rendering_edges() {
     MIRAGE_CHECK(text == again);
 }
 
+// DEC-118: depth-limited frontier nodes render their direct child count as a
+// "(+N children)" marker; fully collected nodes render none. The marker joins
+// the existing deterministic annotation order and never changes node text.
+void depth_limited_frontier_rendering() {
+    mirage::desktop::SemanticSnapshot snapshot;
+    snapshot.application = "Browser";
+    snapshot.window_title = "video page — Browser";
+    snapshot.nodes.push_back(node("@e1", "frame", "video page"));
+    auto collapsed = node("@e2", "panel", "comments");
+    collapsed.collapsed_children = 3;
+    snapshot.nodes.push_back(collapsed);
+    snapshot.nodes.push_back(node("@e3", "button", "Like"));
+
+    const std::string text = mirage::desktop::render_semantic_snapshot(snapshot);
+    MIRAGE_CHECK(text.find("@e2 panel \"comments\" (+3 children)\n") != std::string::npos);
+    // Fully collected nodes carry no marker.
+    MIRAGE_CHECK(text.find("@e1 frame \"video page\"(+") == std::string::npos);
+    MIRAGE_CHECK(text.find("@e1 frame \"video page\" (+") == std::string::npos);
+    MIRAGE_CHECK(text.find("@e3 button \"Like\" (+") == std::string::npos);
+    MIRAGE_CHECK(text.find("@e3 button \"Like\"\n") != std::string::npos);
+
+    // One child still renders with the plural template and the exact count.
+    mirage::desktop::SemanticSnapshot one_child;
+    auto single = node("@e1", "panel", "sidebar");
+    single.collapsed_children = 1;
+    one_child.nodes.push_back(single);
+    const std::string one = mirage::desktop::render_semantic_snapshot(one_child);
+    MIRAGE_CHECK(one.find("@e1 panel \"sidebar\" (+1 children)\n") != std::string::npos);
+
+    // Zero is the "fully collected" sentinel: no marker.
+    mirage::desktop::SemanticSnapshot zero;
+    auto leaf = node("@e1", "button", "OK");
+    leaf.collapsed_children = 0;
+    zero.nodes.push_back(leaf);
+    MIRAGE_CHECK(mirage::desktop::render_semantic_snapshot(zero) ==
+                 "@e1 button \"OK\"\n");
+
+    // Rendering stays deterministic with markers present.
+    const std::string first = mirage::desktop::render_semantic_snapshot(snapshot);
+    const std::string second = mirage::desktop::render_semantic_snapshot(snapshot);
+    MIRAGE_CHECK(first == second);
+    // Node order is preserved with markers.
+    MIRAGE_CHECK(first.find("@e1") < first.find("@e2") &&
+                 first.find("@e2") < first.find("@e3"));
+}
+
 void screen_and_notification_edges() {
     mirage::testing::FakeDesktopEnvironment env;
     env.displays.push_back({"d1", {0, 0, 100, 100}, true});
@@ -1212,6 +1258,7 @@ int main() {
     pointer_position_contract();
     element_target_hint_edges();
     snapshot_rendering_edges();
+    depth_limited_frontier_rendering();
     screen_and_notification_edges();
     clipboard_provider_contract();
     application_provider_contract();
