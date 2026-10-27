@@ -520,6 +520,10 @@ struct RuntimeService::Impl {
     enum class Lifecycle { New, Running, Terminal };
 
     std::atomic_bool desktop_authorization_pending{false};
+    std::shared_ptr<integration::ResidentDesktopPerception> resident_perception;
+    desktop::CancelToken resident_stop;
+    std::mutex resident_refresh_mutex;
+    std::future<void> resident_refresh;
     ServiceConfig config;
     std::string socket_path;
     /// Fail-closed hook used when the config carries neither the DEC-020
@@ -700,6 +704,51 @@ struct RuntimeService::Impl {
         loop_done_future = loop_done.get_future();
     }
 
+    integration::PerceptionSessionOptions
+    resident_options(desktop::CapturePresentation presentation = {}) const {
+        integration::PerceptionSessionOptions options;
+        options.source_id = "runtime-desktop-" + mira::OperationId::generate().to_string();
+        options.cancelled = resident_stop;
+        options.presentation = std::move(presentation);
+        options.authorized = [actions = core->actions, permission = core->permission,
+                              authority = core->actions->authority_epoch()] {
+            return authority && actions->authority_epoch() == authority && permission &&
+                   permission->policy().rule_for(permission::Capability::ScreenCapture) ==
+                       permission::Rule::Allow;
+        };
+        return options;
+    }
+
+    void warm_resident_perception() const {
+        auto *screen = core->environment ? core->environment->screen() : nullptr;
+        if (!resident_perception || !screen || resident_stop.cancelled() ||
+            !resident_options().authorized())
+            return;
+        const auto grant = screen->desktop_authorization(resident_stop);
+        if (!grant.remembered)
+            return; // Never acquire a new grant from a background worker.
+        auto session = screen->create_desktop_interaction_session();
+        if (session)
+            (void)resident_perception->adopt(
+                std::move(session), resident_options(harness_desktop_context().exclude_pet), true);
+    }
+    void queue_resident_refresh() {
+        std::lock_guard lock(resident_refresh_mutex);
+        if (!resident_perception || resident_stop.cancelled())
+            return;
+        try {
+            if (resident_refresh.valid()) {
+                if (resident_refresh.wait_for(std::chrono::milliseconds{0}) !=
+                    std::future_status::ready)
+                    return; // One visible finite refresh at a time.
+                resident_refresh.get();
+            }
+            resident_refresh = core->executor.submit_auto([this] { warm_resident_perception(); });
+        } catch (const std::exception &error) {
+            std::cerr << "mirage-service: resident refresh failed: " << error.what() << '\n';
+        }
+    }
+
     integration::DesktopToolContext harness_desktop_context() const {
         integration::DesktopToolContext desktop;
         desktop.environment = core->environment;
@@ -740,15 +789,19 @@ struct RuntimeService::Impl {
                                                       const auto &cancel, const auto &deadline) {
                     return pipeline->read_image_ocr(image, cancel, deadline, key);
                 };
-            desktop.continuous_session = [pipeline = core->ocr_pipeline.get(),
-                                          executor = &core->executor](auto session, auto options) {
-                return integration::connect_continuous_desktop(
-                    *executor, std::move(session), std::move(options),
-                    [pipeline](const auto &image, const auto &key, const auto &focus,
-                               const auto &cancel, const auto &deadline) {
-                        return pipeline->observe_image(image, key, focus, cancel, deadline);
-                    });
-            };
+            if (resident_perception) {
+                desktop.resident_session = [resident = resident_perception](bool input,
+                                                                            auto options) {
+                    return resident->attach(input, std::move(options));
+                };
+                desktop.continuous_session = [this, resident = resident_perception,
+                                              presentation = desktop.exclude_pet](auto session,
+                                                                                  auto options) {
+                    const bool input = session && session->input_supported();
+                    return resident->connect(std::move(session), resident_options(presentation),
+                                             std::move(options), input);
+                };
+            }
             desktop.query_image_state =
                 [pipeline = core->ocr_pipeline.get()](const auto &key, const auto &cancel,
                                                       const auto &deadline) {
@@ -2234,6 +2287,8 @@ struct RuntimeService::Impl {
                 return;
             }
             screen->configure_desktop_authorization(request->remember);
+            if (!request->remember && resident_perception)
+                resident_perception->invalidate();
         }
         const std::optional<bool> manage =
             request ? std::optional<bool>{request->remember} : std::nullopt;
@@ -2265,6 +2320,8 @@ struct RuntimeService::Impl {
                     }
                 }
                 const auto view = screen->desktop_authorization(cancel);
+                if (manage && *manage && view.remembered)
+                    warm_resident_perception();
                 settled->store(true);
                 pending.finish();
                 respond(connection, correlation,
@@ -2944,6 +3001,7 @@ struct RuntimeService::Impl {
         // authorize() call.
         core->actions->invalidate_authority();
         core->permission->set_policy(std::move(policy));
+        queue_resident_refresh();
         if (request.has_read_roots) {
             core->read_roots = request.read_roots;
         }
@@ -3498,6 +3556,20 @@ struct RuntimeService::Impl {
 
     void teardown() {
         product_stopping.store(true);
+        resident_stop.request_cancel();
+        if (resident_perception)
+            resident_perception->stop();
+        {
+            std::lock_guard lock(resident_refresh_mutex);
+            if (resident_refresh.valid()) {
+                try {
+                    resident_refresh.get();
+                } catch (const std::exception &error) {
+                    std::cerr << "mirage-service: resident refresh drain failed: " << error.what()
+                              << '\n';
+                }
+            }
+        }
         if (pet_refresh)
             pet_refresh->stop();
         if (product_maintenance.valid())
@@ -3686,8 +3758,12 @@ const std::string &RuntimeService::socket_path() const { return impl_->socket_pa
 void RuntimeService::request_shutdown() { impl_->request_loop_stop(); }
 void RuntimeService::request_desktop_takeover() { impl_->core->actions->takeover(); }
 bool RuntimeService::resume_desktop() {
-    return impl_->lifecycle.load(std::memory_order_acquire) == Impl::Lifecycle::Running &&
-           impl_->core->actions->resume();
+    const bool resumed =
+        impl_->lifecycle.load(std::memory_order_acquire) == Impl::Lifecycle::Running &&
+        impl_->core->actions->resume();
+    if (resumed)
+        impl_->queue_resident_refresh();
+    return resumed;
 }
 
 void RuntimeService::register_shutdown_fd(int fd) { impl_->shutdown_fd = fd; }
@@ -3828,6 +3904,16 @@ RuntimeService::start(std::shared_ptr<mirage::integration::DesktopEnvironmentBin
             return outcome;
         }
         impl_->core->visual_registry = &impl_->core->ocr_pipeline->registry();
+        impl_->resident_perception = std::make_shared<integration::ResidentDesktopPerception>(
+            [pipeline = impl_->core->ocr_pipeline.get(),
+             executor = &impl_->core->executor](auto session, auto options) {
+                return integration::connect_continuous_desktop(
+                    *executor, std::move(session), std::move(options),
+                    [pipeline](const auto &image, const auto &key, const auto &focus,
+                               const auto &cancel, const auto &deadline) {
+                        return pipeline->observe_image(image, key, focus, cancel, deadline);
+                    });
+            });
     }
 
     // Model layer (DEC-027): assembled once the executor is up (its pinned
@@ -4248,6 +4334,16 @@ RuntimeService::start(std::shared_ptr<mirage::integration::DesktopEnvironmentBin
             } catch (const std::exception &error) {
                 std::cerr << "mirage-tray: pet admission failed: " << error.what() << '\n';
             }
+        }
+    }
+    if (impl_->resident_perception) {
+        try {
+            auto warm = impl_->core->executor.submit_auto(
+                [raw = impl_.get()] { raw->warm_resident_perception(); });
+            warm.get();
+        } catch (const std::exception &error) {
+            std::cerr << "mirage-service: resident perception startup failed: " << error.what()
+                      << '\n';
         }
     }
     outcome.ok = true;

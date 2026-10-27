@@ -14,6 +14,23 @@ native-release 与 DEB 交付完成；Release 120/120、真实推理与包校验
 
 ## 当前状态
 
+2026-10-27：[M9-22 最新会话门控与重复取帧调查](../research/2026-10-27-event-driven-observation-and-action-gates.md)
+完成：两次 arrival_target_changed 归属 Mirage 共享输入 Adapter；同按钮悬停配色
+合成复现证明现有像素守卫可误拒。最新会话 23 次模型请求、10 次显式 capture
+（含 1 次复用）、19 次前台 capture 阶段调用、5 次工具失败。已核对事件/状态消费、
+共享帧及外部项目机制。维护者随后接受 [DEC-117](../decisions/DEC-117-runtime-resident-perception-and-autonomous-input.md)，
+已将冲突条款标记失效，接通 Runtime 常驻观察、独立任务租约、共享最新帧、本地事件
+等待及普通动作取消像素否决。M9-22 In Progress，生产实现与本机验证范围见
+[常驻设计](../design/runtime-resident-perception.md)和
+[验收记录](../compatibility/runtime-resident-perception-20261027.md)；pinned 依赖未修改，
+真实平台长任务及低端资源门禁继续开放。
+
+2026-10-26：维护者授权接通 M9-13 对象语义与 M9-21 连续观察：完整对象状态、
+单标签模型工具和后续供给复用现有 VisualScene/kairo mailbox，识别文字/类别依赖
+首增量已通过本机验证：Debug 114/114，native-release 及三个 sanitizer 专项各 8/8，
+三轮私有 X11/真实 OCR 的移动继承与内容失效通过。范围与剩余平台门禁见
+[本轮验收](../compatibility/continuous-object-semantics-20261026.md)，M9-13 保持 In Progress。
+
 2026-10-26：维护者要求将 native-release 与 DEB 更新到集成主干 `8779844`，
 保留完整 OCR/YOLO 配置；[构建交付验收](../compatibility/native-package-refresh-20261026.md)
 已完成：native-release 123/123（0 skip）、DEB 校验与交付通过；

@@ -1,5 +1,19 @@
 # 会话桌面动作的权限、输入与恢复边界
 
+> 2026-10-27：普通动作的像素相似度/到达截图硬门禁及单任务观察源所有权已被
+> [DEC-117](../decisions/DEC-117-runtime-resident-perception-and-autonomous-input.md) 替代。
+> Runtime 在既有授权和 Allow 读屏策略下持续采集，任务只持独立租约；只读租约不继承
+> 输入能力，任务取消不撤销服务授权。忘记授权/策略替换/接管使旧来源或租约失效，
+> 关闭先停生产再排空。后台不得创建新授权请求；无 restore token 明确返回未授权。
+> text_only OCR 保留原输入意图并停止重复供图；输入释放与真实未知副作用仍受约束。
+> 旧章节中相反条款仅保留历史，当前契约见[常驻设计](../design/runtime-resident-perception.md)。
+
+> 2026-10-26：M9-13 的 `desktop.vision.annotate` 仅修改任务内有界解释。宿主绑定
+> 实际供给请求与对象版本，拒绝伪造/过期引用；标签来源为 llm_annotation，不覆盖
+> OCR/平台 role，不签发输入权限或成功证据。内容改变/身份不确定挂起，源/实例
+> 替换撤销。工具仍检查 owner、取消、deadline 与 authority；不访问桌面或调用模型。
+> [契约与示例](../examples/continuous-object-semantics.md)。
+
 > 2026-10-23：执行故障恢复以 [DEC-113](../decisions/DEC-113-autonomous-action-recovery.md)
 > 为准。历史章节中的默认人工复核/永久全局围栏已被当前观察与自主重规划规则部分替代。
 
@@ -449,12 +463,13 @@ click 和 drag 均可选择 `button=left/middle/right`（默认 left）；click 
 
 v2 首交付采用修改工具 3.0.0、只读 verify 2.0.0；三条物理 click 后续按 DEC-110
 升级 4.0.0。version proposal 不匹配由 registry 拒绝。`not_requested` 仅表示未选业务条件，`execution_status=completed` 与
-`input_released=true` 不产生业务已验证的事实；过程投影校验 policy_version=2、
+`input_released=true` 不产生业务已验证的事实；过程投影支持 policy_version=2/3/4、
 工具完成状态和 verified=false 后才显示“已执行”。`depends_on` 最多 8 个唯一 ID，
 仅接纳同 authority/当前动作 epoch 下的匹配条件。普通检查点与条件证明在供给
 本次模型请求时核验 5 秒新鲜度；推理耗时不单独使已观察结果失效。条件 ID 绑定
 仅供该请求的下一次修改尝试消费，派发入口不重新采集/更换图像引用，原 Provider
-的目标/焦点/像素检查仍须通过；此绑定不能证明推理期间桌面未变化。未消费的
+的目标/焦点/几何检查仍须通过；DEC-117 已取消普通动作的像素相似度否决。
+此绑定不能证明推理期间桌面未变化。未消费的
 过期证明须显式只读重验，不能只刷新时间戳。该请求的接纳受 owner deadline/取消
 及当前 epoch/authority 约束，新输入立即清除。结算不采集，较早条件的成功不能解除较新
 动作的执行不确定性围栏。

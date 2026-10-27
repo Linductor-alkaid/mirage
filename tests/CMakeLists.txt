@@ -1063,6 +1063,13 @@ mirage_add_test(task_perception_test
     TIMEOUT 60
     )
 
+mirage_add_test(perception_semantics_test
+    SOURCES integration/perception_semantics_test.cpp
+    LIBS Mirage::integration_mira Mira::core
+    LABELS "integration;perception"
+    TIMEOUT 30
+    )
+
 mirage_add_test(continuous_capture_test
     SOURCES integration/continuous_capture_test.cpp
     LIBS Mirage::integration_mirador mirador::fusion Mirage::kairo_consumer

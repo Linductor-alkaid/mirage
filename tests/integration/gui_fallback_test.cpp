@@ -315,7 +315,10 @@ void contracts(kairo::Executor &executor) {
             if (fault == "release")
                 f.input.mode = 1;
             const auto result = invoke(f.registry, "desktop.vision." + op + "_region", args, f.ctx);
-            check(result.failed && f.input.calls == (fault == "release" ? 1 : 0));
+            if (fault == "changed")
+                check(!result.failed && f.input.calls == 1); // DEC-117: redraw is advisory
+            else
+                check(result.failed && f.input.calls == (fault == "release" ? 1 : 0));
             if (fault == "release")
                 check(!f.tools.actions->input_released() && !f.verifier->settle());
         }
@@ -401,7 +404,10 @@ void contracts(kairo::Executor &executor) {
             args = f.args(latest);
         }
         const auto result = f.click(args);
-        if (m == "good" || m == "none" || m == "window" || m == "unrelated" || m == "count") {
+        if (m == "good" || m == "none" || m == "window" || m == "unrelated" || m == "count" ||
+            m == "pixels" || m == "capture_fail") {
+            // DEC-117: no pixel preflight; this explicit window-state condition
+            // does not depend on another image capture either.
             check(!result.failed && f.input.calls == 1);
             check(result.result.find("verified")->as_boolean().value_or(false));
             check(f.verifier->settle());

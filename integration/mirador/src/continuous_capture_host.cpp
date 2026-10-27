@@ -42,6 +42,9 @@ struct Core {
     };
     std::array<Slot, 2> slots;
     Stats counters;
+    // DEC-116: consecutive failed samples. A single failure degrades; only
+    // sustained failure stops this advisory feed.
+    unsigned consecutive_failures = 0;
     kairo::comm::LatestMailbox<Stats> reports{"continuous-capture-report"};
 
     void report_locked() {
@@ -125,6 +128,20 @@ class CaptureWorker final : public kairo::IBlockingIoWorker {
   private:
     void loop(kairo::StopToken stop) {
         std::uint64_t seen = 0;
+        // Mutex held. DEC-116: one failed background sample neither kills the
+        // shared session nor ends perception — the platform layer rebuilds a
+        // stream or session on demand. Sustained failure stops only this
+        // advisory feed, never the task's own observation path.
+        const auto sample_failed = [&](desktop::ProviderError error) {
+            ++core_->consecutive_failures;
+            if (core_->consecutive_failures < 20) {
+                core_->counters.state = Stats::State::Sampling;
+                core_->counters.error = {error.code.substr(0, 64), error.message.substr(0, 256)};
+                core_->report_locked();
+                return;
+            }
+            core_->fail_locked(Stats::State::Failed, std::move(error));
+        };
         for (;;) {
             std::unique_lock lock(core_->mutex);
             core_->cv.wait(lock,
@@ -170,9 +187,7 @@ class CaptureWorker final : public kairo::IBlockingIoWorker {
             }
             if (received_at >= deadline) {
                 ++core_->counters.timed_out_frames;
-                core_->fail_locked(
-                    Stats::State::TimedOut,
-                    {"capture_timeout", "capture exceeded its cooperative deadline"});
+                sample_failed({"capture_timeout", "capture exceeded its cooperative deadline"});
                 continue;
             }
             if (!result.ok || result.cancelled || cancel.cancelled()) {
@@ -180,18 +195,17 @@ class CaptureWorker final : public kairo::IBlockingIoWorker {
                     ++core_->counters.cancelled_frames;
                 else
                     ++core_->counters.failed_frames;
-                core_->fail_locked(Stats::State::Failed,
-                                   result.error.code.empty()
-                                       ? desktop::ProviderError{"capture_failed", "capture refused"}
-                                       : std::move(result.error));
+                sample_failed(result.error.code.empty()
+                                  ? desktop::ProviderError{"capture_failed", "capture refused"}
+                                  : std::move(result.error));
                 continue;
             }
             if (!valid_frame(result.frame, core_->config.max_frame_bytes)) {
                 ++core_->counters.failed_frames;
-                core_->fail_locked(Stats::State::Failed,
-                                   {"invalid_capture", "capture layout or pixel budget invalid"});
+                sample_failed({"invalid_capture", "capture layout or pixel budget invalid"});
                 continue;
             }
+            core_->consecutive_failures = 0;
             auto frame = std::make_shared<const Frame>(Frame{std::move(result.frame),
                                                              core_->source_id, requested_epoch,
                                                              ++core_->next_sequence, received_at});
@@ -270,6 +284,7 @@ bool ContinuousCaptureHost::set_demand(bool active, std::string &error) {
     if (core.active == active)
         return true;
     core.invalidate_locked();
+    core.consecutive_failures = 0;
     core.counters.error = {};
     core.counters.state = active ? Stats::State::Sampling : Stats::State::Idle;
     if (active) {

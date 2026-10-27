@@ -1,5 +1,6 @@
 #pragma once
 
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -41,6 +42,8 @@ struct CaptureLimits {
     /// Optional watermark for a session reporting nonzero source_sequence.
     /// A result must be newer; callers reject zero/older sequence themselves.
     std::uint64_t newer_than_sequence = 0;
+    /// Runtime/background callers may reuse an existing grant, never open consent UI.
+    bool allow_authorization_prompt = true;
 };
 
 struct DisplayInfo {
@@ -156,12 +159,23 @@ struct SharedPointerQueryOutcome {
     ProviderError error;
 };
 
-/// One caller-owned observation session (DEC-074). Calls must be serialized;
-/// no object may be shared across tasks. Creation does not authorize capture.
-/// Destruction closes platform sharing; a failed capture cannot re-authorize.
+/// One owner serializes the platform observation session. DEC-117 permits a
+/// runtime-owned source behind independently authorized/cancelled task leases.
+/// Creation does not authorize capture.
+/// Destruction closes platform sharing. A failed capture reports its real
+/// cause and never re-authorization UI: the session re-establishes from the
+/// remembered grant on a later call (DEC-116); without a remembered grant the
+/// error says the user must re-grant sharing.
 class DesktopCaptureSession {
   public:
     virtual ~DesktopCaptureSession() = default;
+    struct FrameView {
+        std::shared_ptr<const ImageFrame> image;
+        std::chrono::steady_clock::time_point received_at{};
+    };
+    /// Read the resident producer's latest immutable frame without acquisition.
+    virtual FrameView latest_frame() const { return {}; }
+    virtual std::uint64_t source_sequence() const { return 0; }
     /// Read already-acquired stream metadata; no authorization UI or input.
     virtual SharedPointerQueryOutcome pointer_position(const CancelToken &) {
         return {false,

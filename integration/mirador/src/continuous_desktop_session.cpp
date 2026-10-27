@@ -17,6 +17,7 @@ struct Command {
     std::string frame;
 };
 struct Core {
+    explicit Core(const std::string &source) : journal(source) {}
     std::unique_ptr<desktop::DesktopCaptureSession> raw;
     PerceptionSessionOptions options;
     std::string frame_prefix;
@@ -25,7 +26,12 @@ struct Core {
     std::mutex resource;
     std::atomic<unsigned> paused{0};
     std::atomic<bool> stopped{false};
+    std::atomic<std::uint64_t> observed_sequence{0};
     kairo::comm::LatestMailbox<PerceptionView> reports{"task-perception-report"};
+    kairo::comm::Topic<std::uint64_t> notices{"desktop-perception-change"};
+    std::atomic<unsigned> waiters{0}; // At most 16 bounded Topic subscriptions.
+    std::uint64_t notice_cursor = 0, notice_epoch = 0, notice_dropped = 0;
+    std::string notice_state, notice_error;
     kairo::comm::LatestMailbox<desktop::WindowGeometry> focus{"task-perception-focus"};
     kairo::comm::MpscChannel<Command> commands{{.capacity = 64, .name = "task-perception-ack"}};
     detail::PerceptionJournal journal; // capture worker is its sole owner
@@ -46,7 +52,21 @@ struct Core {
         view.analyzed = analyzed;
         view.skipped = skipped;
         view.analysis_failed = failed;
+        if (std::string_view(state) == "failed" || std::string_view(state) == "stopped" ||
+            std::string_view(state) == "degraded")
+            view.scene.reset();
+        const bool changed = view.newest != notice_cursor || view.source_epoch != notice_epoch ||
+                             view.dropped != notice_dropped || view.state != notice_state ||
+                             view.error != notice_error;
+        notice_cursor = view.newest;
+        notice_epoch = view.source_epoch;
+        notice_dropped = view.dropped;
+        notice_state = view.state;
+        notice_error = view.error;
         reports.publish(std::move(view));
+        if (changed)
+            (void)notices.publish(
+                notice_cursor); // Journal owns the events; notices only wake readers.
     }
 };
 bool scaled(const desktop::ImageFrame &src, int max_side, std::size_t budget,
@@ -100,7 +120,11 @@ desktop::CaptureOutcome sample(const std::shared_ptr<Core> &c, const desktop::Ca
         std::unique_lock lock(c->resource, std::try_to_lock);
         if (!lock || c->paused.load())
             return {false, false, {}, {"capture_busy", "foreground resource contention"}};
-        captured = c->raw->capture_presented(limits, cancel, c->options.presentation);
+        auto background_limits = limits;
+        background_limits.allow_authorization_prompt = false;
+        captured = c->raw->capture_presented(background_limits, cancel, c->options.presentation);
+        if (captured.ok)
+            c->observed_sequence = captured.frame.source_sequence;
     }
     if (host_cancel.cancelled()) {
         c->stopped = true;
@@ -114,8 +138,11 @@ desktop::CaptureOutcome sample(const std::shared_ptr<Core> &c, const desktop::Ca
             c->publish("paused");
             return {false, false, {}, {"capture_busy", "foreground superseded capture"}};
         }
-        c->journal.clear();
-        c->publish("failed", captured.error.code.substr(0, 64));
+        // DEC-116: a failed background sample neither ends perception nor the
+        // shared session — the platform layer rebuilds stream or session on
+        // demand. Report degraded; the capture worker's failure budget decides
+        // when sustained failure stops this advisory feed.
+        c->publish("degraded", captured.error.code.substr(0, 64));
         return captured;
     }
     const auto &frame = captured.frame;
@@ -186,6 +213,14 @@ desktop::CaptureOutcome sample(const std::shared_ptr<Core> &c, const desktop::Ca
             e.width *= double(captured.frame.width) / analysis.width;
             e.height *= double(captured.frame.height) / analysis.height;
         }
+        for (auto &entry : observed.objects) {
+            auto &b = entry.object.bounds;
+            const auto sx = double(captured.frame.width) / analysis.width;
+            const auto sy = double(captured.frame.height) / analysis.height;
+            b = {int(std::floor(b.x * sx)), int(std::floor(b.y * sy)),
+                 std::max(1, int(std::ceil(b.width * sx))),
+                 std::max(1, int(std::ceil(b.height * sy)))};
+        }
         std::shared_ptr<PerceptionPreview> preview;
         if (!observed.events.empty()) {
             preview = std::make_shared<PerceptionPreview>();
@@ -194,7 +229,7 @@ desktop::CaptureOutcome sample(const std::shared_ptr<Core> &c, const desktop::Ca
             if (!scaled(captured.frame, 640, 1u << 20, preview->image))
                 preview.reset();
         }
-        c->journal.append(std::move(observed), std::move(preview), Clock::now());
+        c->journal.append(std::move(observed), std::move(preview), captured_at);
         c->publish("sampling");
     }
     return captured;
@@ -240,6 +275,45 @@ class Feed final : public DesktopPerceptionFeed {
         auto c = core_.lock();
         return c ? std::make_unique<Pause>(std::move(c)) : nullptr;
     }
+    std::string wait(std::uint64_t after, std::chrono::milliseconds timeout,
+                     const desktop::CancelToken &cancel) override {
+        auto c = core_.lock();
+        if (!c || !c->valid())
+            return "unavailable";
+        if (c->waiters.fetch_add(1) >= 16) {
+            --c->waiters;
+            return "wait_capacity_exceeded";
+        }
+        struct Release {
+            std::atomic<unsigned> &count;
+            ~Release() { --count; }
+        } release{c->waiters};
+        auto subscription =
+            c->notices.subscribe({.capacity = 1,
+                                  .drop_policy = kairo::comm::DropPolicy::RejectNewest,
+                                  .name = "desktop-perception-wait"});
+        const auto initial = view();
+        const auto deadline = Clock::now() + std::clamp(timeout, std::chrono::milliseconds{0},
+                                                        std::chrono::milliseconds{30000});
+        for (;;) {
+            if (cancel.cancelled())
+                return "cancelled";
+            const auto current = view();
+            if (!c->valid() || current.state == "failed" || current.state == "stopped")
+                return "unavailable";
+            if (current.source_epoch != initial.source_epoch || current.dropped != initial.dropped)
+                return "gap";
+            if (current.newest > after)
+                return "event";
+            if (Clock::now() >= deadline)
+                return "timeout";
+            std::uint64_t notice = 0;
+            (void)subscription.receive_for(
+                notice, std::min(std::chrono::milliseconds{50},
+                                 std::chrono::duration_cast<std::chrono::milliseconds>(
+                                     deadline - Clock::now())));
+        }
+    }
 };
 class Session final : public desktop::DesktopCaptureSession {
     std::shared_ptr<Core> core_;
@@ -250,20 +324,42 @@ class Session final : public desktop::DesktopCaptureSession {
         : core_(std::move(c)), host_(std::move(host)) {}
     ~Session() override {
         core_->stopped = true;
+        core_->notices.close();
         host_->stop();
     }
+    FrameView latest_frame() const override {
+        if (!core_->valid())
+            return {};
+        auto latest = host_->latest();
+        return latest
+                   ? FrameView{std::shared_ptr<const desktop::ImageFrame>(latest, &latest->image),
+                               latest->received_at}
+                   : FrameView{};
+    }
+    std::uint64_t source_sequence() const override { return core_->observed_sequence.load(); }
     desktop::CaptureOutcome capture(const desktop::CaptureLimits &l,
                                     const desktop::CancelToken &c) override {
         Pause priority(core_);
         std::lock_guard lock(core_->resource);
-        return core_->raw->capture(l, c);
+        auto result = core_->raw->capture(l, c);
+        if (result.ok)
+            core_->observed_sequence = result.frame.source_sequence;
+        return result;
     }
     desktop::CaptureOutcome capture_presented(const desktop::CaptureLimits &l,
                                               const desktop::CancelToken &c,
                                               const desktop::CapturePresentation &p) override {
         Pause priority(core_);
+        const auto cached = latest_frame();
+        if (cached.image && Clock::now() - cached.received_at < std::chrono::seconds(1) &&
+            cached.image->pixels.size() <= l.max_bytes &&
+            cached.image->source_sequence > l.newer_than_sequence)
+            return {true, false, *cached.image, {}};
         std::lock_guard lock(core_->resource);
-        return core_->raw->capture_presented(l, c, p);
+        auto result = core_->raw->capture_presented(l, c, p);
+        if (result.ok)
+            core_->observed_sequence = result.frame.source_sequence;
+        return result;
     }
     desktop::SharedPointerQueryOutcome pointer_position(const desktop::CancelToken &c) override {
         Pause priority(core_);
@@ -277,8 +373,9 @@ class Session final : public desktop::DesktopCaptureSession {
         return core_->raw->input(a, l, c);
     }
     bool reusable() const override {
-        std::lock_guard lock(core_->resource);
-        return core_->raw->reusable();
+        const auto state = host_->stats().state;
+        return core_->valid() && state != ContinuousCaptureStats::State::Failed &&
+               state != ContinuousCaptureStats::State::Stopped;
     }
     bool input_supported() const override {
         std::lock_guard lock(core_->resource);
@@ -296,7 +393,7 @@ PerceptionConnection connect_continuous_desktop(kairo::Executor &owner,
                                                 ContinuousImageObserver observer) {
     if (!raw || !observer || options.source_id.empty() || options.source_id.size() > 128)
         return {std::move(raw), {}};
-    auto core = std::make_shared<Core>();
+    auto core = std::make_shared<Core>(options.source_id);
     core->raw = std::move(raw);
     core->options = std::move(options);
     core->frame_prefix = "event-frame-" +

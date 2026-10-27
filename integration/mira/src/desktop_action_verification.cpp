@@ -107,7 +107,7 @@ JsonValue DesktopActionVerification::summary(const Record &r) const {
         {"window_id", r.window},
         {"application_id", r.application_id},
         {"status", r.status},
-        {"policy_version", 3},
+        {"policy_version", 4},
         {"recovery_status", !r.uncertain                                  ? "not_required"
                             : r.status == "verified"                      ? "condition_observed"
                             : r.recovery_observed && r.recovery_replanned ? "replanned"
@@ -968,6 +968,9 @@ DesktopActionVerification::execute(const std::string &name, const JsonValue &arg
             parsed ? parsed.value().find("side_effect_may_have_occurred") : nullptr;
         r.uncertain = r.uncertain || !effects || !effects->as_boolean() || *effects->as_boolean() ||
                       !flag(parsed.value(), "input_released");
+        const auto *press = parsed ? parsed.value().find("press_dispatched") : nullptr;
+        if (press && press->as_boolean() == false && r.input_released)
+            r.uncertain = false; // Movement is observable; the requested press was not dispatched.
         r.status = r.uncertain ? "uncertain" : "rejected";
         auto code = parsed ? field(parsed.value(), "error_code") : "";
         conversation::truncate_text(code, 64);

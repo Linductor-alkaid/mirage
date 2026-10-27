@@ -1,6 +1,5 @@
 #include "desktop_action_verification.hpp"
 #include "desktop_image_supply.hpp"
-#include "desktop_stability_guard.hpp"
 #include "tool_click.hpp"
 #include "tool_geometry.hpp"
 #include <algorithm>
@@ -101,16 +100,17 @@ void DesktopImageTurn::register_mark_tools(mira::BuiltinToolRegistry &registry,
         return;
     mira::BuiltinToolSpec click;
     click.wire_name = "desktop.vision.click";
-    click.version = {4, 0, 0};
+    click.version = {5, 0, 0};
     click.has_side_effects = true;
     click.description =
         "Click a fully visible number from this turn's latest visual_scope, with "
         "button=left/middle/right (default left), click_count consecutive clicks "
         "(default 1; 2=double-click, 3=triple-click) in one action, "
         "environment_epoch and focused window_id. Automatically approaches the mark with a "
-        "locally timed minimum-jerk path, then rechecks arrival before pressing; hover effects "
-        "are real. No model timing parameter. Requires fresh target pixels "
-        "and unchanged window/display geometry; animation may be rejected. No "
+        "locally timed minimum-jerk path and presses without an arrival screenshot gate; hover "
+        "effects "
+        "are real. No model timing parameter. Requires unchanged window/display geometry; "
+        "pixel appearance changes do not veto input. No "
         "raw coordinates. Optionally fix verify_kind before clicking for local "
         "postcondition evidence. visual_text_exists requires expected_text and fresh unique OCR "
         "inside the window at confidence >= 0.8; injection alone does not verify task success.";
@@ -144,18 +144,19 @@ void DesktopImageTurn::register_mark_tools(mira::BuiltinToolRegistry &registry,
             continue;
         mira::BuiltinToolSpec spec;
         spec.wire_name = std::string{"desktop.vision."} + operation;
-        spec.version = {4, 0, 0};
+        spec.version = {5, 0, 0};
         spec.has_side_effects = true;
         spec.description =
             drag ? "Complete button-selected drag (button=left/middle/right, default left) between "
                    "mark and destination_mark in the same fresh "
                    "visual_scope and focused window. Max 2048 pixels, locally paced curve, 3 "
                    "seconds "
-                   "including automatic approach and arrival revalidation. No model timing. "
+                   "including automatic approach without an arrival screenshot gate. No model "
+                   "timing. "
                    "No held-button continuation. A fixed postcondition is optional."
                  : "Discrete wheel steps at a fresh mark in the focused window. Positive "
                    "horizontal_steps/vertical_steps means right/down, negative left/up. Total "
-                   "absolute steps 1..16, paced per step after automatic approach/revalidation, "
+                   "absolute steps 1..16, paced per step after automatic approach, "
                    "max 3 "
                    "seconds. No model timing or pixel-distance guarantee. A fixed "
                    "postcondition is optional.";
@@ -431,35 +432,7 @@ mira::Result<Json> DesktopImageTurn::pointer_mark(const Json &args,
     };
     if (!stable_front() || !stable_display())
         return action_error({"stale_observation", "window or display moved"});
-    const auto fresh = marks_->capture_roi
-                           ? screen->capture_roi(*marks_->capture_roi, {}, bounded)
-                           : screen->capture_display(marks_->display_id, {}, bounded);
-    if (!fresh.ok || fresh.cancelled || bounded.cancelled())
-        return action_error({bounded.cancelled() || fresh.cancelled ? "cancelled" : "io_error",
-                             "visual revalidation capture failed"});
-    const auto &source = marks_->frame;
-    if (!valid_image_frame(fresh.frame, desktop_image_bytes, 65535) ||
-        fresh.frame.width != source.width || fresh.frame.height != source.height ||
-        !stable_display() || !stable_front())
-        return action_error({"stale_observation", "visual source pixels or geometry changed"});
-    // M7-16 / DEC-082: re-verify the operated marks' region for stability
-    // instead of whole-frame byte equality. Animation outside the target, or
-    // same-subject noise inside it, proceeds; a moved or replaced target still
-    // rejects as stale.
-    const auto frame_rect = [&](const Geometry &bounds) {
-        return TargetRegion{bounds.x - marks_->image_geometry.x,
-                            bounds.y - marks_->image_geometry.y,
-                            bounds.x - marks_->image_geometry.x + bounds.width,
-                            bounds.y - marks_->image_geometry.y + bounds.height};
-    };
-    TargetRegion target = frame_rect(region.bounds);
-    if (drag) {
-        const auto to = frame_rect(to_region.bounds);
-        target = {std::min(target.left, to.left), std::min(target.top, to.top),
-                  std::max(target.right, to.right), std::max(target.bottom, to.bottom)};
-    }
-    if (assess_target_stability(source, fresh.frame, target) == TargetStability::kChanged)
-        return action_error({"stale_observation", "visual source pixels or geometry changed"});
+    // DEC-117: references/geometry remain checked; no appearance-based veto.
     desktop::InputOutcome outcome;
     bool entered = false;
     try {
@@ -495,18 +468,9 @@ mira::Result<Json> DesktopImageTurn::pointer_mark(const Json &args,
                 if (!outcome.ok)
                     return;
                 const bool moved = outcome.side_effect_may_have_occurred;
-                const auto arrived = marks_->capture_roi
-                                         ? screen->capture_roi(*marks_->capture_roi, {}, bounded)
-                                         : screen->capture_display(marks_->display_id, {}, bounded);
-                if (!arrived.ok || !valid_image_frame(arrived.frame, desktop_image_bytes, 65535) ||
-                    arrived.frame.width != source.width || arrived.frame.height != source.height ||
-                    !stable_display() || !stable_front() || bounded.cancelled() ||
-                    desktop_.actions->epoch() != dispatch_epoch ||
-                    assess_target_stability(source, arrived.frame, target) ==
-                        TargetStability::kChanged) {
-                    outcome.ok = false;
-                    outcome.error = {bounded.cancelled() ? "cancelled" : "arrival_target_changed",
-                                     "visual target changed during approach"};
+                if (bounded.cancelled()) {
+                    outcome = {
+                        false, true, {"cancelled", "Input cancelled after approach"}, moved, true};
                     return;
                 }
                 limits.timeout = std::min(desktop::input_cadence_policy::action_timeout,

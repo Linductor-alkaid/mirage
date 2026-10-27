@@ -1,5 +1,8 @@
 # DEC-110：连续键鼠动作、持键观察与设备输入兼容性
 
+> **2026-10-27 失效说明：** 本决定中与常驻感知/普通动作执行冲突的条款已被替代。以 [DEC-117](DEC-117-runtime-resident-perception-and-autonomous-input.md) 的“旧决策失效范围”为准；下文冲突原文仅供历史追溯，不再作为实现或测试要求。
+
+
 > 当前恢复规则：人工复核及永久围栏部分已由
 > [DEC-113](DEC-113-autonomous-action-recovery.md) 替代；其他能力与权限约束继续有效。
 

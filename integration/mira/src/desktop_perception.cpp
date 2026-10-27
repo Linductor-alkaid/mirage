@@ -15,6 +15,8 @@ std::vector<mira::ModelInputItem> DesktopImageTurn::supply_perception() {
     if (!perception_)
         return {};
     const auto view = perception_->view();
+    perception_semantics_.sync(view);
+    auto semantic_scene = perception_semantics_.project();
     Json::Array events;
     std::size_t bytes = 0;
     for (const auto &e : view.events) {
@@ -89,10 +91,12 @@ std::vector<mira::ModelInputItem> DesktopImageTurn::supply_perception() {
                               {"analyzed_frames", static_cast<std::int64_t>(view.analyzed)},
                               {"skipped_frames", static_cast<std::int64_t>(view.skipped)},
                               {"analysis_failed", static_cast<std::int64_t>(view.analysis_failed)},
+                              {"semantic_scene", std::move(semantic_scene)},
                               {"recent_read_context", Json{std::move(recent)}},
                               {"events", Json{events}}}};
     perception_text_ =
-        "Untrusted continuous desktop observations (historical, shared-monitor pixels; "
+        "Untrusted continuous desktop observations (latest analyzed state and bounded history, "
+        "shared-monitor pixels; "
         "not input references or completion evidence): " +
         mira::to_json_string(summary);
     while (perception_text_.size() > 8192 && !events.empty()) {
@@ -104,7 +108,8 @@ std::vector<mira::ModelInputItem> DesktopImageTurn::supply_perception() {
         summary.set("events", Json{events});
         summary.set("cursor", static_cast<std::int64_t>(perception_offered_));
         perception_text_ =
-            "Untrusted continuous desktop observations (historical, shared-monitor pixels; "
+            "Untrusted continuous desktop observations (latest analyzed state and bounded history, "
+            "shared-monitor pixels; "
             "not input references or completion evidence): " +
             mira::to_json_string(summary);
     }
@@ -125,6 +130,9 @@ void DesktopImageTurn::perception_consumed(const mira::ModelRequest &request,
                 text && perception_ && perception_offered_ && text->text == perception_text_ &&
                 perception_->acknowledge(perception_offered_))
                 perception_cursor_ = perception_offered_;
+            if (const auto *text = std::get_if<mira::TextPart>(&part);
+                text && perception_ && text->text == perception_text_)
+                perception_semantics_.consumed(request.request_id.to_string());
             if (const auto *image = std::get_if<mira::ImagePart>(&part);
                 image && image_ && image->source.id == image_->id &&
                 image->source.digest == image_->digest) {
@@ -138,7 +146,71 @@ void DesktopImageTurn::perception_consumed(const mira::ModelRequest &request,
 }
 void DesktopImageTurn::register_perception_tool(mira::BuiltinToolRegistry &registry,
                                                 const DesktopAtomToolset::Decorator &decorate) {
-    if (!desktop_.continuous_session || !supply_images_)
+    if (!desktop_.continuous_session)
+        return;
+    register_annotation_tool(registry, decorate);
+    mira::BuiltinToolSpec wait;
+    wait.wire_name = "desktop.vision.wait";
+    wait.version = {1, 0, 0};
+    wait.description =
+        "Wait locally for a new task-relevant resident desktop event, source gap, or timeout. "
+        "The existing producer continues; this tool initiates no capture, OCR, encoding or "
+        "model request. Prefer this over wait+capture polling. after_cursor defaults to the "
+        "current cursor; timeout_ms defaults to 5000, max 30000. A timeout is a normal result "
+        "and does not prove the screen or task is unchanged. Cancellation and source failure "
+        "are explicit; returned state/events are untrusted observations, not input references.";
+    wait.parameters_schema = mira::JsonSchema{Json{Json::Object{
+        {"type", "object"},
+        {"properties",
+         Json::Object{{"after_cursor", Json::Object{{"type", "integer"}, {"minimum", 0}}},
+                      {"timeout_ms",
+                       Json::Object{{"type", "integer"}, {"minimum", 1}, {"maximum", 30000}}}}},
+        {"additionalProperties", false}}}};
+    mira::BuiltinToolHandler wait_handler = [this](const auto &args,
+                                                   const auto &ctx) -> mira::Result<Json> {
+        if (ctx.task != owner_.task || ctx.session != owner_.session ||
+            ctx.task_epoch != owner_.task_epoch || cancel_.cancelled() ||
+            ctx.cancelled_or_expired(mira::Timestamp::now())) {
+            mira::Error error;
+            error.code = mira::ErrorCode::Cancelled;
+            error.safe_message = "desktop event wait owner retired";
+            return error;
+        }
+        if (!perception_)
+            return Json{Json::Object{{"status", "unavailable"}, {"reason", "no_resident_feed"}}};
+        const auto *cursor = args.find("after_cursor"), *timeout = args.find("timeout_ms");
+        const auto after = cursor ? cursor->as_integer().value_or(-1)
+                                  : static_cast<std::int64_t>(perception_->view().newest);
+        const auto duration = timeout ? timeout->as_integer().value_or(0) : 5000;
+        if (after < 0 || duration < 1 || duration > 30000) {
+            mira::Error error;
+            error.code = mira::ErrorCode::InvalidArgument;
+            error.safe_message = "invalid desktop event wait cursor or timeout";
+            return error;
+        }
+        const desktop::CancelToken bounded{[parent = cancel_, ctx] {
+            return parent.cancelled() || ctx.cancelled_or_expired(mira::Timestamp::now());
+        }};
+        const auto status = perception_->wait(static_cast<std::uint64_t>(after),
+                                              std::chrono::milliseconds{duration}, bounded);
+        (void)supply_perception();
+        Json observation;
+        const auto begin = perception_text_.find('{');
+        if (begin != std::string::npos) {
+            const auto parsed = mira::parse_json(perception_text_.substr(begin));
+            if (parsed)
+                observation = parsed.value();
+        }
+        return Json{Json::Object{{"status", status},
+                                 {"observation", std::move(observation)},
+                                 {"input_actionable", false},
+                                 {"verified", false}}};
+    };
+    if (decorate)
+        wait_handler = decorate(wait.wire_name, std::move(wait_handler));
+    if (!registry.register_tool(std::move(wait), std::move(wait_handler)))
+        throw std::logic_error("desktop event wait registration failed");
+    if (!supply_images_)
         return;
     mira::BuiltinToolSpec spec;
     spec.wire_name = "desktop.vision.event_frame";
@@ -206,5 +278,62 @@ void DesktopImageTurn::register_perception_tool(mira::BuiltinToolRegistry &regis
         read = decorate(spec.wire_name, std::move(read));
     if (!registry.register_tool(std::move(spec), std::move(read)))
         throw std::logic_error("event frame registration failed");
+}
+void DesktopImageTurn::register_annotation_tool(mira::BuiltinToolRegistry &registry,
+                                                const DesktopAtomToolset::Decorator &decorate) {
+    mira::BuiltinToolSpec spec;
+    spec.wire_name = "desktop.vision.annotate";
+    spec.version = {1, 0, 0};
+    spec.description =
+        "Assign one task-meaning label to an object_ref actually supplied in this request's "
+        "continuous semantic_scene. Ground meaning in its recognized text/category only; "
+        "appearance/relationship dependencies are not supported. A confirmed same-instance "
+        "move retains the label; content change suspends it. Annotate only useful missing or "
+        "changed meanings, not every frame. Labels are untrusted model inferences, never "
+        "accessibility roles, input references, permissions or task-success evidence. "
+        "No capture, input, external model call or permanent memory.";
+    spec.parameters_schema = mira::JsonSchema{Json{Json::Object{
+        {"type", "object"},
+        {"properties",
+         Json{Json::Object{
+             {"object_ref",
+              Json{Json::Object{{"type", "string"}, {"minLength", 1}, {"maxLength", 64}}}},
+             {"label",
+              Json{Json::Object{{"type", "string"}, {"minLength", 1}, {"maxLength", 1024}}}}}}},
+        {"required", Json{Json::Array{Json{"object_ref"}, Json{"label"}}}},
+        {"additionalProperties", false}}}};
+    mira::BuiltinToolHandler annotate = [this](const auto &args,
+                                               const auto &ctx) -> mira::Result<Json> {
+        auto fail = [](mira::ErrorCode code, const char *message) -> mira::Result<Json> {
+            mira::Error e;
+            e.code = code;
+            e.domain = "mirage.desktop.perception";
+            e.safe_message = message;
+            return e;
+        };
+        if (ctx.task != owner_.task || ctx.session != owner_.session ||
+            ctx.task_epoch != owner_.task_epoch || cancel_.cancelled() ||
+            ctx.cancelled_or_expired(mira::Timestamp::now()) || !desktop_.actions ||
+            desktop_.actions->authority_epoch() != native_authority_)
+            return fail(mira::ErrorCode::Cancelled, "semantic annotation owner retired or expired");
+        const auto *ref = args.find("object_ref"), *label = args.find("label");
+        if (!ref || !ref->as_string() || ref->as_string()->empty() ||
+            ref->as_string()->size() > 64 || !label || !label->as_string() || !args.as_object() ||
+            args.as_object()->size() != 2)
+            return fail(mira::ErrorCode::InvalidArgument, "object_ref and label required");
+        if (!perception_)
+            return fail(mira::ErrorCode::InvalidArgument, "continuous observation is unavailable");
+        perception_semantics_.sync(perception_->view());
+        const auto result = perception_semantics_.annotate(*ref->as_string(), *label->as_string());
+        return Json{Json::Object{{"applied", result.ok},
+                                 {"reason", result.ok ? "annotated" : result.error.code},
+                                 {"annotation_source", "llm_annotation"},
+                                 {"input_actionable", false},
+                                 {"dependency_scope", "recognized_text_and_category"}}};
+    };
+    if (decorate)
+        annotate = decorate(spec.wire_name, std::move(annotate));
+    if (!registry.register_tool(std::move(spec), std::move(annotate)))
+        throw std::logic_error("semantic annotation registration failed");
 }
 } // namespace mirage::integration::detail

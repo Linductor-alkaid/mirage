@@ -1,0 +1,1230 @@
+{
+  "schema": 1,
+  "date": "2026-10-27",
+  "work_items": [
+    "M9-22",
+    "M9-10"
+  ],
+  "baseline": "f42d878774383f8f2991c9b4066110a78c7ee126",
+  "branch": "feat/continuous-semantic-binding",
+  "implementation": "local dirty working tree; includes pre-existing changes; no pinned dependency edits; no restart/installation",
+  "environment": {
+    "os": "Linux x86_64 / Ubuntu 24.04",
+    "kernel": "7.0.0-38-generic",
+    "cpu": "Intel Core Ultra 5 225H",
+    "compiler": "GCC 13.3.0",
+    "cmake": "3.28.3",
+    "native_flags": {
+      "build_type": "Release",
+      "PPOCR": true,
+      "YOLO": true,
+      "background_detector": false
+    }
+  },
+  "dependencies": {
+    "mira": "68a8bf17b30af246b722fbb548c033de82efe26e",
+    "mirador": "2a9f4830f4727498ed4cbad568a1d3ec357ece7e",
+    "eui-neo": "19acab66aba45020fced22c9bd5ae5cd0ae54923"
+  },
+  "source_files": {
+    "desktop/environment/include/mirage/desktop/screen_provider.hpp": "380509b074130fe3d0dc3c7aa9b95771ddf4a57d6d50e45c2d6cc6c78a3c3cce",
+    "docs/research/data/desktop-hover-gate-probe-20261027.cpp": "be79481b6704deaf6ab30b5a41fdfaac645a825134baee40a52969474eb3333f",
+    "integration/mira/include/mirage/integration/desktop_perception.hpp": "82f08ffdd106fc8d077e1ad63d8892d9e69a96ba4c02e2efb89194eed1414bd2",
+    "integration/mira/include/mirage/integration/desktop_tool_context.hpp": "8b7553ab9daf2a79d21b994da3ce33c76e79ddf47048fe0c9f3f4471ababaa43",
+    "integration/mira/src/desktop_action_verification.cpp": "dc921365c19191ac7e3851004cd73b25fa67cf9465585ff16e27a324d0587a85",
+    "integration/mira/src/desktop_image_supply.cpp": "7b852791bf94795e0e54a5f2c98edab646f9a49b2da867d5f70929a7b203a81a",
+    "integration/mira/src/desktop_image_supply.hpp": "e272ad75617785033cdbc0f916e255552d85de109f08042355fb3d269e67dc41",
+    "integration/mira/src/desktop_perception.cpp": "7ae155d4d9bb4336a14c18999e47bc7a8d865a39a3c13c1021277b2a952f00ae",
+    "integration/mira/src/desktop_region_tools.cpp": "9e6d53eb00e5b1ccf06303d39f5c3f15ec60e1b0eec7d0feff3e4cbb336e2f41",
+    "integration/mira/src/desktop_shared_input.cpp": "8282cadf2036e6e6b88384cafd4c781679e21ac1ab7a88e23e228a1efd244e74",
+    "integration/mira/src/desktop_stability_guard.hpp": "4e3f50fb21c1c5c8aa68e708888c166e632cee8182eda8c44dabfd05f9c39c20",
+    "integration/mira/src/desktop_visual_tools.cpp": "cc6d15c933ba27cf62708fb553075a2ed70740018527bc6c17498032e165ec43",
+    "integration/mira/src/model_layer.cpp": "8efbcd483b9d1e0c48036c676cb6f259fa9ea031cbf17dec2b5da4f691243ca6",
+    "integration/mira/src/perception_semantics.hpp": "001b501797c1c7191a241681e77e7e3cf00f60ba3e1e5a5068ce4fe98d2fa2c8",
+    "integration/mirador/CMakeLists.txt": "fc05cab792b7763ad0a632249dc3c7d7102cf8335b8a11f3cf87d07203812abc",
+    "integration/mirador/include/mirage/integration/continuous_desktop_session.hpp": "d0cd87dbfcc2b16833d55af4b49935894870b79f5ad925f46ee76887db01884a",
+    "integration/mirador/src/continuous_capture_host.cpp": "b0e42667ea563d12372f5ecbda893a70b1d78698fcdfc0065f3790bb29e05744",
+    "integration/mirador/src/continuous_desktop_session.cpp": "02def739047ab1022504152d0cc721e7bed16fac177c92f6769d85dddfb3f0bb",
+    "integration/mirador/src/continuous_image_observation.cpp": "7423357c9cf97314ae3efcb1eb803deae9defcaf7b28cf952607a0663696a69b",
+    "integration/mirador/src/perception_journal.hpp": "81966c79df6f9940ea39131951d43efa483d207e3c59fc5561e05f920b2fdeca",
+    "integration/mirador/src/resident_desktop_perception.cpp": "837340eab048445f48fb27c312a1f006b451509cc4f8d7319f4a99eec2539862",
+    "platform/linux/src/portal_screen_backend.cpp": "1a3f5e84c298c16d88ece45b804bae4de36d4107a1495366d5e1fd835a54e296",
+    "runtime/conversation/src/conversation.cpp": "de0a4f1051fcba24994603d93f981312a87cd905609e260ea973d86b5393f55c",
+    "runtime/service/src/runtime_service.cpp": "409829190599765c4f8f9fdf640ca633483f0da62677ec29caf0f5f3733b79b9",
+    "tests/CMakeLists.txt": "2c2a0d8f12aa8b82355fab71bf387621b583238448b32d05d1325f5941e9eff4",
+    "tests/integration/continuous_capture_test.cpp": "a96669b68a950d5d8360d8efccb7a87fa0cb4670402142a341de816c0ddad7e9",
+    "tests/integration/desktop_action_policy_test.cpp": "002aab3f53f04cebfa9407d14232214d8bbbb3e25c397a915596fdfd6d3abb6e",
+    "tests/integration/desktop_image_supply_test.cpp": "9459880fcadb2c68110eeb4422bfe4e27ee9cf7fa4cdf7ca6b483842090d7c50",
+    "tests/integration/gui_fallback_test.cpp": "83e94b34ffe33b81196e7c1cd536464f3cc295d7b2962377037bc412f0b8ac55",
+    "tests/integration/local_visual_workflow_test.cpp": "16367f40fdc57823f757e307d59e8ea67ebc95e5db69bbe9e0d366cb3ecf239a",
+    "tests/integration/perception_semantics_test.cpp": "64b8cbe814dd98c7c09deca7ae77ca72e0e1522b0820b2f11b4f54ad74ede419",
+    "tests/integration/task_perception_test.cpp": "230d831218e572d695dd093f36240247707a64018eb6fff7895b915cbd639293",
+    "tests/integration/visual_glide_tools_test.cpp": "d5bc4dd9fec22a41618b8707db41821581dec9cd809c7a61ae128d041d99b960",
+    "tests/integration/visual_marks_test.cpp": "e7b4b25ea68d503f80d0ce4dbdc43443173b725c6859a3d1b4c8693f4048dbb0",
+    "tests/manual/continuous_perception_acceptance.cpp": "91a227b69a9e6c0a3b928030cd69d9c36edfa8892499f5ec739f249e30abbb94",
+    "tests/manual/continuous_perception_acceptance.py": "40a5515b914c3b8fce7324dc8d3ff71c1bf63c01aadbd1cf6427fc96fa4e29c1",
+    "tests/platform/portal_screen_fixture.py": "a6f32b8a74b07c2939cc7a9414a4f976f346b359fb4c5accbf939def853262ef",
+    "tests/platform/portal_screen_test.cpp": "ca188befcb001403d89ad4a212d19645c57c8c54c0d0b81eefc0d4f0fa6ddb0c"
+  },
+  "source_digest": "47d604bd31754022ddc4f38c2ea7b3cf0a65b36b9be3a024d0f3796de9827723",
+  "test_results": {
+    "debug_full": {
+      "command": "ctest --preset debug --output-on-failure -j4",
+      "total": 114,
+      "failed": 1,
+      "elapsed_seconds": 78.65,
+      "log_sha256": "aa6f0f33e6fe9d10c041c9f16db93647bb4ec6ff36270b5538383927a6195d82",
+      "tests": [
+        {
+          "name": "mirage_test_state_setup",
+          "status": "Passed"
+        },
+        {
+          "name": "visual_glide_tools_test",
+          "status": "Passed"
+        },
+        {
+          "name": "controlled_input_x11_test",
+          "status": "Passed"
+        },
+        {
+          "name": "linux_file_actions_test",
+          "status": "Passed"
+        },
+        {
+          "name": "portal_input_test",
+          "status": "Passed"
+        },
+        {
+          "name": "desktop_png_decode_check",
+          "status": "Passed"
+        },
+        {
+          "name": "post_action_verification_test",
+          "status": "Passed"
+        },
+        {
+          "name": "native_agent_integration_test",
+          "status": "Passed"
+        },
+        {
+          "name": "harness_desktop_tools_test",
+          "status": "Passed"
+        },
+        {
+          "name": "event_subscription_test",
+          "status": "Passed"
+        },
+        {
+          "name": "x11_pointer_actions_test",
+          "status": "Passed"
+        },
+        {
+          "name": "runtime_service_test",
+          "status": "Passed"
+        },
+        {
+          "name": "pet_bridge_lifecycle_test",
+          "status": "Passed"
+        },
+        {
+          "name": "tray_runtime_test",
+          "status": "Passed"
+        },
+        {
+          "name": "task_pause_test",
+          "status": "Passed"
+        },
+        {
+          "name": "session_client_test",
+          "status": "Passed"
+        },
+        {
+          "name": "desktop_image_supply_test",
+          "status": "Passed"
+        },
+        {
+          "name": "local_semantic_workflow_test",
+          "status": "Passed"
+        },
+        {
+          "name": "visual_marks_test",
+          "status": "Passed"
+        },
+        {
+          "name": "desktop_action_policy_test",
+          "status": "Passed"
+        },
+        {
+          "name": "x11_smooth_move_test",
+          "status": "Passed"
+        },
+        {
+          "name": "action_contract_test",
+          "status": "Passed"
+        },
+        {
+          "name": "portal_screen_fixture",
+          "status": "Passed"
+        },
+        {
+          "name": "visual_session_test",
+          "status": "Passed"
+        },
+        {
+          "name": "pet_status_integration_test",
+          "status": "Passed"
+        },
+        {
+          "name": "x11_backend_test",
+          "status": "Passed"
+        },
+        {
+          "name": "provider_hardening_test",
+          "status": "Passed"
+        },
+        {
+          "name": "persistence_test",
+          "status": "Passed"
+        },
+        {
+          "name": "task_perception_test",
+          "status": "Passed"
+        },
+        {
+          "name": "overlay_carrier_test",
+          "status": "Passed"
+        },
+        {
+          "name": "desktop_context_builder_test",
+          "status": "Passed"
+        },
+        {
+          "name": "continuous_capture_test",
+          "status": "Passed"
+        },
+        {
+          "name": "tray_backend_test",
+          "status": "Passed"
+        },
+        {
+          "name": "application_backend_test",
+          "status": "Passed"
+        },
+        {
+          "name": "ipc_protocol_test",
+          "status": "Passed"
+        },
+        {
+          "name": "permission_ipc_test",
+          "status": "Passed"
+        },
+        {
+          "name": "recovery_service_test",
+          "status": "Passed"
+        },
+        {
+          "name": "mira_binding_test",
+          "status": "Passed"
+        },
+        {
+          "name": "local_visual_workflow_test",
+          "status": "Passed"
+        },
+        {
+          "name": "continuous_perception_consumer_test",
+          "status": "Passed"
+        },
+        {
+          "name": "task_cancel_test",
+          "status": "Passed"
+        },
+        {
+          "name": "perception_semantics_test",
+          "status": "Passed"
+        },
+        {
+          "name": "desktop_provider_boundary_test",
+          "status": "Passed"
+        },
+        {
+          "name": "visual_observation_e2e_test",
+          "status": "Passed"
+        },
+        {
+          "name": "x11_visual_marks_test",
+          "status": "Passed"
+        },
+        {
+          "name": "task_permission_test",
+          "status": "Passed"
+        },
+        {
+          "name": "update_channel_test",
+          "status": "Passed"
+        },
+        {
+          "name": "credential_store_fixture_test",
+          "status": "Passed"
+        },
+        {
+          "name": "dependency_lock_gate_test",
+          "status": "Passed"
+        },
+        {
+          "name": "observation_face_test",
+          "status": "Passed"
+        },
+        {
+          "name": "atspi_backend_test",
+          "status": "Passed"
+        },
+        {
+          "name": "overlay_service_test",
+          "status": "Passed"
+        },
+        {
+          "name": "input_cadence_test",
+          "status": "Passed"
+        },
+        {
+          "name": "update_core_test",
+          "status": "Passed"
+        },
+        {
+          "name": "pet_projection_refresh_test",
+          "status": "Passed"
+        },
+        {
+          "name": "observation_e2e_test",
+          "status": "Passed"
+        },
+        {
+          "name": "permission_test",
+          "status": "Passed"
+        },
+        {
+          "name": "mira_host_test",
+          "status": "Passed"
+        },
+        {
+          "name": "pet_observation_test",
+          "status": "Passed"
+        },
+        {
+          "name": "frontend_activation_test",
+          "status": "Passed"
+        },
+        {
+          "name": "visual_contract_test",
+          "status": "Passed"
+        },
+        {
+          "name": "ppocr_pipeline_test",
+          "status": "Passed"
+        },
+        {
+          "name": "ipc_protocol_golden_test",
+          "status": "Passed"
+        },
+        {
+          "name": "notification_backend_test",
+          "status": "Passed"
+        },
+        {
+          "name": "visual_cache_geometry_test",
+          "status": "Passed"
+        },
+        {
+          "name": "visual_text_verification_test",
+          "status": "Passed"
+        },
+        {
+          "name": "conversation_budget_test",
+          "status": "Passed"
+        },
+        {
+          "name": "desktop_atom_toolset_test",
+          "status": "Passed"
+        },
+        {
+          "name": "update_client_http_test",
+          "status": "Passed"
+        },
+        {
+          "name": "smooth_move_schedule_test",
+          "status": "Passed"
+        },
+        {
+          "name": "desktop_stability_guard_test",
+          "status": "Passed"
+        },
+        {
+          "name": "provider_contract_test",
+          "status": "Passed"
+        },
+        {
+          "name": "visual_session_budgeted_test",
+          "status": "Passed"
+        },
+        {
+          "name": "frontend_process_test",
+          "status": "Passed"
+        },
+        {
+          "name": "visual_scene_test",
+          "status": "Passed"
+        },
+        {
+          "name": "credential_store_test",
+          "status": "Passed"
+        },
+        {
+          "name": "tool_alias_provider_test",
+          "status": "Passed"
+        },
+        {
+          "name": "native_chat_model_test",
+          "status": "Passed"
+        },
+        {
+          "name": "pet_status_test",
+          "status": "Passed"
+        },
+        {
+          "name": "visual_observation_loop_test",
+          "status": "Passed"
+        },
+        {
+          "name": "visual_template_index_test",
+          "status": "Passed"
+        },
+        {
+          "name": "workflow_event_bridge_test",
+          "status": "Passed"
+        },
+        {
+          "name": "element_target_executor_test",
+          "status": "Passed"
+        },
+        {
+          "name": "dependency_wiring_test",
+          "status": "Passed"
+        },
+        {
+          "name": "smooth_move_contract_test",
+          "status": "Passed"
+        },
+        {
+          "name": "input_session_contract_test",
+          "status": "Passed"
+        },
+        {
+          "name": "session_journal_test",
+          "status": "Passed"
+        },
+        {
+          "name": "overlay_presenter_test",
+          "status": "Passed"
+        },
+        {
+          "name": "host_dpi_awareness_test",
+          "status": "Passed"
+        },
+        {
+          "name": "observation_assembler_test",
+          "status": "Passed"
+        },
+        {
+          "name": "desktop_observation_test",
+          "status": "Passed"
+        },
+        {
+          "name": "pet_animation_test",
+          "status": "Passed"
+        },
+        {
+          "name": "fake_visual_backend_test",
+          "status": "Passed"
+        },
+        {
+          "name": "overlay_surface_test",
+          "status": "Passed"
+        },
+        {
+          "name": "visual_scene_mapping_test",
+          "status": "Passed"
+        },
+        {
+          "name": "pet_bubble_test",
+          "status": "Passed"
+        },
+        {
+          "name": "controlled_input_devices_test",
+          "status": "Passed"
+        },
+        {
+          "name": "portal_stream_retention_test",
+          "status": "Passed"
+        },
+        {
+          "name": "controlled_input_session_test",
+          "status": "Passed"
+        },
+        {
+          "name": "yolo_bundle_test",
+          "status": "Passed"
+        },
+        {
+          "name": "action_recovery_facts_test",
+          "status": "Passed"
+        },
+        {
+          "name": "basic_output_store_test",
+          "status": "Passed"
+        },
+        {
+          "name": "ime_text_input_test",
+          "status": "Passed"
+        },
+        {
+          "name": "pet_frame_presentation_test",
+          "status": "Passed"
+        },
+        {
+          "name": "pet_resource_loader_test",
+          "status": "Passed"
+        },
+        {
+          "name": "pet_exclusion_tools_test",
+          "status": "Passed"
+        },
+        {
+          "name": "basic_contract_default_test",
+          "status": "Passed"
+        },
+        {
+          "name": "pet_status_delivery_test",
+          "status": "Passed"
+        },
+        {
+          "name": "portal_authorization_test",
+          "status": "Passed"
+        },
+        {
+          "name": "target_text_value_test",
+          "status": "Passed"
+        },
+        {
+          "name": "mirage_test_state_cleanup",
+          "status": "Passed"
+        },
+        {
+          "name": "basic_agent_toolset_test",
+          "status": "Passed"
+        },
+        {
+          "name": "input_method_state_fixture_test",
+          "status": "Passed"
+        }
+      ]
+    },
+    "debug_gui_corrected": {
+      "command": "ctest --preset debug --output-on-failure -R '^gui_fallback_test$'",
+      "total": 3,
+      "failed": 0,
+      "elapsed_seconds": 14.45,
+      "log_sha256": "1325c004ec708ccbe818bea0cf9e50609e86a65ebcb54bc33624d9f22301d961",
+      "tests": [
+        {
+          "name": "mirage_test_state_setup",
+          "status": "Passed"
+        },
+        {
+          "name": "gui_fallback_test",
+          "status": "Passed"
+        },
+        {
+          "name": "mirage_test_state_cleanup",
+          "status": "Passed"
+        }
+      ]
+    },
+    "debug_formatted_projection": {
+      "command": "ctest --preset debug --output-on-failure -R '^(desktop_action_policy_test|post_action_verification_test)$'",
+      "total": 4,
+      "failed": 0,
+      "elapsed_seconds": 19.94,
+      "log_sha256": "dd2aa2363b8c364af1b90079e00f0cc13aad647651e736918ae88ac63ab82bc8",
+      "tests": [
+        {
+          "name": "mirage_test_state_setup",
+          "status": "Passed"
+        },
+        {
+          "name": "desktop_action_policy_test",
+          "status": "Passed"
+        },
+        {
+          "name": "post_action_verification_test",
+          "status": "Passed"
+        },
+        {
+          "name": "mirage_test_state_cleanup",
+          "status": "Passed"
+        }
+      ]
+    },
+    "native": {
+      "command": "ctest --preset native-release --output-on-failure -R '^(desktop_image_supply_test|task_perception_test|perception_semantics_test|visual_marks_test|portal_screen_fixture|desktop_action_policy_test|post_action_verification_test)$'",
+      "total": 9,
+      "failed": 0,
+      "elapsed_seconds": 103.72,
+      "log_sha256": "32dfafab461887be0a13337f8942aef832b712fb9c0889ec997567b559d9fbc6",
+      "tests": [
+        {
+          "name": "mirage_test_state_setup",
+          "status": "Passed"
+        },
+        {
+          "name": "task_perception_test",
+          "status": "Passed"
+        },
+        {
+          "name": "perception_semantics_test",
+          "status": "Passed"
+        },
+        {
+          "name": "desktop_image_supply_test",
+          "status": "Passed"
+        },
+        {
+          "name": "desktop_action_policy_test",
+          "status": "Passed"
+        },
+        {
+          "name": "post_action_verification_test",
+          "status": "Passed"
+        },
+        {
+          "name": "visual_marks_test",
+          "status": "Passed"
+        },
+        {
+          "name": "portal_screen_fixture",
+          "status": "Passed"
+        },
+        {
+          "name": "mirage_test_state_cleanup",
+          "status": "Passed"
+        }
+      ]
+    },
+    "asan": {
+      "command": "ctest --preset asan --output-on-failure -R '^(desktop_image_supply_test|task_perception_test|perception_semantics_test|visual_marks_test|post_action_verification_test|continuous_capture_test|desktop_action_policy_test)$'",
+      "total": 9,
+      "failed": 0,
+      "elapsed_seconds": 61.66,
+      "log_sha256": "ec09483b808895070f5ae40b34254a2ad795df3dbdc4df03d08702b6416d5f46",
+      "tests": [
+        {
+          "name": "mirage_test_state_setup",
+          "status": "Passed"
+        },
+        {
+          "name": "task_perception_test",
+          "status": "Passed"
+        },
+        {
+          "name": "perception_semantics_test",
+          "status": "Passed"
+        },
+        {
+          "name": "continuous_capture_test",
+          "status": "Passed"
+        },
+        {
+          "name": "desktop_image_supply_test",
+          "status": "Passed"
+        },
+        {
+          "name": "desktop_action_policy_test",
+          "status": "Passed"
+        },
+        {
+          "name": "post_action_verification_test",
+          "status": "Passed"
+        },
+        {
+          "name": "visual_marks_test",
+          "status": "Passed"
+        },
+        {
+          "name": "mirage_test_state_cleanup",
+          "status": "Passed"
+        }
+      ]
+    },
+    "asan_task_corrected": {
+      "command": "ctest --preset asan --output-on-failure -R '^task_perception_test$'",
+      "total": 3,
+      "failed": 0,
+      "elapsed_seconds": 2.61,
+      "log_sha256": "b814cabe78d61871b003c6a3cbdab9a9adbc095ff7069681f681f07f8033d79a",
+      "tests": [
+        {
+          "name": "mirage_test_state_setup",
+          "status": "Passed"
+        },
+        {
+          "name": "task_perception_test",
+          "status": "Passed"
+        },
+        {
+          "name": "mirage_test_state_cleanup",
+          "status": "Passed"
+        }
+      ]
+    },
+    "ubsan": {
+      "command": "ctest --preset ubsan --output-on-failure -R '^(desktop_image_supply_test|task_perception_test|perception_semantics_test|visual_marks_test|post_action_verification_test|continuous_capture_test|desktop_action_policy_test)$'",
+      "total": 9,
+      "failed": 0,
+      "elapsed_seconds": 58.65,
+      "log_sha256": "f2537dcd733b169e7cbdaf8391f8ed9db83b36535ba4fb672fe4414b32652397",
+      "tests": [
+        {
+          "name": "mirage_test_state_setup",
+          "status": "Passed"
+        },
+        {
+          "name": "task_perception_test",
+          "status": "Passed"
+        },
+        {
+          "name": "perception_semantics_test",
+          "status": "Passed"
+        },
+        {
+          "name": "continuous_capture_test",
+          "status": "Passed"
+        },
+        {
+          "name": "desktop_image_supply_test",
+          "status": "Passed"
+        },
+        {
+          "name": "desktop_action_policy_test",
+          "status": "Passed"
+        },
+        {
+          "name": "post_action_verification_test",
+          "status": "Passed"
+        },
+        {
+          "name": "visual_marks_test",
+          "status": "Passed"
+        },
+        {
+          "name": "mirage_test_state_cleanup",
+          "status": "Passed"
+        }
+      ]
+    },
+    "ubsan_task_corrected": {
+      "command": "ctest --preset ubsan --output-on-failure -R '^task_perception_test$'",
+      "total": 3,
+      "failed": 0,
+      "elapsed_seconds": 2.32,
+      "log_sha256": "9dbefa0ef785f9d2276a599222ff0f61982759644d86ed960d775f1b3feabae4",
+      "tests": [
+        {
+          "name": "mirage_test_state_setup",
+          "status": "Passed"
+        },
+        {
+          "name": "task_perception_test",
+          "status": "Passed"
+        },
+        {
+          "name": "mirage_test_state_cleanup",
+          "status": "Passed"
+        }
+      ]
+    },
+    "tsan": {
+      "command": "setarch x86_64 -R ctest --preset tsan --output-on-failure -R '^(desktop_image_supply_test|task_perception_test|perception_semantics_test|visual_marks_test|post_action_verification_test|continuous_capture_test|desktop_action_policy_test)$'",
+      "total": 9,
+      "failed": 1,
+      "elapsed_seconds": 110.29,
+      "log_sha256": "a46e927a2f51b5f568f6377e3d9f0d0991033dd3c9a520f87c9fe99309bf5076",
+      "tests": [
+        {
+          "name": "mirage_test_state_setup",
+          "status": "Passed"
+        },
+        {
+          "name": "perception_semantics_test",
+          "status": "Passed"
+        },
+        {
+          "name": "continuous_capture_test",
+          "status": "Passed"
+        },
+        {
+          "name": "desktop_image_supply_test",
+          "status": "Passed"
+        },
+        {
+          "name": "desktop_action_policy_test",
+          "status": "Passed"
+        },
+        {
+          "name": "post_action_verification_test",
+          "status": "Passed"
+        },
+        {
+          "name": "visual_marks_test",
+          "status": "Passed"
+        },
+        {
+          "name": "mirage_test_state_cleanup",
+          "status": "Passed"
+        }
+      ]
+    },
+    "tsan_task_corrected": {
+      "command": "setarch x86_64 -R ctest --preset tsan --output-on-failure -R '^task_perception_test$'",
+      "total": 3,
+      "failed": 0,
+      "elapsed_seconds": 2.87,
+      "log_sha256": "b91c6f913147b16065dc7ab0caea33135838d4a22a829307a81a67ae8a4f2ad4",
+      "tests": [
+        {
+          "name": "mirage_test_state_setup",
+          "status": "Passed"
+        },
+        {
+          "name": "task_perception_test",
+          "status": "Passed"
+        },
+        {
+          "name": "mirage_test_state_cleanup",
+          "status": "Passed"
+        }
+      ]
+    }
+  },
+  "real_ocr": [
+    {
+      "last_analysis_error": "",
+      "resident_continued_after_task": true,
+      "resident_frames_after_task": 114,
+      "scripted_annotations": 0,
+      "annotation_failed": 0,
+      "state": "sampling",
+      "error": "",
+      "frames": 113,
+      "analyzed": 58,
+      "skipped": 55,
+      "analysis_failed": 0,
+      "dropped": 0,
+      "peak_journal_bytes": 18508,
+      "peak_preview_bytes": 7864320,
+      "process_peak_rss_kib": 527784,
+      "vlm_calls": 0,
+      "png_encodes": 0,
+      "binary_sha256": "d43a14dd42db913f1dc5795e83e0daee08ed9a21d98fb2f190f9301b463ee555",
+      "manifest_sha256": "ec703acaba9325c40d4e34c5ef542df63941481f9af4a6b2339aa5aee8545097",
+      "trials": [
+        {
+          "text": "ALPHA",
+          "duration_ms": 100,
+          "detected": false,
+          "latency_ms": null,
+          "confirmed": false
+        },
+        {
+          "text": "BRAVO",
+          "duration_ms": 500,
+          "detected": true,
+          "latency_ms": 287.58554597152397,
+          "confirmed": true
+        },
+        {
+          "text": "CHARLIE",
+          "duration_ms": 1500,
+          "detected": true,
+          "latency_ms": 276.38543798821047,
+          "confirmed": true
+        },
+        {
+          "text": "DELTA",
+          "duration_ms": 100,
+          "detected": true,
+          "latency_ms": 374.9315940076485,
+          "confirmed": false
+        },
+        {
+          "text": "ECHO",
+          "duration_ms": 500,
+          "detected": true,
+          "latency_ms": 238.72030002530664,
+          "confirmed": true
+        },
+        {
+          "text": "FOXTROT",
+          "duration_ms": 1500,
+          "detected": true,
+          "latency_ms": 349.4064520346001,
+          "confirmed": true
+        },
+        {
+          "text": "GOLF",
+          "duration_ms": 100,
+          "detected": false,
+          "latency_ms": null,
+          "confirmed": false
+        },
+        {
+          "text": "HOTEL",
+          "duration_ms": 500,
+          "detected": true,
+          "latency_ms": 395.7094079814851,
+          "confirmed": true
+        },
+        {
+          "text": "INDIA",
+          "duration_ms": 1500,
+          "detected": true,
+          "latency_ms": 365.8820479759015,
+          "confirmed": true
+        },
+        {
+          "text": "JULIET",
+          "duration_ms": 100,
+          "detected": false,
+          "latency_ms": null,
+          "confirmed": false
+        },
+        {
+          "text": "KILO",
+          "duration_ms": 500,
+          "detected": true,
+          "latency_ms": 395.0012369896285,
+          "confirmed": true
+        },
+        {
+          "text": "LIMA",
+          "duration_ms": 1500,
+          "detected": true,
+          "latency_ms": 467.5162669736892,
+          "confirmed": true
+        },
+        {
+          "text": "MIKE",
+          "duration_ms": 100,
+          "detected": false,
+          "latency_ms": null,
+          "confirmed": false
+        },
+        {
+          "text": "NOVEMBER",
+          "duration_ms": 500,
+          "detected": true,
+          "latency_ms": 523.5491039929911,
+          "confirmed": false
+        },
+        {
+          "text": "OSCAR",
+          "duration_ms": 1500,
+          "detected": true,
+          "latency_ms": 495.83271401934326,
+          "confirmed": true
+        },
+        {
+          "text": "PAPA",
+          "duration_ms": 100,
+          "detected": true,
+          "latency_ms": 263.67066998500377,
+          "confirmed": false
+        },
+        {
+          "text": "QUEBEC",
+          "duration_ms": 500,
+          "detected": true,
+          "latency_ms": 457.6620460138656,
+          "confirmed": true
+        },
+        {
+          "text": "ROMEO",
+          "duration_ms": 1500,
+          "detected": true,
+          "latency_ms": 555.1727009587921,
+          "confirmed": true
+        }
+      ],
+      "by_duration": [
+        {
+          "duration_ms": 100,
+          "total": 6,
+          "detected": 2,
+          "confirmed": 0
+        },
+        {
+          "duration_ms": 500,
+          "total": 6,
+          "detected": 6,
+          "confirmed": 5
+        },
+        {
+          "duration_ms": 1500,
+          "total": 6,
+          "detected": 6,
+          "confirmed": 6
+        }
+      ],
+      "report_sha256": "4dd84bf1b428fca8ef7b79a50f880d1f965121ba8dd9bd5c3a115e85af8cf065",
+      "command": "/usr/bin/python3 tests/manual/continuous_perception_acceptance.py --binary build/native-release/tests/continuous_perception_acceptance --manifest build/native-release/share/mirage/vision/ppocrv5-mobile-v1/manifest.json --output /tmp/mirage-m9-22-private-ocr.json"
+    },
+    {
+      "last_analysis_error": "",
+      "resident_continued_after_task": true,
+      "resident_frames_after_task": 115,
+      "scripted_annotations": 0,
+      "annotation_failed": 0,
+      "state": "sampling",
+      "error": "",
+      "frames": 113,
+      "analyzed": 58,
+      "skipped": 55,
+      "analysis_failed": 0,
+      "dropped": 0,
+      "peak_journal_bytes": 18512,
+      "peak_preview_bytes": 7864320,
+      "process_peak_rss_kib": 529860,
+      "vlm_calls": 0,
+      "png_encodes": 0,
+      "binary_sha256": "1fdc716f7ffc3f2d13b496fb9db84110b54e23766f854f142593cfc7e9987c16",
+      "manifest_sha256": "ec703acaba9325c40d4e34c5ef542df63941481f9af4a6b2339aa5aee8545097",
+      "trials": [
+        {
+          "text": "ALPHA",
+          "duration_ms": 100,
+          "detected": false,
+          "latency_ms": null,
+          "confirmed": false
+        },
+        {
+          "text": "BRAVO",
+          "duration_ms": 500,
+          "detected": true,
+          "latency_ms": 509.0578200179152,
+          "confirmed": false
+        },
+        {
+          "text": "CHARLIE",
+          "duration_ms": 1500,
+          "detected": true,
+          "latency_ms": 375.2013450139202,
+          "confirmed": true
+        },
+        {
+          "text": "DELTA",
+          "duration_ms": 100,
+          "detected": true,
+          "latency_ms": 414.32136099319905,
+          "confirmed": false
+        },
+        {
+          "text": "ECHO",
+          "duration_ms": 500,
+          "detected": true,
+          "latency_ms": 299.14720298256725,
+          "confirmed": true
+        },
+        {
+          "text": "FOXTROT",
+          "duration_ms": 1500,
+          "detected": true,
+          "latency_ms": 369.82664198148996,
+          "confirmed": true
+        },
+        {
+          "text": "GOLF",
+          "duration_ms": 100,
+          "detected": false,
+          "latency_ms": null,
+          "confirmed": false
+        },
+        {
+          "text": "HOTEL",
+          "duration_ms": 500,
+          "detected": true,
+          "latency_ms": 376.6058009932749,
+          "confirmed": true
+        },
+        {
+          "text": "INDIA",
+          "duration_ms": 1500,
+          "detected": true,
+          "latency_ms": 388.5946510126814,
+          "confirmed": true
+        },
+        {
+          "text": "JULIET",
+          "duration_ms": 100,
+          "detected": false,
+          "latency_ms": null,
+          "confirmed": false
+        },
+        {
+          "text": "KILO",
+          "duration_ms": 500,
+          "detected": true,
+          "latency_ms": 381.55937095871195,
+          "confirmed": true
+        },
+        {
+          "text": "LIMA",
+          "duration_ms": 1500,
+          "detected": true,
+          "latency_ms": 435.5142129934393,
+          "confirmed": true
+        },
+        {
+          "text": "MIKE",
+          "duration_ms": 100,
+          "detected": false,
+          "latency_ms": null,
+          "confirmed": false
+        },
+        {
+          "text": "NOVEMBER",
+          "duration_ms": 500,
+          "detected": true,
+          "latency_ms": 492.76851303875446,
+          "confirmed": true
+        },
+        {
+          "text": "OSCAR",
+          "duration_ms": 1500,
+          "detected": true,
+          "latency_ms": 443.64401703933254,
+          "confirmed": true
+        },
+        {
+          "text": "PAPA",
+          "duration_ms": 100,
+          "detected": true,
+          "latency_ms": 268.4930209652521,
+          "confirmed": false
+        },
+        {
+          "text": "QUEBEC",
+          "duration_ms": 500,
+          "detected": true,
+          "latency_ms": 480.68031400907785,
+          "confirmed": true
+        },
+        {
+          "text": "ROMEO",
+          "duration_ms": 1500,
+          "detected": true,
+          "latency_ms": 476.2407659436576,
+          "confirmed": true
+        }
+      ],
+      "by_duration": [
+        {
+          "duration_ms": 100,
+          "total": 6,
+          "detected": 2,
+          "confirmed": 0
+        },
+        {
+          "duration_ms": 500,
+          "total": 6,
+          "detected": 6,
+          "confirmed": 5
+        },
+        {
+          "duration_ms": 1500,
+          "total": 6,
+          "detected": 6,
+          "confirmed": 6
+        }
+      ],
+      "report_sha256": "195016ffc6343c8b237969e37b2d815ced03ae778aff3f3bcff8dfa682799310",
+      "command": "/usr/bin/python3 tests/manual/continuous_perception_acceptance.py --binary build/native-release/tests/continuous_perception_acceptance --manifest build/native-release/share/mirage/vision/ppocrv5-mobile-v1/manifest.json --output /tmp/mirage-m9-22-private-ocr-final.json"
+    }
+  ],
+  "native_artifacts": {
+    "build/native-release/apps/mirage-service": {
+      "sha256": "3470446934fa6201d56f09d96d1ae62568a10c0198cfca37bd046e692567a6d7",
+      "bytes": 30554408
+    },
+    "build/native-release/apps/native/mirage-native": {
+      "sha256": "52441cae8b90aa482051cd0b427c6a8cae23a9fe318cf269f8d65869c0a17ba2",
+      "bytes": 4502024
+    },
+    "build/native-release/apps/tray/mirage-tray": {
+      "sha256": "554bfd90b137b68cc056128a805628934ce72c44fed0386c1cbade3294a4deb0",
+      "bytes": 30554408
+    },
+    "build/native-release/tests/continuous_perception_acceptance": {
+      "sha256": "1fdc716f7ffc3f2d13b496fb9db84110b54e23766f854f142593cfc7e9987c16",
+      "bytes": 20168480
+    }
+  },
+  "build_commands": [
+    "cmake --build --preset debug -j2",
+    "cmake --build --preset native-release -j2 --target mirage-service mirage-native mirage-tray continuous_perception_acceptance desktop_image_supply_test task_perception_test perception_semantics_test visual_marks_test portal_screen_test desktop_action_policy_test post_action_verification_test",
+    "cmake --build --preset asan -j2 --target desktop_image_supply_test task_perception_test perception_semantics_test visual_marks_test post_action_verification_test continuous_capture_test desktop_action_policy_test",
+    "cmake --build --preset ubsan -j2 --target desktop_image_supply_test task_perception_test perception_semantics_test visual_marks_test post_action_verification_test continuous_capture_test desktop_action_policy_test",
+    "cmake --build --preset tsan -j2 --target desktop_image_supply_test task_perception_test perception_semantics_test visual_marks_test post_action_verification_test continuous_capture_test desktop_action_policy_test"
+  ],
+  "validation_notes": [
+    "Debug full run has one obsolete GUI expectation failure; corrected test passed separately. Aggregate suite has no unresolved failures.",
+    "TSAN full focused run has one test assumption failure: attaching two consumers can straddle a publication; corrected task test passed separately.",
+    "ASAN/UBSAN focused runs passed; revised task test also passed separately.",
+    "Only clang-format layout of conversation.cpp and task_perception_test.cpp changed after the main matrix. Native products rebuilt and Debug projection tests passed after conversation formatting.",
+    "Fixture counts include setup/cleanup; no skipped tests.",
+    "Two actual OCR runs; second acceptance binary matches recorded current artifact. No user desktop interaction."
+  ],
+  "static_checks": {
+    "format": "passed: cmake -DROOT_DIR=/home/linductor/mirage -P cmake/CheckFormat.cmake",
+    "private_headers": "4 changed private headers passed clang-format --dry-run --Werror",
+    "public_boundaries": "67 headers, 0 violations, 2 existing DEC-096 seams",
+    "local_markdown_links": {
+      "checked": 482,
+      "missing": 0
+    },
+    "git_diff_check": "passed",
+    "public_boundary_command": "cmake --build --preset debug --target mirage-format-check mirage-boundary-check (boundary passed; format-only repair subsequently passed standalone CheckFormat.cmake)"
+  },
+  "unrun": [
+    {
+      "item": "Real GNOME/KDE Portal long tasks",
+      "owner": "Mirage maintainer",
+      "rerun_condition": "Resettable target compositor, granted sharing and long tasks"
+    },
+    {
+      "item": "Windows/MSVC",
+      "owner": "Mirage maintainer",
+      "rerun_condition": "Windows runner and target backends"
+    },
+    {
+      "item": "Long-term low-end CPU/RSS/power",
+      "owner": "Mirage maintainer",
+      "rerun_condition": "Target hardware and fixed paired workload"
+    },
+    {
+      "item": "Online-model error/click/completion/token A/B",
+      "owner": "Mirage maintainer",
+      "rerun_condition": "Fixed model and resettable GUI tasks"
+    }
+  ],
+  "native_product_final_command": "cmake --build --preset native-release -j2 --target mirage-service mirage-native mirage-tray",
+  "source_digest_definition": "SHA256 of UTF-8 sorted compact JSON source_files map; includes pre-existing dirty files; excludes documentation and data"
+}

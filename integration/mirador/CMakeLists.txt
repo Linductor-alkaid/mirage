@@ -5,6 +5,7 @@ add_library(mirage_integration_mirador STATIC
     src/fake_visual_backend.cpp
     src/mirador_service.cpp
     src/ppocr_pipeline.cpp
+    src/resident_desktop_perception.cpp
     src/visual_backend_registry.cpp
     src/visual_frame.cpp
     src/visual_mark_renderer.cpp

@@ -1,6 +1,5 @@
 #include "desktop_action_verification.hpp"
 #include "desktop_image_supply.hpp"
-#include "desktop_stability_guard.hpp"
 #include "tool_click.hpp"
 #include "tool_geometry.hpp"
 #include <algorithm>
@@ -51,7 +50,7 @@ void DesktopImageTurn::register_region_tool(mira::BuiltinToolRegistry &registry,
             continue;
         mira::BuiltinToolSpec spec;
         spec.wire_name = std::string("desktop.vision.") + operation + "_region";
-        spec.version = {4, 0, 0};
+        spec.version = {5, 0, 0};
         spec.has_side_effects = true;
         spec.description =
             std::string(operation) +
@@ -60,18 +59,19 @@ void DesktopImageTurn::register_region_tool(mira::BuiltinToolRegistry &registry,
             "click accepts button=left/middle/right (default left) and click_count=1..32 (default "
             "1); "
             "click automatically travels from the current pointer position along a locally "
-            "timed minimum-jerk path, then rechecks the target before pressing. No model timing "
+            "timed minimum-jerk path, then presses without an arrival screenshot gate. No model "
+            "timing "
             "parameter; hover effects on the way are real. "
             "scroll accepts horizontal_steps/vertical_steps (default 0), positive right/down, "
             "total "
             "absolute steps 1..16. drag accepts button and destination_x/y/width/height rectangle; "
             "complete locally paced curved drag between rectangle centers, max 2048 desktop "
             "pixels. "
-            "Scroll and drag also approach/revalidate first; wheel steps are paced individually. "
+            "Scroll and drag also approach first; wheel steps are paced individually. "
             "scroll/drag require target_context=window, window_id, both targets in the same "
             "focused window. "
             "click also permits target_context=display and display_id for desktop/panel/menu. "
-            "Rechecks source geometry/focus and fresh pixels of both targets before input; "
+            "Checks source geometry/focus before input; pixel changes do not veto it; "
             "max three seconds including approach/guards. No model timing parameters. "
             "No held-button continuation. Supplied intent expires after 60 "
             "seconds. "
@@ -289,28 +289,9 @@ mira::Result<Json> DesktopImageTurn::pointer_region(const Json &args,
     };
     if (!stable())
         return failure(bounded.cancelled() ? "cancelled" : "stale_observation");
-    const auto fresh = measure_phase(timings_ ? &timings_->capture : nullptr,
-                                     [&] { return screen->capture_roi(area, {}, bounded); });
-    if (!fresh.ok || fresh.cancelled || bounded.cancelled())
-        return failure(bounded.cancelled() || fresh.cancelled ? "cancelled" : "capture_failed");
-    if (!valid_image_frame(source.frame, desktop_capture_bytes) ||
-        !valid_image_frame(fresh.frame, desktop_image_bytes) || fresh.frame.width != area.width ||
-        fresh.frame.height != area.height)
+    // DEC-117: source geometry is checked above; pixel appearance is advisory.
+    if (!valid_image_frame(source.frame, desktop_capture_bytes))
         return failure("invalid_frame");
-    for (std::int32_t row = 0; row < area.height; ++row) {
-        const auto offset =
-            static_cast<std::size_t>(area.y - source.area.y + row) * source.frame.stride +
-            static_cast<std::size_t>(area.x - source.area.x) * 4;
-        const auto begin = source.frame.pixels.begin() + static_cast<std::ptrdiff_t>(offset);
-        if (bounded.cancelled())
-            return failure("cancelled");
-        if (!std::equal(begin, begin + static_cast<std::ptrdiff_t>(area.width) * 4,
-                        fresh.frame.pixels.begin() +
-                            static_cast<std::ptrdiff_t>(row) * fresh.frame.stride))
-            return failure("region_changed");
-    }
-    if (!stable() || std::chrono::steady_clock::now() - captured_ >= std::chrono::seconds{60})
-        return failure(bounded.cancelled() ? "cancelled" : "stale_observation");
     desktop::InputLimits limits;
     limits.timeout = std::chrono::duration_cast<std::chrono::milliseconds>(
         end - std::chrono::steady_clock::now());
@@ -329,19 +310,8 @@ mira::Result<Json> DesktopImageTurn::pointer_region(const Json &args,
             if (!travel.ok)
                 return failure(travel.error.code, travel.side_effect_may_have_occurred,
                                travel.input_released);
-            // Hover can change menus/targets. Recheck the arrival before any
-            // press, without publishing a new model image or action result.
-            const auto arrived = screen->capture_roi(area, {}, bounded);
-            bool unchanged = arrived.ok && valid_image_frame(arrived.frame, desktop_image_bytes) &&
-                             arrived.frame.width == area.width &&
-                             arrived.frame.height == area.height;
-            if (unchanged)
-                unchanged = assess_target_stability(fresh.frame, arrived.frame,
-                                                    {0, 0, area.width, area.height}) ==
-                            TargetStability::kStable;
-            if (!unchanged || !stable())
-                return failure(bounded.cancelled() ? "cancelled" : "arrival_target_changed",
-                               travel.side_effect_may_have_occurred);
+            if (bounded.cancelled())
+                return failure("cancelled", travel.side_effect_may_have_occurred);
             limits.timeout = std::min(desktop::input_cadence_policy::action_timeout,
                                       std::chrono::duration_cast<std::chrono::milliseconds>(
                                           end - std::chrono::steady_clock::now()));

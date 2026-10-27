@@ -17,6 +17,11 @@ class PerceptionJournal {
     };
     std::vector<Entry> entries_;
     std::vector<Frame> frames_;
+    desktop::VisualScene scene_;
+    bool scene_valid_ = false;
+    std::string scene_error_;
+    Clock::time_point scene_at_{};
+    std::uint64_t next_content_ = 0;
     std::optional<desktop::WindowGeometry> focus_;
     bool resync_ = false;
     std::uint64_t next_ = 0, dropped_ = 0, filtered_ = 0, epoch_ = 0, upstream_dropped_ = 0;
@@ -32,10 +37,14 @@ class PerceptionJournal {
     }
 
   public:
+    explicit PerceptionJournal(std::string source_session = "perception")
+        : scene_(std::move(source_session)) {}
     void focus(const desktop::WindowGeometry &roi) { focus_ = roi; }
     void clear() {
         entries_.clear();
         frames_.clear();
+        scene_ = desktop::VisualScene(scene_.snapshot().source_session);
+        scene_valid_ = false;
     }
     void acknowledge(std::uint64_t cursor, Clock::time_point now) {
         if (cursor >= next_)
@@ -90,6 +99,44 @@ class PerceptionJournal {
             resync_ = true;
         }
         epoch_ = sample.source_epoch;
+        if (sample.objects_complete && sample.objects.size() <= 256) {
+            std::vector<desktop::VisualSceneObject> objects;
+            const bool gap = sample.resync || sample.dropped > upstream_dropped_;
+            for (auto &entry : sample.objects) {
+                auto object = std::move(entry.object);
+                const auto *old = scene_.find(object.id);
+                const bool same =
+                    scene_valid_ && old && old->object.incarnation == object.incarnation;
+                if (!entry.content_observed) {
+                    if (!same)
+                        continue;
+                    auto previous = old->object;
+                    previous.identity_confirmed = false;
+                    previous.pending = true;
+                    object = std::move(previous);
+                }
+                const bool changed =
+                    !same || gap || entry.invalidate_content || old->object.text != object.text ||
+                    old->object.label != object.label || old->object.source != object.source;
+                object.content_revision = changed ? ++next_content_ : old->object.content_revision;
+                objects.push_back(std::move(object));
+            }
+            const auto baseline = scene_.snapshot();
+            auto applied = scene_.apply({baseline.source_session,
+                                         sample.source_epoch,
+                                         sample.frame_sequence,
+                                         scene_.revision(),
+                                         true,
+                                         objects,
+                                         {}});
+            scene_valid_ = applied.ok;
+            scene_error_ = applied.ok ? std::string{} : applied.error.code;
+            scene_at_ = now;
+        } else {
+            scene_valid_ = false;
+            scene_error_ = sample.objects.size() > 256 ? "object_projection_budget_exceeded"
+                                                       : "incomplete_object_projection";
+        }
         if (sample.dropped > upstream_dropped_)
             dropped_ += sample.dropped - upstream_dropped_;
         upstream_dropped_ = sample.dropped;
@@ -136,6 +183,10 @@ class PerceptionJournal {
         out.filtered = filtered_;
         out.journal_bytes = journal_bytes();
         out.preview_bytes = preview_bytes();
+        out.scene_error = scene_error_;
+        out.scene_observed_at = scene_at_;
+        if (scene_valid_)
+            out.scene = scene_.snapshot();
         for (const auto &e : entries_)
             out.events.push_back(e.event);
         for (const auto &f : frames_)

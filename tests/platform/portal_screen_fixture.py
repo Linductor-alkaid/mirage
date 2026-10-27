@@ -52,6 +52,13 @@ def serve(directory):
             if state['mode'].startswith('rd_') and not state.get('remote_object'):
                 state['remote_object'] = conn.register_object('/org/freedesktop/portal/desktop',
                     remote.interfaces[0], method, lambda *args: GLib.Variant('u', 1 if state['mode'] == 'rd_persist_v1' else 2), None)
+            # DEC-116 rebuild-budget mode re-establishes through RemoteDesktop
+            # (a consumed restore token makes the rebuild remote), so the
+            # RemoteDesktop v2 object must be visible there too. The version
+            # stays mode-dynamic so later rd_persist_v1 switches still expose 1.
+            if state['mode'] == 'cast_rebuild_budget' and not state.get('remote_object'):
+                state['remote_object'] = conn.register_object('/org/freedesktop/portal/desktop',
+                    remote.interfaces[0], method, lambda *args: GLib.Variant('u', 1 if state['mode'] == 'rd_persist_v1' else 2), None)
             invocation.return_value(GLib.Variant('()', ()))
             return
         if name == 'Close':
@@ -78,6 +85,12 @@ def serve(directory):
                 mode = {'rd_user_cancel':'cast_user_cancel', 'rd_wrong_path':'cast_wrong_path',
                         'rd_cancel':'cast_cancel', 'rd_persist_cancel':'cast_cancel',
                         'rd_persist_timeout':'cast_timeout'}.get(mode, mode)
+            if mode == 'cast_rebuild_budget' and name == 'SelectDevices':
+                # The silent rebuild replays the remembered grant: RemoteDesktop
+                # device selection with persistent mode 2 and the restore token.
+                options = params.unpack()[-1]
+                assert options['types'] == 3 and options['persist_mode'] == 2
+                assert options['restore_token'].startswith('fixture-token-')
             if name == 'OpenPipeWireRemote':
                 invocation.return_value(GLib.Variant('(h)', (0,)))
                 return
@@ -122,7 +135,7 @@ def serve(directory):
                         streams.append((18, {}))
                     if mode != 'cast_missing_streams':
                         values['streams'] = GLib.Variant('a(ua{sv})', streams)
-                code = (1 if mode == 'cast_user_cancel' else 2 if mode == 'cast_failed' else 0) if name == 'Start' else 0
+                code = (1 if mode == 'cast_user_cancel' else 2 if mode in ('cast_failed', 'cast_rebuild_budget') else 0) if name == 'Start' else 0
                 conn.emit_signal(sender, handle, 'org.freedesktop.portal.Request', 'Response', GLib.Variant('(ua{sv})', (code, values)))
                 if mode == 'cast_closed_before_select' and name == 'CreateSession':
                     conn.emit_signal(sender, session, 'org.freedesktop.portal.Session', 'Closed', GLib.Variant('(a{sv})', ({},)))
@@ -169,7 +182,8 @@ def run(binary, with_cast=False):
                     'cast_user_cancel', 'cast_failed', 'cast_missing_streams', 'cast_streams',
                     'cast_multiple', 'cast_node', 'cast_remote', 'cast_denied', 'cast_malformed',
                     'cast_closed', 'cast_closed_before_select', 'cast_cancel', 'cast_late', 'cast_timeout',
-                    'cast_retry', 'cast_pre_cancel_session', 'rd_input_denied', 'rd_mapping',
+                    'cast_retry', 'cast_pre_cancel_session', 'cast_rebuild_budget', 'resident_silent',
+                    'rd_input_denied', 'rd_mapping',
                     'rd_remote', 'rd_user_cancel', 'rd_wrong_path', 'rd_cancel', 'rd_pre_cancel', 'rd_persist_success', 'rd_persist_missing', 'rd_persist_restore', 'rd_persist_denied', 'rd_persist_store', 'rd_persist_readonly', 'rd_persist_v1', 'rd_persist_cancel', 'rd_persist_timeout', 'rd_persist_pre_cancel'])
             for mode in modes:
                 print(f'Portal fixture mode: {mode}', flush=True)
@@ -181,11 +195,27 @@ def run(binary, with_cast=False):
                 subprocess.run([binary, mode], env=env, check=True, timeout=40)
                 if mode == 'cast_retry':
                     assert int((directory / 'counts').read_text()) - int(counts or 0) == 4
-                if mode in ('budget', 'noscreencast', 'tool', 'tool_denied'):
+                if mode == 'cast_rebuild_budget':
+                    # Three silent rebuild attempts (CreateSession, SelectDevices,
+                    # SelectSources, Start each); the exhausted budget then fails
+                    # the fourth capture without touching the portal again.
+                    assert int((directory / 'counts').read_text()) - int(counts or 0) == 12
+                if mode in ('budget', 'noscreencast', 'tool', 'tool_denied', 'resident_silent'):
                     assert ((directory / 'counts').read_text() if (directory / 'counts').exists() else None) == counts
                     assert (int((directory / 'closed').read_text()) if (directory / 'closed').exists() else 0) == closed
                 if mode in ('cast_pre_cancel_session', 'rd_pre_cancel', 'rd_persist_v1', 'rd_persist_pre_cancel'):
-                    assert ((directory / 'counts').read_text() if (directory / 'counts').exists() else None) == counts
+                    # DEC-116: a pre-cancelled capture latches nothing, so the
+                    # retry re-attempts establishment and only the following
+                    # capture is refused without portal access. rd_persist_v1
+                    # and rd_persist_pre_cancel still make no portal calls.
+                    if mode == 'cast_pre_cancel_session':
+                        assert int((directory / 'counts').read_text()) - int(counts or 0) == 4
+                    elif mode == 'rd_pre_cancel':
+                        # RemoteDesktop rebuild: CreateSession, SelectDevices,
+                        # SelectSources, Start, OpenPipeWireRemote.
+                        assert int((directory / 'counts').read_text()) - int(counts or 0) == 5
+                    else:
+                        assert ((directory / 'counts').read_text() if (directory / 'counts').exists() else None) == counts
                 if mode.startswith(('cast_', 'rd_')) and mode not in ('cast_pre_cancel_session', 'rd_pre_cancel', 'rd_persist_v1', 'rd_persist_pre_cancel'):
                     assert int((directory / 'closed').read_text()) > closed
             service.terminate()

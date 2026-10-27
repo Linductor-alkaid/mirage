@@ -1,5 +1,6 @@
 #pragma once
 #include "ime_text_input.hpp"
+#include "perception_semantics.hpp"
 #include "phase_timing.hpp"
 #include <kairo/comm/mailbox.hpp>
 #include <mira/conversation_loop.hpp>
@@ -100,7 +101,7 @@ class DesktopImageTurn {
                   const desktop::CancelToken &, mira::JsonValue::Object extra = {});
     /// M7-19: preview-scales, publishes and retires one raw native frame with
     /// the full observation tail (shared by capture_desktop and the
-    /// target_pixels_changed rejection refresh).
+    /// resident observation publication).
     mira::Result<mira::JsonValue>
     finish_native_publish(desktop::ImageFrame publish_frame, const desktop::ImageFrame &raw_frame,
                           const desktop::WindowGeometry &area, const std::string &kind,
@@ -133,13 +134,20 @@ class DesktopImageTurn {
     std::vector<mira::ModelInputItem> supply_perception();
     void register_perception_tool(mira::BuiltinToolRegistry &,
                                   const DesktopAtomToolset::Decorator &);
+    void register_annotation_tool(mira::BuiltinToolRegistry &,
+                                  const DesktopAtomToolset::Decorator &);
     std::shared_ptr<DesktopPerceptionFeed> perception_;
+    PerceptionSessionOptions perception_options(std::uint64_t authority) const;
+    std::optional<desktop::ImageFrame> text_observation_frame_;
+    mira::JsonValue text_observation_metadata_;
+    bool withhold_image_ = false;
+    PerceptionSemantics perception_semantics_;
     std::uint64_t perception_cursor_ = 0, perception_offered_ = 0;
     std::string perception_text_, consumed_image_digest_;
     bool ime_tool_enabled_ = false;
 
     std::chrono::milliseconds planning_image_age() const {
-        // A supplied native target intent already supports local revalidation
+        // A supplied native target intent retains scoped coordinate validation
         // for 60 seconds (DEC-081). It is not fresh completion evidence.
         return native_input_frame_ ? std::chrono::seconds{60} : image_max_age_;
     }

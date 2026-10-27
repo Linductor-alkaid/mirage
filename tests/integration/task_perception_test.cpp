@@ -205,6 +205,13 @@ void pipeline_events() {
     MIRAGE_CHECK(!a.events.empty());
     auto b = observe(1);
     MIRAGE_CHECK(b.ok);
+    MIRAGE_CHECK(b.objects_complete && b.objects.size() == 1);
+    MIRAGE_CHECK(b.objects[0].content_observed && b.objects[0].object.identity_confirmed);
+    MIRAGE_CHECK(b.objects[0].object.text == "temporary notice");
+    detail::PerceptionJournal scene("pipeline-scene");
+    scene.append(b, {}, Clock::now());
+    MIRAGE_CHECK(scene.view().scene && scene.view().scene->updated.size() == 1);
+    const auto identity = scene.view().scene->updated[0].object;
     MIRAGE_CHECK(std::any_of(b.events.begin(), b.events.end(),
                              [](const auto &e) { return e.kind == "appeared"; }));
     const auto calls = ocr.calls.load();
@@ -213,12 +220,23 @@ void pipeline_events() {
     auto moved1 = observe(3);
     auto moved2 = observe(3);
     MIRAGE_CHECK(moved1.ok && moved2.ok);
+    scene.append(moved1, {}, Clock::now());
+    scene.append(moved2, {}, Clock::now());
+    MIRAGE_CHECK(scene.view().scene && !scene.view().scene->updated.empty());
+    const auto moved_object = scene.view().scene->updated[0].object;
+    if (moved_object.id == identity.id && moved_object.incarnation == identity.incarnation)
+        // pixels(3) changes the entire background as well as moving the box:
+        // this is a global layout barrier, not evidence of a pure move.
+        MIRAGE_CHECK(moved_object.content_revision > identity.content_revision);
     MIRAGE_CHECK(std::any_of(moved2.events.begin(), moved2.events.end(), [](const auto &e) {
         return e.kind == "position_or_appearance_changed" || e.kind == "appeared";
     }));
     auto gone1 = observe(0);
     auto gone2 = observe(0);
     MIRAGE_CHECK(gone1.ok && gone2.ok);
+    scene.append(gone1, {}, Clock::now());
+    scene.append(gone2, {}, Clock::now());
+    MIRAGE_CHECK(scene.view().scene && scene.view().scene->updated.empty());
     MIRAGE_CHECK(std::any_of(gone2.events.begin(), gone2.events.end(),
                              [](const auto &e) { return e.kind == "disappeared"; }));
     // Explicit ROI OCR uses a separate session and does not reset background identity.
@@ -245,18 +263,25 @@ void pipeline_events() {
     pipeline.stop();
 }
 struct SessionState {
-    std::atomic<unsigned> calls{0}, inputs{0};
-    std::atomic<bool> fail{false}, invalid{false};
+    std::atomic<unsigned> calls{0}, inputs{0}, closed{0}, prompts_allowed{0};
+    std::atomic<bool> fail{false}, invalid{false}, hold{false}, entered{false};
 };
 class Raw final : public d::DesktopCaptureSession {
     std::shared_ptr<SessionState> s_;
 
   public:
     explicit Raw(std::shared_ptr<SessionState> s) : s_(std::move(s)) {}
+    ~Raw() override { ++s_->closed; }
     bool reusable() const override { return true; }
     bool input_supported() const override { return true; }
-    d::CaptureOutcome capture(const d::CaptureLimits &, const d::CancelToken &cancel) override {
+    d::CaptureOutcome capture(const d::CaptureLimits &limits,
+                              const d::CancelToken &cancel) override {
         ++s_->calls;
+        s_->entered = true;
+        while (s_->hold && !cancel.cancelled())
+            std::this_thread::sleep_for(1ms);
+        if (limits.allow_authorization_prompt)
+            ++s_->prompts_allowed;
         if (cancel.cancelled())
             return {false, true, {}, {"cancelled", "cancelled"}};
         if (s_->fail)
@@ -273,6 +298,138 @@ class Raw final : public d::DesktopCaptureSession {
         return {true, false, {}, true, true};
     }
 };
+void resident_lifetime_and_consumers() {
+    Owner owner;
+    auto state = std::make_shared<SessionState>();
+    std::atomic<bool> authorized{true};
+    const PerceptionSessionFactory factory = [&](auto raw, auto options) {
+        return connect_continuous_desktop(owner.executor, std::move(raw), std::move(options),
+                                          [](const auto &, const auto &, const auto &, const auto &,
+                                             const auto &) { return event("text_changed"); });
+    };
+    ResidentDesktopPerception resident(factory);
+    PerceptionSessionOptions lifetime;
+    lifetime.source_id = "runtime-resident";
+    lifetime.authorized = [&] { return authorized.load(); };
+    MIRAGE_CHECK(resident.adopt(std::make_unique<Raw>(state), lifetime, true));
+    PerceptionSessionOptions task;
+    task.source_id = "first-task";
+    auto first = resident.attach(true, task);
+    MIRAGE_CHECK(first.session && first.feed);
+    auto readonly = resident.attach(false, {});
+    MIRAGE_CHECK(readonly.session && !readonly.session->input_supported() &&
+                 !readonly.session->input({}, {}, {}).ok && state->inputs == 0);
+    MIRAGE_CHECK(until([&] { return bool(first.session->latest_frame().image); }));
+    {
+        auto pause = first.feed->pause();
+        auto second = resident.attach(true, {});
+        MIRAGE_CHECK(second.session && second.feed->view().events.empty());
+        const auto calls = state->calls.load();
+        const auto frame = first.session->latest_frame();
+        MIRAGE_CHECK(frame.image && second.session->latest_frame().image == frame.image);
+        MIRAGE_CHECK(second.session->capture_presented({}, {}, {}).ok && state->calls == calls);
+        MIRAGE_CHECK(state->prompts_allowed == 0);
+        first.session.reset();
+        first.feed.reset();
+        MIRAGE_CHECK(state->closed == 0); // Releasing a task does not close the runtime stream.
+        // Cancelling one consumer neither revokes the grant nor affects a second consumer.
+        task.cancelled.request_cancel();
+        MIRAGE_CHECK(second.session->input({}, {}, {}).ok);
+        const auto watermark = second.session->source_sequence();
+        MIRAGE_CHECK(watermark == frame.image->source_sequence);
+    }
+    const auto before = state->calls.load();
+    MIRAGE_CHECK(until([&] { return state->calls > before; })); // No task lease is required.
+    auto a = resident.attach(true, {});
+    auto b = resident.attach(true, {});
+    // Attachment cursors can differ if publication lands between the two
+    // calls. Wait for post-attachment history in both consumers.
+    MIRAGE_CHECK(
+        until([&] { return !a.feed->view().events.empty() && !b.feed->view().events.empty(); }));
+    {
+        auto pause = a.feed->pause();
+        const auto b_events = b.feed->view().events.size();
+        MIRAGE_CHECK(a.feed->acknowledge(a.feed->view().newest));
+        MIRAGE_CHECK(b.feed->view().events.size() == b_events);
+        const auto cursor = b.feed->view().newest;
+        MIRAGE_CHECK(b.feed->wait(cursor, 30ms, {}) == "timeout");
+        d::CancelToken cancel_wait;
+        auto cancellation = owner.executor.submit_auto([cancel_wait]() mutable {
+            std::this_thread::sleep_for(20ms);
+            cancel_wait.request_cancel();
+        });
+        MIRAGE_CHECK(b.feed->wait(cursor, 2s, cancel_wait) == "cancelled");
+        cancellation.get();
+        a.feed->focus({1000, 1000, 1, 1});
+        const auto outside = a.feed->view();
+        const auto independent = b.feed->view();
+        MIRAGE_CHECK(std::none_of(outside.events.begin(), outside.events.end(),
+                                  [](const auto &e) { return e.kind == "text_changed"; }));
+        MIRAGE_CHECK(std::any_of(independent.events.begin(), independent.events.end(),
+                                 [](const auto &e) { return e.kind == "text_changed"; }));
+    }
+    MIRAGE_CHECK(b.feed->wait(b.feed->view().newest, 2s, {}) == "event");
+    PerceptionSessionOptions cancelled;
+    auto own = resident.attach(true, cancelled);
+    cancelled.cancelled.request_cancel();
+    MIRAGE_CHECK(!own.session->capture({}, {}).ok && own.feed->view().state == "stopped");
+    MIRAGE_CHECK(b.session->input({}, {}, {}).ok);
+    authorized = false;
+    MIRAGE_CHECK(!b.session->latest_frame().image && !b.session->input({}, {}, {}).ok);
+    resident.invalidate();
+    MIRAGE_CHECK(state->closed == 1);
+    authorized = true;
+    MIRAGE_CHECK(resident.adopt(std::make_unique<Raw>(state), lifetime, true));
+    auto renewed = resident.attach(true, {});
+    MIRAGE_CHECK(renewed.session && !b.session->input({}, {}, {}).ok);
+    resident.stop();
+    MIRAGE_CHECK(!renewed.session->capture({}, {}).ok && state->closed == 2);
+    MIRAGE_CHECK(!resident.adopt(std::make_unique<Raw>(state), lifetime, true));
+    // Executor admission rejection is surfaced; a dead producer cannot be attached.
+    owner.executor.shutdown(true);
+    ResidentDesktopPerception rejected(factory);
+    MIRAGE_CHECK(!rejected.adopt(std::make_unique<Raw>(state), lifetime, true));
+    MIRAGE_CHECK(!rejected.attach(true, {}).session);
+    PerceptionSessionOptions fallback_task;
+    auto fallback = rejected.connect(std::make_unique<Raw>(state), lifetime, fallback_task, true);
+    MIRAGE_CHECK(fallback.session && !fallback.feed && fallback.session->capture({}, {}).ok);
+    fallback_task.cancelled.request_cancel();
+    MIRAGE_CHECK(!fallback.session->capture({}, {}).ok);
+}
+void resident_blocking_shutdown_and_failure() {
+    Owner owner;
+    std::atomic<bool> throwing{false};
+    ResidentDesktopPerception resident([&](auto raw, auto options) {
+        return connect_continuous_desktop(
+            owner.executor, std::move(raw), std::move(options),
+            [&](const auto &, const auto &, const auto &, const auto &, const auto &) {
+                if (throwing)
+                    throw std::runtime_error("resident analysis fault");
+                return event();
+            });
+    });
+    auto blocked = std::make_shared<SessionState>();
+    blocked->hold = true;
+    PerceptionSessionOptions options;
+    options.source_id = "resident-blocking";
+    MIRAGE_CHECK(resident.adopt(std::make_unique<Raw>(blocked), options, true));
+    MIRAGE_CHECK(until([&] { return blocked->entered.load(); }));
+    const auto begin = Clock::now();
+    resident.invalidate(); // Interrupts the running I/O, not merely the next timer tick.
+    MIRAGE_CHECK(Clock::now() - begin < 2s && blocked->closed == 1);
+    auto fault = std::make_shared<SessionState>();
+    throwing = true;
+    MIRAGE_CHECK(resident.adopt(std::make_unique<Raw>(fault), options, true));
+    auto lease = resident.attach(true, {});
+    // Admission can precede the injected exception; the retained feed reports its outcome.
+    if (lease.feed)
+        MIRAGE_CHECK(until([&] {
+            return lease.feed->view().state == "failed" || lease.feed->view().state == "stopped";
+        }));
+    MIRAGE_CHECK(until([&] { return !resident.attach(true, {}).session; }));
+    resident.stop();
+    MIRAGE_CHECK(fault->closed == 1);
+}
 void task_adapter() {
     Owner owner;
     auto state = std::make_shared<SessionState>();
@@ -304,9 +461,18 @@ void task_adapter() {
     MIRAGE_CHECK(before.preview_bytes > 0);
     MIRAGE_CHECK(connection.feed->acknowledge(before.newest));
     state->fail = true;
-    MIRAGE_CHECK(until([&] { return connection.feed->view().state == "failed"; }));
-    MIRAGE_CHECK(connection.feed->view().events.empty() &&
-                 connection.feed->view().preview_bytes == 0);
+    // DEC-116: one failed background sample degrades perception without
+    // ending it — the journal (events and previews) stays readable, the raw
+    // shared session stays usable for the foreground, and the feed view
+    // carries the real capture error. The pre-DEC-116 session published
+    // "failed" and cleared the journal here instead.
+    MIRAGE_CHECK(until([&] { return connection.feed->view().state == "degraded"; }));
+    MIRAGE_CHECK(connection.feed->view().error == "source_lost");
+    MIRAGE_CHECK(!connection.feed->view().events.empty() &&
+                 connection.feed->view().preview_bytes > 0);
+    state->fail = false;
+    MIRAGE_CHECK(connection.session->capture({}, {}).ok);
+    MIRAGE_CHECK(until([&] { return connection.feed->view().state == "sampling"; }));
     authorized = false;
     MIRAGE_CHECK(connection.feed->view().state == "stopped");
     connection.session.reset();
@@ -401,6 +567,8 @@ void cancellation_exception_and_shutdown() {
 } // namespace
 int main() {
     try {
+        resident_lifetime_and_consumers();
+        resident_blocking_shutdown_and_failure();
         retention();
         production_stage_settings_and_large_frame();
         pipeline_events();

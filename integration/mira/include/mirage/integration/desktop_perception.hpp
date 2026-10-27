@@ -4,6 +4,7 @@
 #include <functional>
 #include <memory>
 #include <mirage/desktop/screen_provider.hpp>
+#include <mirage/desktop/visual_scene.hpp>
 #include <optional>
 #include <string>
 #include <vector>
@@ -18,11 +19,19 @@ struct PerceptionEvent {
     double x = 0, y = 0, width = 0, height = 0;
     std::chrono::steady_clock::time_point observed_at{};
 };
+// Complete temporal object projection, independent of notification filtering.
+// Content revisions are assigned by the capture owner on every completed sample.
+struct PerceptionObject {
+    desktop::VisualSceneObject object;
+    bool content_observed = false, invalidate_content = false;
+};
 struct PerceptionSample {
     bool ok = false, skipped = false, cancelled = false, resync = false;
     desktop::ProviderError error;
     std::uint64_t source_epoch = 0, frame_sequence = 0, dropped = 0;
     std::vector<PerceptionEvent> events;
+    bool objects_complete = false;
+    std::vector<PerceptionObject> objects;
 };
 struct PerceptionPreview {
     std::string id;
@@ -37,6 +46,10 @@ struct PerceptionView {
     std::size_t journal_bytes = 0, preview_bytes = 0;
     std::uint64_t ack_rejected = 0, ack_depth = 0; // kairo CommStats projection
     std::vector<PerceptionEvent> events;
+    // Full bounded observation state; contains no model annotations or input refs.
+    std::optional<desktop::VisualSceneDelta> scene;
+    std::string scene_error;
+    std::chrono::steady_clock::time_point scene_observed_at{};
     // Weak handles prevent old mailbox generations from pinning retired pixels.
     std::vector<std::pair<std::string, std::weak_ptr<const PerceptionPreview>>> previews;
 };
@@ -53,6 +66,11 @@ class DesktopPerceptionFeed {
     virtual void focus(const desktop::WindowGeometry &) = 0;
     // Brackets the WHOLE foreground step, including capture/pointer/input.
     virtual std::unique_ptr<PerceptionPause> pause() = 0;
+    /// Bounded local subscription; no capture, recognition or model polling.
+    virtual std::string wait(std::uint64_t, std::chrono::milliseconds,
+                             const desktop::CancelToken &) {
+        return "unavailable";
+    }
 };
 struct PerceptionConnection {
     std::unique_ptr<desktop::DesktopCaptureSession> session;

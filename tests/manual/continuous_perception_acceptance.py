@@ -39,10 +39,15 @@ def session(args):
     for index, word in enumerate(words):
         duration = [100, 500, 1500][index % 3]
         schedule.append((word, duration))
+    if args.semantic:
+        schedule = [('SEARCH', 2200), ('SEARCH', 2200), ('DELETE', 2200), ('SEARCH', 2200)]
     duration_ms = sum(duration + 700 for _, duration in schedule) + 3000
     report_path = args.output.with_suffix('.raw.json')
-    child = subprocess.Popen([str(args.binary.resolve()), str(args.manifest.resolve()),
-                              str(duration_ms), str(report_path.resolve())],
+    command = [str(args.binary.resolve()), str(args.manifest.resolve()),
+               str(duration_ms), str(report_path.resolve())]
+    if args.semantic:
+        command.append('semantic')
+    child = subprocess.Popen(command,
                              stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     try:
         if not select.select([child.stdout], [], [], 30)[0] or child.stdout.readline().strip() != 'READY':
@@ -63,10 +68,13 @@ def session(args):
                 return False
             word, duration = schedule[index]
             index += 1
-            layout.move(label, 100 if index % 2 else 270, 160 if index % 2 else 250)
+            layout.move(label, 100 if index % 2 else (108 if args.semantic else 270),
+                        160 if args.semantic or index % 2 else 250)
+            if args.semantic:
+                heading.set_text(f'Private perception stage {index}')
             label.set_markup(f'<span font="Sans 28">Notice {word}</span>')
             truth.append({'text': word, 'duration_ms': duration, 'shown_s': time.monotonic()})
-            GLib.timeout_add(duration, hide)
+            GLib.timeout_add(duration, show if args.semantic else hide)
             return False
         GLib.timeout_add(700, show)
         Gtk.main()
@@ -83,12 +91,28 @@ def session(args):
         report['binary_sha256'] = hashlib.sha256(args.binary.read_bytes()).hexdigest()
         report['manifest_sha256'] = hashlib.sha256(args.manifest.read_bytes()).hexdigest()
         report['trials'] = truth
+        if args.semantic:
+            report['annotation_method'] = 'scripted recognized-text label; no VLM'
+            objects = [obj for snapshot in report['semantic_samples'] for obj in snapshot['objects']]
+            active = [obj for obj in objects if obj['semantic_state'] == 'active']
+            report['semantic_checks'] = {
+                'annotated': report['scripted_annotations'] > 0,
+                'no_annotation_failure': report['annotation_failed'] == 0,
+                'no_stale_active_label': all(obj['semantic_label'] == 'task:' + obj['text'] for obj in active),
+                'same_identity_moved_with_label': any(
+                    a['entity'] == b['entity'] and a['instance_generation'] == b['instance_generation']
+                    and a['semantic_label'] == b['semantic_label'] and a['x'] != b['x']
+                    for a in active for b in active),
+            }
         report['by_duration'] = [{'duration_ms': duration,
                                  'total': sum(t['duration_ms'] == duration for t in truth),
                                  'detected': sum(t['detected'] for t in truth if t['duration_ms'] == duration),
                                  'confirmed': sum(t['confirmed'] for t in truth if t['duration_ms'] == duration)}
                                 for duration in [100, 500, 1500]]
         args.output.write_text(json.dumps(report, ensure_ascii=False, indent=2) + '\n')
+        if args.semantic:
+            print(json.dumps(report['semantic_checks']))
+            assert all(report['semantic_checks'].values()), 'semantic acceptance failed; see recorded evidence'
         print(json.dumps({key: report[key] for key in ['by_duration', 'frames', 'analyzed', 'skipped', 'analysis_failed', 'peak_journal_bytes', 'peak_preview_bytes', 'process_peak_rss_kib']}, ensure_ascii=False))
     finally:
         if child.poll() is None:
@@ -102,6 +126,7 @@ def main():
     parser.add_argument('--manifest', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--session', action='store_true')
+    parser.add_argument('--semantic', action='store_true')
     args = parser.parse_args()
     if args.session:
         session(args)
@@ -124,9 +149,12 @@ def main():
             if not select.select([read_fd], [], [], 10)[0]:
                 raise RuntimeError('Xvfb unavailable')
             env['DISPLAY'] = ':' + os.read(read_fd, 64).decode().strip()
-            subprocess.run(['dbus-run-session', '--', sys.executable, __file__, '--session',
+            command = ['dbus-run-session', '--', sys.executable, __file__, '--session',
                             '--binary', str(args.binary.resolve()), '--manifest', str(args.manifest.resolve()),
-                            '--output', str(args.output.resolve())], env=env, check=True, timeout=110)
+                            '--output', str(args.output.resolve())]
+            if args.semantic:
+                command.append('--semantic')
+            subprocess.run(command, env=env, check=True, timeout=110)
         finally:
             os.close(read_fd)
             server.terminate()

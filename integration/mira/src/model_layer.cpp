@@ -1314,6 +1314,11 @@ DialogCompletion ModelLayer::complete_harness_turn(
         "are exposed. Never retry "
         "uncertain input blindly. Reobserve current state and replan instead of replaying it. "
         "Only semantic_snapshot issues actionable @e refs; window.list and screenshots do not. "
+        "Continuous semantic_scene objects may carry task labels from earlier model requests. "
+        "Use active labels as historical interpretation, inspect their age, and never use "
+        "suspended labels as current facts or object_ref as an input reference. When the "
+        "desktop.vision.annotate tool is exposed, label useful missing meanings from supplied "
+        "recognized text/category; reuse unchanged labels instead of annotating every frame. "
         "Native Wayland input is available ONLY when image-bound session tools are listed and "
         "capture "
         "returns input_actionable=true. For GUI work request interaction=true on the first "
@@ -1426,19 +1431,28 @@ DialogCompletion ModelLayer::complete_harness_turn(
         spec.goal +=
             "\nFor native text-reading tasks prefer desktop.vision.ocr with text_only=true: "
             "it supplies untrusted text without PNG or image tokens. Use an explicit capture for "
-            "visual layout or to establish fresh input references. desktop.vision.state only reads "
-            "advisory history and its age; it never observes current pixels or verifies an "
-            "action.\n";
+            "visual layout or to establish an input reference. Text-only reads preserve the "
+            "existing input intent. desktop.vision.state reads the resident state and journal "
+            "without acquiring or encoding a frame; do not poll it.\n";
     if (image_turn && native_ocr && turn_desktop.continuous_session)
         spec.goal +=
-            "\nAfter the first successful native desktop capture, a bounded background Mirador "
+            "\nThe Runtime Service maintains an authorized resident desktop observer independently "
+            "of this task. An existing remembered grant starts it silently; a first explicit "
+            "desktop authorization can establish it. Its bounded Mirador "
             "feed supplies untrusted appeared/disappeared/text/position events automatically. "
             "Use their text and age instead of polling screenshots or vision.state. Unconfirmed "
             "observations can report brief transients but never establish confirmed lifecycle. "
             "Missing/filtered/dropped events do not prove nothing happened. If a historical "
             "event-frame tool is exposed in the closed set below, use it only when needed; it "
             "never authorizes input or verifies current state. Capture for a new actionable "
-            "target or necessary visual verification, not just to poll.\n";
+            "target or necessary visual verification, not just to poll. Ordinary input has no "
+            "pixel-similarity or arrival-screenshot veto. Omit verify_kind for routine "
+            "intermediate "
+            "actions; request a fixed postcondition only at a real state dependency or task "
+            "boundary. Inspect approach_completed/press_dispatched/release_confirmed separately; "
+            "moving the pointer does not mean a click was sent. Use desktop.vision.wait for "
+            "a local event subscription when waiting for desktop progress, rather than repeated "
+            "wait/capture/model cycles.\n";
     // DEC-081: current registry facts outrank examples and prior tool history.
     spec.goal += "\nAvailable tools for THIS turn (closed set):";
     bool shared_click_available = false;

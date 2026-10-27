@@ -309,11 +309,8 @@ void negative(kairo::Executor &executor, const std::string &mode) {
             f.desktop.actions->takeover();
     };
     if (mode == "pixels") {
-        // M7-16 / DEC-083: a single off-target pixel no longer proves
-        // staleness. Keep the scenario's original fault-matrix intent
-        // (changed pixels reject the click) by replacing the subject
-        // structurally across the frame, which the layered guard fails
-        // closed on wherever the cropped target sits.
+        // DEC-117: redraw alone must not veto ordinary dispatch. The
+        // explicit semantic postcondition still needs its own evidence.
         int captures = 0;
         f.env->fake.capture_frame_edit = [captures](auto &frame) mutable {
             if (++captures > 1)
@@ -356,8 +353,11 @@ void negative(kairo::Executor &executor, const std::string &mode) {
     auto tools = i::DesktopAtomToolset::build(f.desktop);
     const auto result =
         executor.submit_auto([&] { return dispatch(*tools->registry(), args, f.ctx); }).get();
-    MIRAGE_CHECK(!result || result.value().failed);
-    MIRAGE_CHECK(f.env->clicks == (effect ? 1 : 0));
+    if (mode == "pixels")
+        MIRAGE_CHECK(result && !result.value().failed);
+    else
+        MIRAGE_CHECK(!result || result.value().failed);
+    MIRAGE_CHECK(f.env->clicks == (effect || mode == "pixels" ? 1 : 0));
     if (effect && result) {
         const auto &summary = result.value().safe_error_summary;
         MIRAGE_CHECK(summary.find("\"verified\":true") == std::string::npos);

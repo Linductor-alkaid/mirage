@@ -399,7 +399,9 @@ void contracts(kairo::Executor &executor) {
             f.ctx.deadline = std::chrono::steady_clock::now() - std::chrono::seconds{1};
             break;
         }
-        check(f.click(target).failed && f.env->injector.calls == 0);
+        const auto result = f.click(target);
+        check(scenario == 2 ? !result.failed && f.env->injector.calls == 1
+                            : result.failed && f.env->injector.calls == 0);
     }
     for (int race = 0; race < 2; ++race) {
         Fixture f(executor);
@@ -411,7 +413,8 @@ void contracts(kairo::Executor &executor) {
             else
                 f.tools.actions->takeover();
         };
-        check(f.click(f.target(marked.result)).failed && f.env->injector.calls == 0);
+        // No screenshot is taken by ordinary input; capture-side effects cannot gate it.
+        check(!f.click(f.target(marked.result)).failed && f.env->injector.calls == 1);
     }
     for (const int failure : {1, 2, 3, 5}) {
         Fixture f(executor);
@@ -926,16 +929,16 @@ void model_loop(kairo::Executor &executor) {
                                            "", "Select the numbered visual target", f.ctx);
                                    })
                                    .get();
-        if (completed.ok != (failure == 0)) {
+        if (completed.ok != (failure == 0 || failure == 1)) {
             std::cerr << "model scenario " << failure << ": " << completed.error << "\n";
             for (const auto &part : completed.parts)
                 std::cerr << part.name << " " << part.status << " " << part.output << "\n";
         }
-        check(completed.ok == (failure == 0));
-        check(completed.failed == (failure != 0));
+        check(completed.ok == (failure == 0 || failure == 1));
+        check(completed.failed == (failure != 0 && failure != 1));
         check(completed.supply_degradations == 0 && completed.supplied_input_dropped == 0);
-        check(f.env->injector.calls == (failure == 0 ? 1 : 0));
-        if (failure == 0)
+        check(f.env->injector.calls == ((failure == 0 || failure == 1) ? 1 : 0));
+        if (failure == 0 || failure == 1)
             check(script->saw_verified && script->images == 1 && completed.parts.size() == 2);
         model.shutdown();
     }
@@ -973,11 +976,9 @@ void reobserve_before_input(kairo::Executor &executor) {
             paint_structural(frame, 20, 20, 60, 40);
         };
         if (rejected_first) {
-            const auto denied =
+            const auto ordinary =
                 invoke(registry, "desktop.vision.click", f.target(first.result), f.ctx);
-            check(denied.failed &&
-                  denied.safe_error_summary.find("stale_observation") != std::string::npos);
-            check(f.env->injector.calls == 0 && !verification.settle());
+            check(!ordinary.failed && f.env->injector.calls == 1 && verification.settle());
         }
         const auto fresh = invoke(registry, "desktop.vision.mark", Json{Json::Object{}}, f.ctx);
         check(!fresh.failed && f.mark_calls == 2);
@@ -1000,7 +1001,7 @@ void reobserve_before_input(kairo::Executor &executor) {
         check(static_cast<bool>(f.source->fetch(current.source)));
         const auto clicked =
             invoke(registry, "desktop.vision.click", f.target(fresh.result), f.ctx);
-        check(!clicked.failed && f.env->injector.calls == 1);
+        check(!clicked.failed && f.env->injector.calls == (rejected_first ? 2 : 1));
         check(verification.settle());
         if (!rejected_first)
             check(clicked.result.find("verified")->as_boolean().value_or(false));
@@ -1170,7 +1171,7 @@ void regional_capture(kairo::Executor &executor) {
         f.env->fake.capture_frame_edit = [](auto &frame) {
             paint_structural(frame, 20, 20, 60, 40);
         };
-        check(f.click(f.target(marked.result)).failed && f.env->injector.calls == 0);
+        check(!f.click(f.target(marked.result)).failed && f.env->injector.calls == 1);
     }
     {
         Fixture f(executor, true, "button", "w1", true, true);
@@ -1310,7 +1311,7 @@ void pointer_actions(kairo::Executor &executor) {
             const bool dispatched =
                 (scenario == "good" || scenario == "right" || scenario == "middle") ||
                 scenario == "unchanged" || scenario == "edge_animation" ||
-                scenario == "uniform_drift";
+                scenario == "uniform_drift" || scenario == "changed";
             const bool called = dispatched || scenario == "exception" || scenario == "release" ||
                                 scenario == "io" || scenario == "cancel";
             check(f.env->injector.calls == (called ? 1 : 0));

@@ -78,6 +78,15 @@ int main(int argc, char **argv) {
         MIRAGE_CHECK(!screen->list_displays({}, {}).ok);
         MIRAGE_CHECK(!screen->capture_roi({0, 0, 2, 2}, {}, {}).ok);
         MIRAGE_CHECK(!screen->capture_window("unrelated-x-window", {}, {}).ok);
+        if (mode == "resident_silent") {
+            auto session = screen->create_desktop_capture_session();
+            desktop::CaptureLimits limits;
+            limits.max_bytes = 32u << 20;
+            limits.allow_authorization_prompt = false;
+            const auto result = session->capture(limits, {});
+            MIRAGE_CHECK(!result.ok && result.error.code == "desktop_authorization_required");
+            return;
+        }
         if (mode == "cast_retry" || mode == "cast_pre_cancel_session") {
             auto session = screen->create_desktop_capture_session();
             MIRAGE_CHECK(session && !session->reusable());
@@ -88,8 +97,77 @@ int main(int argc, char **argv) {
             MIRAGE_CHECK(!first.ok &&
                          first.error.code ==
                              (mode == "cast_retry" ? "portal_remote_failed" : "cancelled"));
+            const auto refused_capture = [&](const char *stage) {
+                auto refused = session->capture({32u << 20}, {});
+                if (!refused.ok && refused.error.code != "portal_session_closed")
+                    std::fprintf(stderr, "%s: code=%s msg=%s\n", stage, refused.error.code.c_str(),
+                                 refused.error.message.c_str());
+                MIRAGE_CHECK(!refused.ok && refused.error.code == "portal_session_closed");
+                MIRAGE_CHECK(refused.error.message.find("the user must re-grant desktop sharing") !=
+                             std::string::npos);
+                MIRAGE_CHECK(refused.error.message.find("no reauthorization in this task") ==
+                             std::string::npos);
+            };
+            if (mode == "cast_retry") {
+                // The failed establishment latched the attempt; no remembered
+                // grant is configured here, so the retry is refused with the
+                // precise re-grant error and no portal round trip.
+                refused_capture("cast_retry refused");
+                return;
+            }
+            // DEC-116: a cancelled capture latches nothing, so this retry
+            // re-attempts establishment and surfaces the real platform error
+            // (this fixture fails at the PipeWire stage). The pre-DEC-116
+            // latch refused it with "portal_session_closed" without touching
+            // the portal; only the next capture is refused without access.
             auto retry = session->capture({32u << 20}, {});
-            MIRAGE_CHECK(!retry.ok && retry.error.code == "portal_session_closed");
+            if (!retry.ok && retry.error.code != "portal_remote_failed")
+                std::fprintf(stderr, "pre_cancel retry: code=%s msg=%s\n", retry.error.code.c_str(),
+                             retry.error.message.c_str());
+            MIRAGE_CHECK(!retry.ok && retry.error.code == "portal_remote_failed");
+            refused_capture("pre_cancel refused");
+            return;
+        }
+        if (mode == "cast_rebuild_budget") {
+            // DEC-116: with a remembered grant a dead session is silently
+            // re-established; every failed rebuild consumes one of three
+            // budget slots and the exhausted budget answers with the precise
+            // re-grant error without touching the portal again.
+            using namespace platform::linux_backend;
+            std::string token = "fixture-token-rebuild";
+            auto authorization = std::make_shared<PortalAuthorization>(PortalAuthorization::Store{
+                [&] { return mirage::platform::CredentialResult{true, token, {}, token.empty()}; },
+                [&](const std::string &value) {
+                    // Single-use rotation writes an empty token between
+                    // attempts; this fixture keyring keeps serving the
+                    // remembered grant so the budget, not the store, bounds
+                    // the rebuild.
+                    if (!value.empty())
+                        token = value;
+                    return mirage::platform::CredentialResult{true, {}, {}};
+                }});
+            PortalScreenBackend backend(authorization);
+            backend.configure_desktop_authorization(true);
+            MIRAGE_CHECK(authorization->enabled() && authorization->view().remembered);
+            auto session = backend.create_desktop_capture_session();
+            MIRAGE_CHECK(session);
+            for (int attempt = 0; attempt < 3; ++attempt) {
+                const auto out = session->capture({32u << 20}, {});
+                if (!out.ok && out.error.code != "portal_failed")
+                    std::fprintf(stderr, "rebuild attempt %d: %s %s\n", attempt,
+                                 out.error.code.c_str(), out.error.message.c_str());
+                MIRAGE_CHECK(!out.ok && out.error.code == "portal_failed");
+            }
+            MIRAGE_CHECK(authorization->view().remembered);
+            const auto exhausted = session->capture({32u << 20}, {});
+            if (!exhausted.ok && exhausted.error.code != "portal_session_closed")
+                std::fprintf(stderr, "exhausted: %s %s\n", exhausted.error.code.c_str(),
+                             exhausted.error.message.c_str());
+            MIRAGE_CHECK(!exhausted.ok && exhausted.error.code == "portal_session_closed");
+            MIRAGE_CHECK(exhausted.error.message.find("the user must re-grant desktop sharing") !=
+                         std::string::npos);
+            MIRAGE_CHECK(exhausted.error.message.find("no reauthorization in this task") ==
+                         std::string::npos);
             return;
         }
         if (mode.starts_with("rd_persist_")) {
@@ -167,7 +245,25 @@ int main(int argc, char **argv) {
             MIRAGE_CHECK(!out.ok && out.error.code == expected);
             MIRAGE_CHECK(!session->input_supported());
             MIRAGE_CHECK(!session->input({}, {}, {}).ok);
-            MIRAGE_CHECK(session->capture({32u << 20}, {}).error.code == "portal_session_closed");
+            // DEC-116: a cancelled capture latches nothing (rd_pre_cancel), so
+            // that capture re-attempts establishment once and reports the real
+            // stage error; every other failure here latched the attempt, and
+            // with no remembered grant the next capture is refused with the
+            // precise re-grant error instead of the retired blanket wording.
+            auto refused = session->capture({32u << 20}, {});
+            if (mode == "rd_pre_cancel") {
+                if (!refused.ok && refused.error.code != "portal_remote_failed")
+                    std::fprintf(stderr, "rd_pre_cancel retry: code=%s msg=%s\n",
+                                 refused.error.code.c_str(), refused.error.message.c_str());
+                MIRAGE_CHECK(!refused.ok && refused.error.code == "portal_remote_failed");
+                refused = session->capture({32u << 20}, {});
+            }
+            if (!refused.ok && refused.error.code != "portal_session_closed")
+                std::fprintf(stderr, "%s refused: code=%s msg=%s\n", mode.c_str(),
+                             refused.error.code.c_str(), refused.error.message.c_str());
+            MIRAGE_CHECK(!refused.ok && refused.error.code == "portal_session_closed");
+            MIRAGE_CHECK(refused.error.message.find("the user must re-grant desktop sharing") !=
+                         std::string::npos);
             return;
         }
         const auto start = std::chrono::steady_clock::now();

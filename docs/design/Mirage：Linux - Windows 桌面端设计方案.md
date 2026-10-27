@@ -1,5 +1,9 @@
 # Mirage：Linux / Windows 桌面端设计方案
 
+> 2026-10-27：按 [DEC-117](../decisions/DEC-117-runtime-resident-perception-and-autonomous-input.md)
+> 接通 Runtime 常驻观察、独立任务租约与事件等待；普通动作不再以目标像素相似度或
+> 到达截图否决。与此冲突的历史增量失效，当前边界见[常驻设计](runtime-resident-perception.md)。
+
 > 2026-10-03 更新：UI 产品方向按 [DEC-033](../decisions/DEC-033-native-agent-frontend.md)
 > 迁移到 EUI-NEO 原生前端，首步会话页面见 [原生设计](native-agent-frontend.md)。
 > 本文既有 CEF UI 实现记录作为迁移前基线保留；Runtime/Provider/IPC/Executor
@@ -1257,8 +1261,9 @@ artifact/source/supplier；工具结果只含定位元数据，不输出 OCR 全
 
 Runtime 向会话提供有界 mark 回调和 registry 同锁引用回调；公开接口仅使用 Mirage
 类型。只在支持图片、配置真实 OCR、授权和能力齐备时暴露 mark；完整输入、窗口和
-会话修改策略再决定 click 是否暴露。目标必须完整可见且位于当前窗口内，点击前
-同显示器新采集像素严格一致（M7-16 起由 [DEC-083](../decisions/DEC-083-target-region-stability-reverification.md) 的目标矩形主体稳定判定承接：边距环动画忽略、核心区主体相似放行、不确定即拒）、显示器/窗口几何稳定，epoch/age/scope 均有效。通过
+会话修改策略再决定 click 是否暴露。目标必须完整可见且位于当前窗口内，显示器/
+窗口几何稳定，epoch/age/scope 均有效。DEC-117 已使旧的逐像素/主体相似度硬门禁
+失效；普通动作不为外观重验额外取帧，不在到达后再截图否决。通过
 单写者 lease 执行完整 click，取消/清理失败和不确定副作用沿用 DEC-054/056。
 
 新输入会退休本轮图和旧编号；完成仍取决于动作前固定的局部后条件与新观察。当前
@@ -1585,11 +1590,14 @@ SharedInputAction 提供完整 click/key/text/scroll 与 InputOutcome，输入�
 Linux Portal 后端私有地映射为 Start 返回 size 的流内 compositor 坐标，拒绝缺失映射
 或设备授权。Window/Input 全局 Provider 继续缺失，不伪装 X11 坐标或焦点身份。
 
-Mira DesktopImageTurn 拥有会话，授权同任务 source=desktop 的 screen.capture / input.inject；
-通过图像已供给证明、task/session/epoch/authority、60 秒意图和动作前目标矩形重验（逐像素承诺由 [DEC-083](../decisions/DEC-083-target-region-stability-reverification.md) 修订为主体稳定判定）
-保护输入。普通动作保留共享但淘汰旧图；接管/取消/共享路径失败关闭会话。
+Runtime Service 持有常驻共享源，Mira DesktopImageTurn 持独立任务租约，授权同任务
+source=desktop 的 screen.capture / input.inject；通过图像已供给证明、task/session/
+epoch/authority、60 秒意图、坐标/源几何及释放状态保护输入，不以像素相似度否决。
+普通动作保留原意图并回传完成后的 epoch/scope，旧像素停止重复供给；任务取消只释放
+租约。撤权/接管使旧来源或访问失效，服务关闭停止源；共享路径故障按 DEC-116 恢复。
 DEC-107 删除前置重验、后置取图及只读截图的累计帧数额度，仍保留单帧内存、单次时间和
-权限/取消边界。成功动作直接返回后置观察的 image_scope，后续输入不必额外重截。
+权限/取消边界。只有显式请求后条件时才取得新证据并返回新的观察 scope；普通中间
+动作无需后置帧，后续可使用原意图继续，不能将执行回执当成业务成功证据。
 桌宠租约仅覆盖实际采集/输入派发，授权/编码/OCR 不隐藏；平台限制和验证见 DEC-107。
 当前 Portal 文本最多 4096 字节 printable ASCII，
 禁止控制字符；非 ASCII 返回 text_transport_unavailable，无部分输入。按键通知不证明
@@ -1728,3 +1736,11 @@ M9-21 新接任务后台消费者：在已授权共享 session 上由 Mirador OC
 默认保持按需；权限/接管/释放屏障不取消。详见[接线契约](native-continuous-perception-wiring.md)
 和[真实短提示记录](../compatibility/task-continuous-perception-20261023.md)。首增量不保证
 任意极短提示、既有对象单帧内容变化或实际业务任务的完成率，M9-21 仍为 In Progress。
+
+2026-10-27：DEC-117 / M9-22 将上述已交付采集/分析接线提升为 Runtime 长期消费者；
+已记住授权与 Allow 读屏策略下静默启动，正常任务结束不停止。新任务默认仅见当前
+对象和接入后的事件，输入权限/标定/待核验动作不跨任务继承。前台复用最新帧，
+vision.state 读取当前分析状态与日志，vision.wait 在既有生产者上作本地有界订阅。
+text_only OCR 不生成图、不退休已有输入意图；共享日志保持 256 条/256 KiB/120 秒，
+消费者 ACK 不删除其他任务所需记录。平台 damage、真实 Portal 长任务及低端资源
+仍按 M9 验收，不能把长期采样声称为静态零取帧或固定低功耗。

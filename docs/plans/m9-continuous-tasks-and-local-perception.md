@@ -57,6 +57,9 @@ MiniCPM-o 4.5 仅参考视觉 token 压缩与时分复用机制，不纳入模�
 - [主设计](../design/Mirage：Linux%20-%20Windows%20桌面端设计方案.md)、
   [分析及 ZCode 对照](../analysis/session-budget-and-native-pet-regression-20261015.md)。
 - [DEC-115](../decisions/DEC-115-task-continuous-perception-feed.md)：任务连续事件、有限历史帧与打字优先。
+- [DEC-116](../decisions/DEC-116-desktop-sharing-transient-failure-recovery.md)：桌面共享瞬时失败
+  分级恢复与任务内静默重授权；修正 DEC-015/074 的失败即毒化推导，
+  事故记录见 [desktop-sharing-resilience-20261026](../compatibility/desktop-sharing-resilience-20261026.md)。
 - [MIRA-20261015-002](../dependency_feedback/mira.md#mira-20261015-002)：持续循环公开能力缺口。
 - [DEC-088 历史实施记录](context-compaction-implementation.md)：保留既有 fixture 证据；
   未完成请求级/真实会话验收由本计划承接，不重复勾选旧清单。
@@ -156,10 +159,12 @@ MiniCPM-o 4.5 仅参考视觉 token 压缩与时分复用机制，不纳入模�
   一次输入，回执含核验和观察增量；删除已核验情况下的重复 verify 提示。
   验收：同名/身份不确定不派发；派发前有限重定位、派发后只读重验；水位之后
   的新证据才可结算，目标效果失败不会被“新帧已到”冒充成功。
-- [ ] `M9-10` **Planned**（依赖 05/07；复杂跟踪条件另依赖 08）：本地只读条件
+- [ ] `M9-10` **In Progress**（依赖 05/07；复杂跟踪条件另依赖 08）：本地只读条件
   等待。冻结条件类型、单次期限、订阅容量、取消/权限/关闭语义；模型无需
   wait/capture 轮询。验收：满足/超时/撤权/源切换/取消/shutdown 均显式结算，
   等待不产生输入，超时作为局部结果返回，不擅自终止整个任务。
+  2026-10-27 首增量 `desktop.vision.wait` 已实现有界事件等待；复杂对象条件类型尚未交付，
+  不以通用事件到达冒充指定业务条件满足，见 DEC-117 / M9-22 验收记录。
 - [ ] `M9-11` **In Progress**（贯穿 03～10）：诊断与度量接入现有事件/历史面。
   记录稳定停止/失败原因、用量质量、窗口、压缩前后规模、模型往返与实际识别/
   供图数、缓存/背压与各阶段耗时；不建立平行监控系统。验收：脱敏指标可还原
@@ -181,6 +186,12 @@ MiniCPM-o 4.5 仅参考视觉 token 压缩与时分复用机制，不纳入模�
   重标定且不丢关联，移动保持身份时仅更新位置，依赖变化只失效受影响字段；
   目标替换/ID 复用不继承、丢失/重捕获正确、迟到响应不误绑定；来源置信分离，
   标定不产生执行权限或成功凭证。默认限源会话/场景，不新增永久语义记忆。
+  - 2026-10-26：维护者授权接通完整对象快照、单标签模型工具和后续供给；先实施
+    识别文字/类别依赖子集，沿用 VisualScene 与既有 kairo mailbox。契约见
+    [接线设计](../design/visual-scene-incremental-state.md)。Debug 114/114，native-release
+    及 ASAN/UBSAN/TSAN 专项各 8/8，三轮私有 X11/真实 OCR 通过；实际范围与
+    [验收证据](../compatibility/continuous-object-semantics-20261026.md)保留在线模型、
+    多字段/外观关系与目标平台门禁，不关闭本项。
 - [ ] `M9-14` **In Progress**：修复过程展示容量饥饿（BUG-20261015-001）。冻结思考、
   工具与正文的容量分配和最近窗口策略，保留后续工具结果、错误及最终正文，区分
   展示摘要省略与模型输出不完整。验收：长思考后截图元数据完整、超 96 段后新
@@ -251,6 +262,23 @@ M9-14/15/16 依据
   清理、未读 TTL/容量淘汰、取消/撤权/准入/异常/shutdown 均显式结算。
   首增量 Linux 私有显示已实现并测试；极短提示、非文本语义、真实 Portal/Windows、
   在线模型任务完成率与低端设备全产品资源验收未关闭，负责人为 Mirage 维护者。
+
+- [ ] `M9-22` **In Progress**：消除普通自主动作的像素误拒与观察循环。2026-10-27 最新
+  会话归因、独立悬停配色误拒复现及外部项目对照已完成，见
+  [调查与方案](../research/2026-10-27-event-driven-observation-and-action-gates.md)。
+  实施顺序：同步 DEC-081/083/110 的普通动作默认契约 → 分离移动/按下/释放回执，
+  移除启发式像素硬否决和默认到达截图 → 分开只读观察与执行上下文 → 当前状态/
+  事件日志及有界条件等待优先，前后台共享最新帧、按需 ROI/图像 → Backend damage
+  与静态退避。验收分别计量源 buffer、应用取帧/拷贝、识别、编码、模型供图及误拒/
+  误点/完成率；覆盖悬停、OCR→点击、日志 gap、取消/撤权/接管和释放异常。
+  维护者已接受 [DEC-117](../decisions/DEC-117-runtime-resident-perception-and-autonomous-input.md)：
+  冲突旧决策标记失效，Runtime 常驻 owner/任务租约、最新帧复用、事件等待、普通
+  动作移除像素否决及 text_only 保留输入意图已实现，见
+  [常驻设计](../design/runtime-resident-perception.md)。本机验证及实测范围见
+  [验收记录](../compatibility/runtime-resident-perception-20261027.md)；负责人为 Mirage
+  维护者，真实 Portal 长任务、Windows、低端长驻资源与在线 A/B 仍开放，不关闭关联项。
+  本机 Debug 全量覆盖及失败用例复验、native 和 ASAN/UBSAN/TSAN 专项已完成；
+  两轮隔离桌面真实 PP-OCR 均确认任务释放后源继续采样，极短提示仍存在漏报。
 
 ## 拆分与建议交付顺序
 
@@ -652,3 +680,18 @@ UI/视觉资源及 OCR/YOLO 锁摘要校验通过。旧的单次采集测试假�
 创建/关闭约束保留，10 轮专项及全量复验通过，首次失败保留。
 见[构建交付记录](../compatibility/native-package-refresh-20261024.md)。未安装或重启，
 M9-21 仍 In Progress，在线任务、真实平台、极短提示及低端资源门禁不变。
+
+## 2026-10-26：DEC-116 桌面共享瞬时失败恢复
+
+2026-10-26 22:36 bilibili 任务因单次捕获失败毒化整个共享会话（capture/OCR/输入
+全灭，settlement 拒绝未验证副作用）而失败；DEC-115 后台采样共享会话把触发面放大
+到约 4 次/秒。冻结 [DEC-116](../decisions/DEC-116-desktop-sharing-transient-failure-recovery.md)：
+授权与会话分离，取消/超时不动会话，流级失败重建流，会话级死亡在记住授权下静默
+重建（失败预算 3），撤销仍终局；不确定输入只封锁输入通道；后台采样失败降级，
+连续 20 次只停 advisory feed；错误透传真实码。事故与修复记录见
+[desktop-sharing-resilience-20261026](../compatibility/desktop-sharing-resilience-20261026.md)。
+Independent-Verification-Agent 独立验证：Debug 全量 CTest 114/114，ASAN/UBSAN/TSAN
+专项 8/8，portal 重建预算/恢复契约/输入封锁/采样降级均有具名测试与输出证据；
+验证发现的 rejected() 误导性诊断后缀已修正并经同一代理增量复验 PASS（debug 全量
+114/114 复跑通过）。实机（真实 mutter/gnome-keyring）长任务验收单列，
+通过不替代该门禁。

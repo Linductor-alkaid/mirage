@@ -2,6 +2,7 @@
 #include <mirador/cache_policy.hpp>
 #include <mirage/conversation.hpp>
 #include <mirage/integration/visual_frame.hpp>
+#include <mirage/integration/visual_observation_mapper.hpp>
 #include <mirage/integration/visual_observation_pipeline.hpp>
 
 namespace mirage::integration {
@@ -124,9 +125,50 @@ PerceptionSample VisualObservationPipeline::observe_image(
     const auto &continuous = *result.continuous;
     out.ok = true;
     out.source_epoch = continuous.source_epoch;
-    out.frame_sequence = image.source_sequence;
+    out.frame_sequence = sequence;
     out.dropped = continuous.events.dropped_total;
     out.resync = continuous.cycle.resync_required;
+    out.objects_complete = bool(result.snapshot) && continuous.temporal.entities.size() <= 256;
+    if (out.objects_complete)
+        for (const auto &entity : continuous.temporal.entities) {
+            if (!entity.instance_generation)
+                continue;
+            const bool ended =
+                std::any_of(continuous.events.events.begin(), continuous.events.events.end(),
+                            [&](const auto &event) {
+                                return event.stable_id == entity.stable_id &&
+                                       event.instance_generation == entity.instance_generation &&
+                                       event.semantic == mirador::EventSemantic::kEnd;
+                            });
+            if (ended)
+                continue;
+            PerceptionObject entry;
+            const auto *region = mirador::find_region(*result.snapshot, entity.stable_id);
+            entry.content_observed = region && entity.observed_frame == sequence &&
+                                     entity.observation == mirador::ObservationState::kObserved &&
+                                     (entity.freshness == mirador::Freshness::kFresh ||
+                                      entity.freshness == mirador::Freshness::kValidatedReuse);
+            if (entry.content_observed)
+                entry.object = to_visual_scene_object(*region, entity.instance_generation, 1,
+                                                      entity.confirmed_frame != 0);
+            else {
+                entry.object.id = entity.stable_id;
+                entry.object.incarnation = entity.instance_generation;
+                entry.object.pending = true;
+            }
+            // A major layout replacement may reuse the same text at the same
+            // coordinates. Do not carry task meaning across that ambiguity.
+            entry.invalidate_content =
+                (result.admission_change && result.admission_change->classification ==
+                                                mirador::ChangeClassification::kGlobal) ||
+                std::any_of(continuous.events.events.begin(), continuous.events.events.end(),
+                            [&](const auto &event) {
+                                return event.stable_id == entity.stable_id &&
+                                       event.change_kind ==
+                                           mirador::SemanticChangeKind::kRelationChanged;
+                            });
+            out.objects.push_back(std::move(entry));
+        }
     const auto append = [&](std::uint64_t entity, const mirador::RectF &bounds, const char *kind,
                             bool confirmed, std::uint64_t instance) {
         if (out.events.size() >= 256) {
