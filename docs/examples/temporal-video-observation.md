@@ -1,7 +1,7 @@
 # 视频任务：事件文本与时间拼图
 
 > 状态：In Progress（工具契约已实现；真实媒体任务验收待执行）
-> 日期：2026-10-27
+> 日期：2026-10-28
 > 负责人：Mirage 维护者
 > 工作项：M9-24；依据：[DEC-120](../decisions/DEC-120-temporal-storyboard-observation.md)
 
@@ -36,3 +36,41 @@
 当前只打包既有事件帧，不保证慢动作/字幕/全屏视频的采样完整；也没有自动完成
 视频任务的状态机。实验方案与剩余能力见
 [调研记录](../research/2026-10-27-layered-perception-and-video-storyboards.md)。
+
+
+## 实际供图证据账（DEC-132）
+
+下一次请求的连续观察中自动包含retained_visual_evidence，无须新增工具调用：
+
+```json
+{
+  "state": "sparse_observation",
+  "scope": "retained_event_frames_only",
+  "lifetime": "current_harness_turn",
+  "retained_samples": 2,
+  "observer_span_ms": 3000,
+  "largest_between_samples_ms": 3000,
+  "history_truncated": false,
+  "continuous_coverage": false,
+  "audio": false,
+  "complete_video": false,
+  "content_understanding": "not_verified"
+}
+```
+
+这只表示两张已保留事件帧/拼图格实际进入已完成的模型请求，首末观察时刻相差
+3秒，期间未呈现的内容仍未知。不会因为又等了3秒就变成看过6秒；也不知道视频
+实际从何处播放、是否暂停/跳播或已经结束。结合实际图像回答内容，不能用帧数
+代替内容理解，或把跨度当连续观看时长。没有音频，不排除其他来源的可读字幕。
+
+state为unobserved表示本turn当前来源段无已记录的历史供图，并不排除普通
+capture/OCR或更早turn曾提供其他内容。工具仅返回成功、图片被预算扣留/丢弃、
+请求失败/未完成或过期，不计入。只有实际完成供图才ACK原预览；重复图不增加
+样本数。最多保留32个样本的元数据，超限保留最新观察窗口并明确截断，不能推算
+全任务总量；摘要≤1KiB、整个连续观察≤8KiB，未增加预览/图像保留量。
+
+来源/权限、drop/resync或失败使状态interrupted，清当前段、保留last_interruption。
+旧请求或epoch恢复原值不能复活旧段；需要新的有效供图。有效性检查还绑定已通过
+请求guard的request ID，防止内容寻址的相同像素被错误当成另一时刻的新证据。
+本账不跨harness turn持久化，没有完整视频完成判定；[DEC-132](../decisions/DEC-132-delivered-visual-evidence-ledger.md)
+和[验收](../compatibility/delivered-visual-evidence-20261028.md)说明首增量与后续边界。

@@ -57,15 +57,25 @@ void DesktopImageTurn::register_storyboard_tool(mira::BuiltinToolRegistry &regis
             return cancel_.cancelled() || ctx.cancelled_or_expired(mira::Timestamp::now()) ||
                    std::chrono::steady_clock::now() - now >= acquire_budget_;
         }};
-        auto board = make_perception_storyboard(perception_->view(), ids, now, bounded);
+        const auto view = perception_->view();
+        sync_content_evidence(view);
+        const auto offer = content_evidence_.offer(view, ids, now);
+        auto board = make_perception_storyboard(view, ids, now, bounded);
         if (!board)
             return board.error();
         if (board.value().image.pixels.empty())
             return Json{std::move(board.value().metadata)};
-        return publish_image(board.value().image,
-                             {0, 0, board.value().image.width, board.value().image.height},
-                             "storyboard", "retained_event_frames", desktop_.actions->epoch(), now,
-                             bounded, std::move(board.value().metadata));
+        if (!offer)
+            return Json{Json::Object{{"available", false},
+                                     {"reason", "source_time_or_event_unavailable"},
+                                     {"input_actionable", false}}};
+        auto published = publish_image(
+            board.value().image, {0, 0, board.value().image.width, board.value().image.height},
+            "storyboard", "retained_event_frames", desktop_.actions->epoch(), now, bounded,
+            std::move(board.value().metadata));
+        if (published)
+            content_offer_ = *offer;
+        return published;
     };
     if (decorate)
         handler = decorate(spec.wire_name, std::move(handler));

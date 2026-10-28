@@ -52,12 +52,27 @@ Json tracking_projection(const std::optional<PerceptionTracking> &tracking) {
                      {"content_freshness", "not_established"}}};
 }
 } // namespace
+void DesktopImageTurn::sync_content_evidence(const PerceptionView &view) {
+    content_evidence_.sync(
+        view, desktop_.actions &&
+                  (!native_authority_ || desktop_.actions->authority_epoch() == native_authority_));
+}
+void DesktopImageTurn::bind_perception(std::shared_ptr<DesktopPerceptionFeed> feed) {
+    if (perception_ != feed) {
+        if (perception_)
+            content_evidence_.replace_source();
+        content_offer_.reset();
+        content_request_.reset();
+    }
+    perception_ = std::move(feed);
+}
 std::vector<mira::ModelInputItem> DesktopImageTurn::supply_perception() {
     perception_offered_ = 0;
     perception_text_.clear();
     if (!perception_)
         return {};
     const auto view = perception_->view();
+    sync_content_evidence(view);
     perception_semantics_.sync(view);
     auto semantic_scene = perception_semantics_.project();
     Json::Array attention_targets;
@@ -165,6 +180,7 @@ std::vector<mira::ModelInputItem> DesktopImageTurn::supply_perception() {
                                     {"width", view.media.width},
                                     {"height", view.media.height}}}},
         {"semantic_scene", std::move(semantic_scene)},
+        {"retained_visual_evidence", content_evidence_.project()},
         {"recent_read_context", Json{std::move(recent)}},
         {"events", Json{events}}}};
     perception_text_ =
@@ -194,8 +210,9 @@ std::vector<mira::ModelInputItem> DesktopImageTurn::supply_perception() {
 void DesktopImageTurn::perception_consumed(const mira::ModelRequest &request,
                                            const mira::OperationContext &ctx) {
     if (ctx.task != owner_.task || ctx.session != owner_.session ||
-        ctx.task_epoch != owner_.task_epoch || cancel_.cancelled() || !desktop_.actions ||
-        (native_started_ && desktop_.actions->authority_epoch() != native_authority_))
+        ctx.task_epoch != owner_.task_epoch || cancel_.cancelled() ||
+        ctx.cancelled_or_expired(mira::Timestamp::now()) || !desktop_.actions ||
+        (native_authority_ && desktop_.actions->authority_epoch() != native_authority_))
         return;
     for (const auto &item : request.input)
         for (const auto &part : item.content) {
@@ -207,8 +224,21 @@ void DesktopImageTurn::perception_consumed(const mira::ModelRequest &request,
                 text && perception_ && text->text == perception_text_)
                 perception_semantics_.consumed(request.request_id.to_string());
             if (const auto *image = std::get_if<mira::ImagePart>(&part);
-                image && image_ && image->source.id == image_->id &&
-                image->source.digest == image_->digest) {
+                image && expect_image_ && image_ && image->source.id == image_->id &&
+                image->source.digest == image_->digest &&
+                image->source.byte_size == image_->byte_size &&
+                image->source.sensitivity == mira::Sensitivity::Sensitive &&
+                image->source.media_type == "image/png" && image->media_type == "image/png" &&
+                image->detail == mira::ImageDetail::Auto) {
+                if (content_offer_) {
+                    if (!content_request_ || *content_request_ != request.request_id)
+                        continue;
+                    if (!perception_)
+                        continue;
+                    sync_content_evidence(perception_->view());
+                    if (!content_evidence_.consumed(*content_offer_))
+                        continue;
+                }
                 consumed_image_digest_ = image_->digest.to_string();
                 const auto *source = metadata_.find("source"), *id = metadata_.find("source_id");
                 if (perception_ && source && source->as_string() &&
@@ -474,12 +504,21 @@ void DesktopImageTurn::register_perception_tool(mira::BuiltinToolRegistry &regis
         };
         if (ctx.task != owner_.task || ctx.session != owner_.session ||
             ctx.task_epoch != owner_.task_epoch || cancel_.cancelled() ||
-            ctx.cancelled_or_expired(mira::Timestamp::now()))
+            ctx.cancelled_or_expired(mira::Timestamp::now()) ||
+            (native_authority_ && desktop_.actions->authority_epoch() != native_authority_))
             return fail(mira::ErrorCode::Cancelled, "event frame owner retired");
         if (!perception_ || !id || !id->as_string() || id->as_string()->size() > 64 ||
             !args.as_object() || args.as_object()->size() != 1)
             return fail(mira::ErrorCode::InvalidArgument, "frame_id from continuous feed required");
         const auto view = perception_->view();
+        sync_content_evidence(view);
+        const std::vector<std::string> ids{*id->as_string()};
+        const auto offer = content_evidence_.offer(view, ids);
+        if (!offer)
+            return Json{Json::Object{{"available", false},
+                                     {"historical", true},
+                                     {"input_actionable", false},
+                                     {"reason", "source_time_or_event_unavailable"}}};
         for (const auto &[name, weak] : view.previews) {
             if (name != *id->as_string())
                 continue;
@@ -497,9 +536,14 @@ void DesktopImageTurn::register_perception_tool(mira::BuiltinToolRegistry &regis
                 {{"available", true},
                  {"historical", true},
                  {"input_actionable", false},
+                 {"event_source_epoch", static_cast<std::int64_t>(offer->source_epoch)},
+                 {"event_frame_sequence",
+                  static_cast<std::int64_t>(offer->samples.front().frame_sequence)},
                  {"observation_age_ms",
                   std::chrono::duration_cast<std::chrono::milliseconds>(now - preview->observed_at)
                       .count()}});
+            if (published)
+                content_offer_ = *offer;
             return published;
         }
         return Json{

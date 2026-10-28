@@ -22,6 +22,11 @@
 提交，关键事件不延后。接口/验证见[专项记录](../compatibility/multi-object-wake-priority-20261028.md)。
 自动语义去噪、跨未知帧精确继承和内容时间账本保持开放。
 
+2026-10-28：M9-30按[DEC-132](../decisions/DEC-132-delivered-visual-evidence-ledger.md)
+启动实际完成供图的有界时间账，保留稀疏性/缺口/来源屏障，自动随下一请求提交。
+[验证](../compatibility/delivered-visual-evidence-20261028.md)仅覆盖本机证据边界；
+完整内容任务状态、播放器进度及实际视频理解继续开放。
+
 ## 目标
 
 正常长任务不因累计模型步骤或工具次数结束；将可确定的视觉定位、等待和后条件

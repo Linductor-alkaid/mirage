@@ -2460,6 +2460,7 @@ class TaskFeedFixture : public integration::DesktopPerceptionFeed {
     int frame_reads = 0, pause_depth = 0, waits = 0;
     TaskFeedFixture() {
         state.state = "sampling";
+        state.source_epoch = 1;
         state.attention.emplace();
         preview = std::make_shared<integration::PerceptionPreview>();
         preview->id = "event-frame-fixture";
@@ -2478,7 +2479,9 @@ class TaskFeedFixture : public integration::DesktopPerceptionFeed {
         event.kind = "observed_unconfirmed";
         event.text = "temporary fixture notice " + std::to_string(event.sequence);
         event.frame_id = preview->id;
-        event.observed_at = std::chrono::steady_clock::now();
+        event.source_epoch = state.source_epoch;
+        event.frame_sequence = 1; // each notice refers to this same retained preview
+        event.observed_at = preview->observed_at;
         state.events.push_back(std::move(event));
     }
     integration::PerceptionView view() const override { return state; }
@@ -2846,6 +2849,7 @@ void storyboard_tool_contract() {
     const auto supplied = turn.supply(spec);
     check(static_cast<bool>(supplied));
     mira::ModelRequest request;
+    request.request_id = mira::ModelRequestId::generate();
     request.task_id = owner.task;
     request.task_epoch = owner.task_epoch;
     request.input = supplied.value();
@@ -2885,6 +2889,13 @@ void storyboard_tool_contract() {
     check(!turn.validate_request(request, owner));
     --feed->state.source_epoch;
     turn.perception_consumed(request, owner);
+    check(feed->read_ids.empty()); // DEC-132: epoch ABA cannot revive an old offer
+    const auto rebuilt = call(R"({"frame_ids":["story-1","story-0"]})");
+    check(rebuilt && !rebuilt.value().failed);
+    request.request_id = mira::ModelRequestId::generate();
+    request.input = turn.supply(spec).value();
+    check(bool(turn.validate_request(request, owner)));
+    turn.perception_consumed(request, owner);
     check(feed->read_ids == std::vector<std::string>{"story-0", "story-1"});
     const auto repeat = turn.supply(spec);
     check(static_cast<bool>(repeat));
@@ -2900,6 +2911,208 @@ void storyboard_tool_contract() {
     no_images.register_tool(text_registry, {}, false);
     for (const auto &tool : text_registry.exposed_tools())
         check(tool.wire_name != "desktop.vision.storyboard");
+}
+
+class EvidenceCompletionProvider final : public mira::IModelProvider {
+    mira::ModelProfile profile_;
+
+  public:
+    mira::ModelCompletionStatus status = mira::ModelCompletionStatus::Completed;
+    bool fail = false;
+    const mira::ModelProfile &profile() const override { return profile_; }
+    mira::Result<mira::ModelResponse> infer(const mira::ModelRequest &request,
+                                            const mira::OperationContext &,
+                                            const mira::ProviderInferOptions &) override {
+        if (fail) {
+            mira::Error error;
+            error.code = mira::ErrorCode::Unavailable;
+            error.safe_message = "controlled inference failure";
+            return error;
+        }
+        mira::ModelResponse response;
+        response.request_id = request.request_id;
+        response.status = status;
+        return response;
+    }
+};
+void delivered_evidence_tool_contract() {
+    auto env = std::make_shared<NativeEnvironment>();
+    auto feed = std::make_shared<StoryboardFeed>();
+    auto tools = desktop();
+    tools.environment = env;
+    tools.resident_session = [env, feed](bool, auto) {
+        return integration::PerceptionConnection{env->create_desktop_capture_session(), feed};
+    };
+    tools.continuous_session = [feed](auto session, auto) {
+        return integration::PerceptionConnection{std::move(session), feed};
+    };
+    auto owner = context();
+    mirage::desktop::CancelToken cancel;
+    detail::DesktopImageTurn turn(std::make_shared<detail::DesktopImageSource>(), tools, owner,
+                                  cancel);
+    mira::BuiltinToolRegistry registry;
+    turn.register_tool(registry, {}, false);
+    mira::AgentLoopSpec spec;
+    spec.task_id = owner.task;
+    spec.session_id = owner.session;
+    spec.task_epoch = owner.task_epoch;
+    const auto report = [&](const std::vector<mira::ModelInputItem> &items) {
+        for (const auto &item : items)
+            for (const auto &part : item.content)
+                if (const auto *text = std::get_if<mira::TextPart>(&part);
+                    text && text->text.starts_with("Untrusted continuous desktop observations")) {
+                    check(text->text.size() <= 8192);
+                    const auto parsed =
+                        mira::parse_json(text->text.substr(text->text.find('{'))).value();
+                    const auto evidence = *parsed.find("retained_visual_evidence");
+                    check(mira::to_json_string(evidence).size() <= 1024);
+                    return evidence;
+                }
+        throw std::runtime_error("missing retained evidence report");
+    };
+    check(report(turn.supply(spec).value()).find("retained_samples")->as_integer() == 0);
+    const auto call = [&](const std::string &name, const char *args) {
+        return execute_native_tool(registry, owner, name, args);
+    };
+    // Unknown source, missing event and future timestamps never serve a retained image.
+    const auto saved = feed->state;
+    feed->state.events[0].source_epoch = 0;
+    auto invalid = call("desktop.vision.event_frame", R"({"frame_id":"story-0"})");
+    check(invalid && invalid.value().result.find("available")->as_boolean() == false);
+    feed->state = saved;
+    const auto original_time = feed->frames[0]->observed_at;
+    feed->frames[0]->observed_at = std::chrono::steady_clock::now() + std::chrono::seconds(1);
+    invalid = call("desktop.vision.event_frame", R"({"frame_id":"story-0"})");
+    check(invalid && invalid.value().result.find("available")->as_boolean() == false);
+    feed->frames[0]->observed_at = original_time;
+    auto board = call("desktop.vision.storyboard", R"({"frame_ids":["story-1","story-0"]})");
+    check(board && !board.value().failed);
+    mira::ModelRequest request;
+    request.task_id = owner.task;
+    request.task_epoch = owner.task_epoch;
+    request.request_id = mira::ModelRequestId::generate();
+    request.input = turn.supply(spec).value();
+    check(report(request.input).find("retained_samples")->as_integer() == 0);
+    check(bool(turn.validate_request(request, owner)));
+    const auto forged = [&](auto mutate) {
+        auto bad = request;
+        for (auto &item : bad.input)
+            for (auto &part : item.content)
+                if (auto *image = std::get_if<mira::ImagePart>(&part))
+                    mutate(*image);
+        turn.perception_consumed(bad, owner);
+        check(feed->read_ids.empty());
+    };
+    forged([](auto &i) { ++i.source.byte_size; });
+    forged([](auto &i) { i.media_type = "image/jpeg"; });
+    forged([](auto &i) { i.source.media_type = "image/jpeg"; });
+    forged([](auto &i) { i.detail = mira::ImageDetail::Low; });
+    auto stub = std::make_shared<EvidenceCompletionProvider>();
+    detail::ObservedProvider provider(stub);
+    provider.request_guard = [&](const auto &r, const auto &ctx) {
+        return turn.validate_request(r, ctx);
+    };
+    provider.consumed = [&](const auto &r, const auto &ctx) { turn.perception_consumed(r, ctx); };
+    turn.set_budget_remaining([] { return std::optional<std::int64_t>{5000}; });
+    auto withheld = request;
+    withheld.request_id = mira::ModelRequestId::generate();
+    withheld.input = turn.supply(spec).value();
+    check(bool(provider.infer(withheld, owner, {})) && feed->read_ids.empty());
+    check(report(withheld.input).find("retained_samples")->as_integer() == 0);
+    turn.set_budget_remaining({});
+    request.input = turn.supply(spec).value();
+    stub->fail = true;
+    check(!provider.infer(request, owner, {}));
+    stub->fail = false;
+    for (const auto status :
+         {mira::ModelCompletionStatus::Incomplete, mira::ModelCompletionStatus::Cancelled}) {
+        stub->status = status;
+        check(bool(provider.infer(request, owner, {})) && feed->read_ids.empty());
+    }
+    auto text_only = request;
+    for (auto &item : text_only.input)
+        std::erase_if(item.content,
+                      [](const auto &p) { return std::holds_alternative<mira::ImagePart>(p); });
+    stub->status = mira::ModelCompletionStatus::Completed;
+    check(!provider.infer(text_only, owner, {}) && feed->read_ids.empty());
+    auto foreign = owner;
+    foreign.task = mira::TaskId::generate();
+    turn.perception_consumed(request, foreign);
+    check(feed->read_ids.empty());
+    auto expired = owner;
+    expired.deadline = std::chrono::steady_clock::now() - std::chrono::seconds(1);
+    turn.perception_consumed(request, expired);
+    check(feed->read_ids.empty());
+    check(bool(provider.infer(request, owner, {})));
+    check(feed->read_ids == std::vector<std::string>{"story-0", "story-1"});
+    const auto after = turn.supply(spec).value();
+    const auto delivered = report(after);
+    check(delivered.find("retained_samples")->as_integer() == 2);
+    check(*delivered.find("state")->as_string() == "sparse_observation");
+    check(delivered.find("observer_span_ms")->as_integer() > 0);
+    check(delivered.find("complete_video")->as_boolean() == false &&
+          delivered.find("audio")->as_boolean() == false);
+    check(*delivered.find("content_understanding")->as_string() == "not_verified");
+    const auto span = delivered.find("observer_span_ms")->as_integer();
+    // More time or text progress cannot expand the observed visual span.
+    feed->state.media.active = true;
+    check(report(turn.supply(spec).value()).find("observer_span_ms")->as_integer() == span);
+    // Replacing a published image preserves the ledger; only its completed
+    // input contributes. The new preview is not acknowledged before completion.
+    auto extra = std::make_shared<integration::PerceptionPreview>(*feed->frames.back());
+    extra->id = "story-2";
+    extra->observed_at = std::chrono::steady_clock::now();
+    feed->frames.push_back(extra);
+    feed->state.previews.emplace_back(extra->id, extra);
+    auto event = feed->state.events.back();
+    event.sequence = ++feed->state.newest;
+    event.frame_sequence = 3;
+    event.frame_id = extra->id;
+    event.observed_at = extra->observed_at;
+    feed->state.events.push_back(event);
+    check(!call("desktop.vision.event_frame", R"({"frame_id":"story-2"})").value().failed);
+    request.request_id = mira::ModelRequestId::generate();
+    request.input = turn.supply(spec).value();
+    check(report(request.input).find("retained_samples")->as_integer() == 2);
+    check(bool(provider.infer(request, owner, {})));
+    check(report(turn.supply(spec).value()).find("retained_samples")->as_integer() == 3);
+    // Artifact IDs are content-addressed. An older completed request with the
+    // SAME pixels must never attest a newer frame's different observation time.
+    const auto old_request = request;
+    auto identical = std::make_shared<integration::PerceptionPreview>(*extra);
+    identical->id = "story-3";
+    identical->observed_at = std::chrono::steady_clock::now();
+    feed->frames.push_back(identical);
+    feed->state.previews.emplace_back(identical->id, identical);
+    event.sequence = ++feed->state.newest;
+    event.frame_sequence = 4;
+    event.frame_id = identical->id;
+    event.observed_at = identical->observed_at;
+    feed->state.events.push_back(event);
+    check(!call("desktop.vision.event_frame", R"({"frame_id":"story-3"})").value().failed);
+    request.request_id = mira::ModelRequestId::generate();
+    request.input = turn.supply(spec).value();
+    check(bool(turn.validate_request(request, owner)));
+    const auto read_count = feed->read_ids.size();
+    turn.perception_consumed(old_request, owner);
+    check(feed->read_ids.size() == read_count);
+    check(bool(provider.infer(request, owner, {})));
+    check(report(turn.supply(spec).value()).find("retained_samples")->as_integer() == 4);
+    // A source gap revokes the prior segment. The same epoch cannot revive it.
+    ++feed->state.dropped;
+    const auto interrupted = report(turn.supply(spec).value());
+    check(interrupted.find("retained_samples")->as_integer() == 0);
+    check(*interrupted.find("last_interruption")->as_string() == "observation_gap");
+    turn.perception_consumed(request, owner);
+    check(report(turn.supply(spec).value()).find("retained_samples")->as_integer() == 0);
+    // Resident-only turns also reject an authority change before any capture.
+    const auto before = feed->read_ids.size();
+    tools.actions->takeover();
+    turn.perception_consumed(request, owner);
+    check(feed->read_ids.size() == before);
+    cancel.request_cancel();
+    turn.perception_consumed(request, owner);
+    check(feed->read_ids.size() == before && env->captures == 0 && env->inputs == 0);
 }
 
 class TaskFeedScript final : public mira::IModelProvider {
@@ -5483,6 +5696,7 @@ int main() {
         batched_events_supply_and_ack();
         focus_tool_contract();
         storyboard_tool_contract();
+        delivered_evidence_tool_contract();
         native_session_poison_discipline();
         native_transient_recovery_contract();
         native_observation_efficiency();

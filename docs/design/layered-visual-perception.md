@@ -285,3 +285,23 @@ M9-29按[DEC-131](../decisions/DEC-131-multi-object-wake-priority.md)扩展既�
 失效。自动语义去噪/升级、跨未知帧精确继承及内容时间证据继续开放。
 [示例](../examples/multi-object-wake-priority.md)与[验证](../compatibility/multi-object-wake-priority-20261028.md)
 记录已交付范围。
+
+
+## 已完成模型请求的历史供图时间账（DEC-132）
+
+M9-30首增量在既有DesktopImageTurn中记录已完成请求实际呈现的event_frame和
+storyboard样本，依[DEC-132](../decisions/DEC-132-delivered-visual-evidence-ledger.md)
+绑定当前来源段、通过guard的请求ID及工件完整身份。工具回执/文字/播放状态、
+缺图/预算扣留与失败不计入；同像素的内容寻址工件也不得跨请求误记新帧时间。
+
+每turn当前段只存32个样本元数据（≤8KiB），待消费offer最多4个，无图像所有权。
+来源lease/epoch、gap/resync、失败和权限屏障退役当前段；恢复后只接纳新offer，
+图片clear不清已消费账。自动供给retained_visual_evidence≤1KiB，整个观察仍≤8KiB；
+显示保留数量、首末年龄、观察span、相邻最大间隔、截断和中断原因。
+
+unobserved/sparse_observation/interrupted是证据子状态，独立于尚未交付的完整
+内容任务状态机。观察时间不代表播放时间，sparse不升级为连续覆盖或理解正确。
+普通capture/OCR、跨turn、音频/结束证据未纳入本首增量；complete_video固定false。
+实现使用原串行owner和Mira Completed回调，不增加worker、队列、定时器或LLM调用。
+[示例](../examples/temporal-video-observation.md)和[证据](../compatibility/delivered-visual-evidence-20261028.md)
+保留未执行的真实视频/模型/平台验收。

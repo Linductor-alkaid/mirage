@@ -154,7 +154,7 @@ DesktopImageTurn::DesktopImageTurn(std::shared_ptr<DesktopImageSource> source,
         native_authority_ = desktop_.actions->authority_epoch();
         auto resident = desktop_.resident_session(false, perception_options(native_authority_));
         native_session_ = std::move(resident.session);
-        perception_ = std::move(resident.feed);
+        bind_perception(std::move(resident.feed));
     }
 }
 DesktopImageTurn::~DesktopImageTurn() {
@@ -179,6 +179,8 @@ void DesktopImageTurn::clear() {
     if (image_)
         (void)store_->erase({image_->id, "desktop image retired"});
     image_.reset();
+    content_offer_.reset();
+    content_request_.reset();
     consumed_image_digest_.clear();
     continuous_source_key_.clear();
     native_frame_.reset();
@@ -732,7 +734,7 @@ mira::Result<JsonValue> DesktopImageTurn::capture_desktop(const JsonValue &args,
         if (desktop_.resident_session) {
             auto resident = desktop_.resident_session(requested, perception_options(authority));
             native_session_ = std::move(resident.session);
-            perception_ = std::move(resident.feed);
+            bind_perception(std::move(resident.feed));
         }
         if (requested) {
             const auto input_allowed =
@@ -869,7 +871,7 @@ mira::Result<JsonValue> DesktopImageTurn::capture_desktop(const JsonValue &args,
             auto connected =
                 desktop_.continuous_session(std::move(native_session_), std::move(options));
             native_session_ = std::move(connected.session);
-            perception_ = std::move(connected.feed);
+            bind_perception(std::move(connected.feed));
         }
         metadata_.set("continuous_events", bool(perception_));
         metadata_.set("text_input_routes",
@@ -1283,6 +1285,7 @@ DesktopImageTurn::publish_image(const desktop::ImageFrame &frame, const Geometry
 mira::Result<std::vector<mira::ModelInputItem>>
 DesktopImageTurn::supply(const mira::AgentLoopSpec &spec) {
     supply_error_.reset();
+    content_request_.reset();
     expect_image_ = false;
     if (spec.task_id != owner_.task || spec.session_id != owner_.session ||
         spec.task_epoch != owner_.task_epoch || cancel_.cancelled()) {
@@ -1300,6 +1303,8 @@ DesktopImageTurn::supply(const mira::AgentLoopSpec &spec) {
         clear();
     }
     auto additions = supply_perception();
+    if (content_offer_ && !content_evidence_.current(*content_offer_))
+        clear();
     if (const auto *epoch = metadata_.find("storyboard_source_epoch");
         epoch && epoch->as_integer() && perception_ &&
         static_cast<std::uint64_t>(*epoch->as_integer()) != perception_->view().source_epoch)
@@ -1436,6 +1441,13 @@ mira::Result<void> DesktopImageTurn::validate_request(const mira::ModelRequest &
                 return error(ErrorCode::InvalidArgument, "foreign or retired desktop image");
     if (!expect_image_)
         return {};
+    if (content_offer_) {
+        if (!perception_)
+            return error(ErrorCode::Cancelled, "visual evidence source retired");
+        sync_content_evidence(perception_->view());
+        if (!content_evidence_.current(*content_offer_))
+            return error(ErrorCode::Cancelled, "visual evidence segment retired");
+    }
     if (const auto *epoch = metadata_.find("storyboard_source_epoch");
         epoch && epoch->as_integer() &&
         (!perception_ ||
@@ -1450,6 +1462,8 @@ mira::Result<void> DesktopImageTurn::validate_request(const mira::ModelRequest &
             if (const auto *image = std::get_if<mira::ImagePart>(&part);
                 image && image->source.id == image_->id && image->source.digest == image_->digest) {
                 supplied_image_ = true;
+                if (content_offer_)
+                    content_request_ = request.request_id;
                 return {};
             }
     return error(ErrorCode::ResourceExhausted, "required desktop image dropped before inference");

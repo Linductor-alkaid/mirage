@@ -14,6 +14,12 @@ native-release 与 DEB 交付完成；Release 120/120、真实推理与包校验
 
 ## 当前状态
 
+2026-10-28（M9-30首增量）：[DEC-132](../decisions/DEC-132-delivered-visual-evidence-ledger.md)
+接通已完成请求的历史供图时间账，报告32样本元数据窗口、稀疏时间/间隔及中断，
+自动随下一LLM请求提供；工具回执、文字和失败不计数。实际结果见
+[专项记录](../compatibility/delivered-visual-evidence-20261028.md)，播放器时间/完整内容
+状态机与真实视频/在线模型门禁继续开放。
+
 2026-10-28（M9-29第三增量）：[DEC-131](../decisions/DEC-131-multi-object-wake-priority.md)
 接通多对象显式wake/observe优先级、原子引用认证及失效回退。延后事件仍保留于
 自动供给，关键/未知变化继续唤醒；[验证范围](../compatibility/multi-object-wake-priority-20261028.md)
@@ -692,6 +698,7 @@ Executor 由 pinned `third_party/mira/third_party/executor` 提供，能力路�
 | 编号 | 主题 | 暂定默认值 | 负责人 | 最迟冻结 |
 | --- | --- | --- | --- | --- |
 | DEC-129 | 对象版本任务注意 | [DEC-129](../decisions/DEC-129-versioned-task-attention.md)：focus按已完成请求的对象版本跟随；失效恢复全局并返回原因；显式多目标由DEC-131承接，自动语义层仍开放 | Mirage维护者 | M9-29首增量；完整退出按专项计划 |
+| DEC-132 | 已完成供图时间证据账 | [DEC-132](../decisions/DEC-132-delivered-visual-evidence-ledger.md)：32样本元数据，实际请求/工件/来源绑定，稀疏时间和中断，不作完整视频声明 | Mirage维护者 | M9-30证据首增量；内容/播放器验收继续开放 |
 | DEC-131 | 多对象显式唤醒优先级 | [DEC-131](../decisions/DEC-131-multi-object-wake-priority.md)：最多4目标，准确observe身份仅延后位置/外观唤醒；保留日志、整组失效 | Mirage维护者 | M9-29显式重要性增量；自动语义层继续开放 |
 | DEC-130 | 普通事件无损批次 | [DEC-130](../decisions/DEC-130-lossless-event-batching.md)：同身份普通事件共享字段，逐次样本保留；预算只确认实际呈现前缀 | Mirage维护者 | M9-29批次增量；任务语义去噪继续开放 |
 | DEC-128 | Linux分层视觉生产配置 | [DEC-128](../decisions/DEC-128-layered-perception-production-profile.md)：Linux默认layered/5Hz/5s完整巡检/有界跟踪，稳定CLI和legacy回退；本机验收见生产记录，Windows/Portal/视频门禁保留 | Mirage维护者 | 本机配置已冻结；跨平台M9-33 |

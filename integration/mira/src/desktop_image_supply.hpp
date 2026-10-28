@@ -1,5 +1,6 @@
 #pragma once
 #include "ime_text_input.hpp"
+#include "perception_content_evidence.hpp"
 #include "perception_semantics.hpp"
 #include "phase_timing.hpp"
 #include <kairo/comm/mailbox.hpp>
@@ -138,7 +139,12 @@ class DesktopImageTurn {
                                   const DesktopAtomToolset::Decorator &);
     void register_storyboard_tool(mira::BuiltinToolRegistry &,
                                   const DesktopAtomToolset::Decorator &);
+    void bind_perception(std::shared_ptr<DesktopPerceptionFeed>);
+    void sync_content_evidence(const PerceptionView &);
     std::shared_ptr<DesktopPerceptionFeed> perception_;
+    PerceptionContentEvidence content_evidence_;
+    std::optional<ContentEvidenceOffer> content_offer_;
+    std::optional<mira::ModelRequestId> content_request_;
     PerceptionSessionOptions perception_options(std::uint64_t authority) const;
     std::optional<desktop::ImageFrame> text_observation_frame_;
     mira::JsonValue text_observation_metadata_;

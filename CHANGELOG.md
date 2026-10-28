@@ -14,6 +14,13 @@
 
 ### 功能
 
+- DEC-132：连续观察自动携带已完成请求实际呈现的事件帧/拼图时间证据，保留
+  最多32样本元数据、时间跨度/间隔和来源中断；失败/未完成/缺图/预算扣留不计数。
+  请求ID与完整工件身份防止相同像素误记新帧；事件帧补来源/时刻检查。
+  [示例](docs/examples/temporal-video-observation.md)及
+  [验收](docs/compatibility/delivered-visual-evidence-20261028.md)明确稀疏、无音频及
+  不构成完整视频理解，整体供给仍≤8KiB。
+
 - DEC-131：desktop.vision.focus支持1–4个已完成请求对象及wake/observe优先级，
   原子重验；只延后已确认observe身份的位置/外观唤醒，全部事件仍自动提交。
   关键/未知/非目标变化保守唤醒，任一目标失效整组回退；矩形/单对象兼容。
