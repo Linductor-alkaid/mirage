@@ -14,10 +14,16 @@ native-release 与 DEB 交付完成；Release 120/120、真实推理与包校验
 
 ## 当前状态
 
+2026-10-28（M9-29第二增量）：[DEC-130](../decisions/DEC-130-lossless-event-batching.md)
+将已有普通事件无损批次化供给，逐次变化保留、关键屏障独立、截断按实际请求前缀
+确认。受控25次观察压为4行，6792B降至3798B；本地测试及未执行范围见
+[验收记录](../compatibility/lossless-event-batching-20261028.md)。多目标重要性、语义去噪
+与内容时间账本继续开放。
+
 2026-10-28（M9-29）：按[DEC-129](../decisions/DEC-129-versioned-task-attention.md)接通
 对象版本注意区域和来源失效回退；同版本移动跟随、失效恢复全局、等待明确返回，
 不改变共享采样/权限。范围及证据见[专项记录](../compatibility/versioned-task-attention-20261028.md)，
-多目标重要性/事件合并与内容时间证据继续按M9专项计划推进。
+多目标重要性与内容时间证据继续按M9专项计划推进。
 
 2026-10-28（生产开放）：维护者授权[DEC-128](../decisions/DEC-128-layered-perception-production-profile.md)
 的Linux分层视觉默认及旧Host迁移；新增稳定配置和单命令legacy回退。基于冻结模型
@@ -680,7 +686,8 @@ Executor 由 pinned `third_party/mira/third_party/executor` 提供，能力路�
 
 | 编号 | 主题 | 暂定默认值 | 负责人 | 最迟冻结 |
 | --- | --- | --- | --- | --- |
-| DEC-129 | 对象版本任务注意 | [DEC-129](../decisions/DEC-129-versioned-task-attention.md)：focus按已完成请求的对象版本跟随；失效恢复全局并返回原因；多目标/事件合并仍开放 | Mirage维护者 | M9-29首增量；完整退出按专项计划 |
+| DEC-129 | 对象版本任务注意 | [DEC-129](../decisions/DEC-129-versioned-task-attention.md)：focus按已完成请求的对象版本跟随；失效恢复全局并返回原因；多目标重要性仍开放 | Mirage维护者 | M9-29首增量；完整退出按专项计划 |
+| DEC-130 | 普通事件无损批次 | [DEC-130](../decisions/DEC-130-lossless-event-batching.md)：同身份普通事件共享字段，逐次样本保留；预算只确认实际呈现前缀 | Mirage维护者 | M9-29批次增量；任务语义去噪继续开放 |
 | DEC-128 | Linux分层视觉生产配置 | [DEC-128](../decisions/DEC-128-layered-perception-production-profile.md)：Linux默认layered/5Hz/5s完整巡检/有界跟踪，稳定CLI和legacy回退；本机验收见生产记录，Windows/Portal/视频门禁保留 | Mirage维护者 | 本机配置已冻结；跨平台M9-33 |
 | DEC-110 | 连续输入与设备兼容性 | Proposed：M7-25 已有契约冻结稿；2026-10-20 补全量键鼠默认本地自然时序、无模型时间参数与完整执行后返回/验证要求，契约及兼容迁移待修订；M7-26 已交付 X11/Portal 完整动作默认自然时序与裸修饰键 tap；持键/IME/设备及真实平台验收未完成 | Mirage 维护者 | M7-25 修订/评审；设备原型前 M7-29/30，任务阈值执行前 M7-31 |
 | DEC-095 | 基础 Agent 工具集 | Proposed：四工具/alias、观察与提交点、预算、权限迁移和平台边界见提案 | Mirage 维护者 | M10-02 |

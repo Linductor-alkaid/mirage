@@ -8,9 +8,14 @@
 > 更新日期：2026-10-28
 
 2026-10-28：按[DEC-129](../decisions/DEC-129-versioned-task-attention.md)推进M9-29/18的
-对象版本注意区域，扩展既有focus与wait，保持任务间隔离；多目标重要性、事件窗口
-合并、精确跨未知帧继承和内容时间账本继续开放。专项完成证据见
+对象版本注意区域，扩展既有focus与wait，保持任务间隔离；多目标重要性、
+精确跨未知帧继承和内容时间账本继续开放。专项完成证据见
 [验收记录](../compatibility/versioned-task-attention-20261028.md)。
+
+2026-10-28：按[DEC-130](../decisions/DEC-130-lossless-event-batching.md)交付普通事件
+无损批次，保留逐次位置/外观信息及关键屏障，预算截断只ACK实际供给前缀。
+[批次验收](../compatibility/lossless-event-batching-20261028.md)限定本地序列化收益，
+不代表在线模型收益或已交付任务语义过滤。
 
 ## 目标
 

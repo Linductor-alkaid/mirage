@@ -1,6 +1,7 @@
 #include "../../integration/mira/src/conversation_capture.hpp"
 #include "../../integration/mira/src/desktop_action_verification.hpp"
 #include "../../integration/mira/src/desktop_image_supply.hpp"
+#include "../../integration/mira/src/perception_event_batch.hpp"
 #include "../../integration/mirador/src/perception_journal.hpp"
 #include "../support/fake_desktop_environment.hpp"
 #include "../support/provider_tool_name.hpp"
@@ -2550,6 +2551,124 @@ void resident_wait_registry_without_capture() {
     spec.task_epoch = ctx.task_epoch;
     const auto supplied = restricted.supply(spec);
     check(supplied && supplied.value().empty() && env->created == created);
+}
+
+void batched_events_supply_and_ack() {
+    auto env = std::make_shared<NativeEnvironment>();
+    auto feed = std::make_shared<TaskFeedFixture>();
+    feed->state.events.clear();
+    feed->state.newest = 0;
+    const auto now = std::chrono::steady_clock::now();
+    for (unsigned n = 1; n <= 24; ++n) {
+        integration::PerceptionEvent event;
+        event.sequence = event.frame_sequence = ++feed->state.newest;
+        event.entity = event.instance_generation = event.source_epoch = 1;
+        event.confirmed = true;
+        event.kind = "position_or_appearance_changed";
+        event.text = "Same text; inspect each appearance observation";
+        event.x = n;
+        event.width = event.height = 1;
+        event.observed_at = now - std::chrono::milliseconds(240 - n * 10);
+        feed->state.events.push_back(event);
+    }
+    auto barrier = feed->state.events.back();
+    barrier.sequence = ++feed->state.newest;
+    barrier.kind = "disappeared";
+    feed->state.events.push_back(barrier);
+    auto tools = desktop();
+    tools.environment = env;
+    tools.resident_session = [env, feed](bool, auto) {
+        return integration::PerceptionConnection{env->create_desktop_capture_session(), feed};
+    };
+    tools.continuous_session = [feed](auto session, auto) {
+        return integration::PerceptionConnection{std::move(session), feed};
+    };
+    const auto ctx = context();
+    detail::DesktopImageTurn turn(std::make_shared<detail::DesktopImageSource>(), tools, ctx, {});
+    mira::BuiltinToolRegistry registry;
+    turn.register_tool(registry, {}, false);
+    mira::AgentLoopSpec spec;
+    spec.task_id = ctx.task;
+    spec.session_id = ctx.session;
+    spec.task_epoch = ctx.task_epoch;
+    const auto first = turn.supply(spec);
+    check(first && feed->acknowledged == 0);
+    const auto retry = turn.supply(spec); // failed/uncompleted requests cannot consume
+    check(retry && feed->acknowledged == 0);
+    bool found = false;
+    for (const auto &item : retry.value())
+        for (const auto &part : item.content)
+            if (const auto *text = std::get_if<mira::TextPart>(&part);
+                text && text->text.starts_with("Untrusted continuous desktop observations")) {
+                check(text->text.size() <= 8192);
+                const auto parsed =
+                    mira::parse_json(text->text.substr(text->text.find('{'))).value();
+                const auto &rows = *parsed.find("events")->as_array();
+                check(rows.size() == 4 && *rows[0].find("sample_count")->as_integer() == 8);
+                check(rows[0].find("prior_samples")->as_array()->size() == 7);
+                check(*rows.back().find("kind")->as_string() == "disappeared");
+                check(parsed.find("cursor")->as_integer() == 25);
+                found = true;
+            }
+    check(found);
+    mira::ModelRequest consumed;
+    consumed.request_id = mira::ModelRequestId::generate();
+    turn.perception_consumed(consumed, ctx); // supplier absent: no ACK
+    check(feed->acknowledged == 0);
+    consumed.input = retry.value();
+    turn.perception_consumed(consumed, ctx);
+    check(feed->acknowledged == 25 && feed->state.events.size() == 25);
+    // Saturate event and scene budgets together. The outer 8KiB guard must
+    // remove whole rows and ACK only the prefix left in the actual request.
+    feed->state.scene.emplace();
+    auto &scene = *feed->state.scene;
+    scene.ok = scene.reset = true;
+    scene.source_session = "batch-supplier-fixture";
+    scene.context_revision = scene.frame_sequence = 1;
+    feed->state.scene_observed_at = std::chrono::steady_clock::now();
+    for (unsigned n = 100; n < 108; ++n) {
+        mirage::desktop::VisualSceneRecord record;
+        record.object.id = n;
+        record.object.incarnation = record.object.content_revision = 1;
+        record.object.identity_confirmed = true;
+        record.object.bounds = {10, 10, 80, 20};
+        record.object.text.assign(256, 's');
+        scene.updated.push_back(record);
+    }
+    const auto later = std::chrono::steady_clock::now();
+    for (unsigned n = 1; n <= 96; ++n) {
+        auto e = feed->state.events.front();
+        e.sequence = e.frame_sequence = ++feed->state.newest;
+        e.text.assign(256, 'm');
+        e.observed_at = later - std::chrono::milliseconds(480 - n * 5);
+        feed->state.events.push_back(std::move(e));
+    }
+    const auto before_trim = detail::perception_event_batch(feed->view(), 25, later).cursor;
+    const auto large = turn.supply(spec);
+    check(bool(large));
+    std::int64_t actual_cursor = 0;
+    for (const auto &item : large.value())
+        for (const auto &part : item.content)
+            if (const auto *text = std::get_if<mira::TextPart>(&part);
+                text && text->text.starts_with("Untrusted continuous desktop observations")) {
+                check(text->text.size() <= 8192);
+                const auto projection =
+                    mira::parse_json(text->text.substr(text->text.find('{'))).value();
+                actual_cursor = *projection.find("cursor")->as_integer();
+                check(actual_cursor > 25 && actual_cursor < static_cast<std::int64_t>(before_trim));
+                std::int64_t represented = 25;
+                for (const auto &row : *projection.find("events")->as_array()) {
+                    if (const auto *prior = row.find("prior_samples"))
+                        for (const auto &point : *prior->as_array())
+                            check(point.find("cursor")->as_integer() == ++represented);
+                    check(row.find("cursor")->as_integer() == ++represented);
+                }
+                check(represented == actual_cursor);
+            }
+    consumed.input = large.value();
+    turn.perception_consumed(consumed, ctx);
+    check(feed->acknowledged == static_cast<std::uint64_t>(actual_cursor));
+    check(env->captures == 0 && env->inputs == 0);
 }
 
 // DEC-118: the desktop.vision.focus tool surfaces the task feed's attention
@@ -5142,6 +5261,7 @@ int main() {
         native_roi_pixel_budget();
         native_text_only_and_state_wiring();
         resident_wait_registry_without_capture();
+        batched_events_supply_and_ack();
         focus_tool_contract();
         storyboard_tool_contract();
         native_session_poison_discipline();

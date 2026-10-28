@@ -1,4 +1,5 @@
 #include "desktop_image_supply.hpp"
+#include "perception_event_batch.hpp"
 #include <algorithm>
 #include <cstdint>
 #include <mirage/conversation.hpp>
@@ -59,39 +60,9 @@ std::vector<mira::ModelInputItem> DesktopImageTurn::supply_perception() {
     const auto view = perception_->view();
     perception_semantics_.sync(view);
     auto semantic_scene = perception_semantics_.project();
-    Json::Array events;
-    std::size_t bytes = 0;
-    for (const auto &e : view.events) {
-        if (e.sequence <= perception_cursor_)
-            continue;
-        const bool preview_available =
-            std::any_of(view.previews.begin(), view.previews.end(), [&](const auto &p) {
-                return p.first == e.frame_id && !p.second.expired();
-            });
-        Json event{Json::Object{
-            {"cursor", static_cast<std::int64_t>(e.sequence)},
-            {"kind", e.kind},
-            {"text", e.text},
-            {"confirmed", e.confirmed},
-            {"entity", static_cast<std::int64_t>(e.entity)},
-            {"instance_generation", static_cast<std::int64_t>(e.instance_generation)},
-            {"source_epoch", static_cast<std::int64_t>(e.source_epoch)},
-            {"frame_id", preview_available ? e.frame_id : std::string{}},
-            {"preview_available", preview_available},
-            {"age_ms",
-             std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - e.observed_at)
-                 .count()},
-            {"x", e.x},
-            {"y", e.y},
-            {"width", e.width},
-            {"height", e.height}}};
-        const auto size = mira::to_json_string(event).size();
-        if (events.size() >= 16 || bytes + size > 7000)
-            break;
-        bytes += size;
-        events.push_back(std::move(event));
-        perception_offered_ = e.sequence;
-    }
+    auto batch = perception_event_batch(view, perception_cursor_, Clock::now());
+    auto events = std::move(batch.rows);
+    perception_offered_ = batch.cursor;
     // Supplier input is ephemeral in Mira. Keep a small projection of consumed
     // observations so the next request can still relate a disappearance/update
     // to what was just seen, without replaying the full read journal.

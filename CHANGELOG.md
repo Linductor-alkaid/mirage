@@ -14,12 +14,18 @@
 
 ### 功能
 
+- DEC-130：模型供给连续位置/外观事件可共享元数据，每行最多8次观察，逐次
+  cursor/帧/时间/框保留；出现/消失和内容屏障独立。最多16输出行，事件数组
+  7000B及完整8KiB预算保留，ACK仅覆盖实际完成请求的前缀。
+  [协议示例](docs/examples/lossless-event-batching.md)及
+  [验收](docs/compatibility/lossless-event-batching-20261028.md)记录范围与限制。
+
 - DEC-129：desktop.vision.focus支持已完成模型请求的object_ref，按来源/对象/内容
   版本跟随已确认移动；失效恢复全局事件，wait返回attention_invalidated。矩形
   焦点也在来源变更/gap/失败后撤销；原事件ACK与其他任务不受影响。
   [使用示例](docs/examples/versioned-task-attention.md)及
   [验收记录](docs/compatibility/versioned-task-attention-20261028.md)保留跨未知帧继承、
-  多目标重要性与事件合并的未完成范围。
+  多目标重要性的未完成范围；普通事件批次由DEC-130承接。
 
 - DEC-128：Linux服务在配置OCR资源后默认使用分层视觉（5Hz采样、5秒完整巡检、
   有界跟踪）；旧Host的准入/变化比较同样先用≤320灰度工作图，识别缓存保持原图

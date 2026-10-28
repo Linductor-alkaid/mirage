@@ -1,3 +1,4 @@
+#include "../../integration/mira/src/perception_event_batch.hpp"
 #include "../../integration/mira/src/perception_semantics.hpp"
 #include "../../integration/mirador/src/perception_journal.hpp"
 #include "../support/test.hpp"
@@ -214,8 +215,147 @@ void deferred_evidence_never_renews_or_reactivates_labels() {
     journal.clear();
     MIRAGE_CHECK(!journal.view().recognition_deferred && journal.view().recognition_reason.empty());
 }
+void lossless_event_batching_and_prefixes() {
+    PerceptionView view;
+    const auto now = Clock::now();
+    for (unsigned n = 1; n <= 24; ++n) {
+        PerceptionEvent event;
+        event.sequence = event.frame_sequence = n;
+        event.source_epoch = event.entity = event.instance_generation = 1;
+        event.confirmed = true;
+        event.kind = "position_or_appearance_changed";
+        event.text = "same recognized text, possible different appearance";
+        event.observed_at = now - std::chrono::milliseconds(240 - n * 10);
+        event.x = n;
+        event.y = 2;
+        event.width = 3;
+        event.height = 4;
+        view.events.push_back(event);
+    }
+    auto barrier = view.events.back();
+    barrier.sequence = 25;
+    barrier.kind = "text_changed";
+    barrier.text = "Important transition";
+    view.events.push_back(barrier);
+    view.newest = 25;
+    std::vector<std::shared_ptr<PerceptionPreview>> retained;
+    for (unsigned n = 0; n < 8; ++n) {
+        auto preview = std::make_shared<PerceptionPreview>();
+        preview->id = "batch-frame-" + std::to_string(n + 1);
+        view.events[n].frame_id = preview->id;
+        preview->observed_at = view.events[n].observed_at;
+        view.previews.emplace_back(preview->id, preview);
+        retained.push_back(std::move(preview));
+    }
+    auto batch = detail::perception_event_batch(view, 0, now);
+    MIRAGE_CHECK(batch.rows.size() == 4 && batch.cursor == 25);
+    std::uint64_t restored = 0;
+    for (const auto &row : batch.rows) {
+        if (const auto *prior = row.find("prior_samples")) {
+            MIRAGE_CHECK(prior->as_array()->size() == 7);
+            for (const auto &point : *prior->as_array()) {
+                ++restored;
+                MIRAGE_CHECK(point.find("cursor")->as_integer() == restored);
+                MIRAGE_CHECK(point.find("y")->as_number() == 2);
+                MIRAGE_CHECK(point.find("width")->as_number() == 3);
+                MIRAGE_CHECK(point.find("height")->as_number() == 4);
+                if (restored <= 8) {
+                    MIRAGE_CHECK(*point.find("frame_id")->as_string() ==
+                                 "batch-frame-" + std::to_string(restored));
+                    MIRAGE_CHECK(point.find("preview_available")->as_boolean() == true);
+                }
+                MIRAGE_CHECK(point.find("x")->as_number() == double(restored));
+                MIRAGE_CHECK(point.find("frame_sequence")->as_integer() == restored);
+                MIRAGE_CHECK(point.find("age_ms")->as_integer() ==
+                             240 - std::int64_t(restored) * 10);
+            }
+        }
+        ++restored;
+        MIRAGE_CHECK(row.find("cursor")->as_integer() == restored);
+    }
+    MIRAGE_CHECK(restored == 25);
+    Json::Array flat;
+    for (const auto &event : view.events) {
+        auto one = view;
+        one.events = {event};
+        auto encoded = detail::perception_event_batch(one, 0, now);
+        flat.push_back(encoded.rows.front());
+    }
+    const auto flat_bytes = mira::to_json_string(Json{flat}).size();
+    const auto batch_bytes = mira::to_json_string(Json{batch.rows}).size();
+    MIRAGE_CHECK(batch_bytes < flat_bytes);
+    std::fprintf(stderr, "event batch: 25 observations, 4 rows, flat=%zu B, batch=%zu B\n",
+                 flat_bytes, batch_bytes);
+
+    MIRAGE_CHECK(*batch.rows.back().find("text")->as_string() == "Important transition");
+    // Every non-motion kind, gap, identity, source, text, confirmation and
+    // ordering change is a boundary; no semantic event is discarded.
+    for (const auto *kind : {"appeared", "disappeared", "text_changed", "relation_changed",
+                             "source_reset", "observed_unconfirmed", "media_keyframe"}) {
+        auto changed = view;
+        changed.events[1].kind = kind;
+        auto split = detail::perception_event_batch(changed, 0, now);
+        MIRAGE_CHECK(!split.rows[0].find("prior_samples"));
+        MIRAGE_CHECK(*split.rows[1].find("kind")->as_string() == kind);
+    }
+    const auto boundary = [&](auto mutate) {
+        auto changed = view;
+        mutate(changed.events[1]);
+        auto split = detail::perception_event_batch(changed, 0, now);
+        MIRAGE_CHECK(!split.rows.front().find("prior_samples"));
+    };
+    boundary([](auto &e) { ++e.entity; });
+    boundary([](auto &e) { ++e.instance_generation; });
+    boundary([](auto &e) { ++e.source_epoch; });
+    boundary([](auto &e) { e.text = "new content"; });
+    boundary([](auto &e) { e.confirmed = false; });
+    boundary([](auto &e) { ++e.sequence; });
+    boundary([](auto &e) { e.observed_at -= std::chrono::seconds(2); });
+    boundary([](auto &e) { e.observed_at += std::chrono::seconds(2); });
+    boundary([](auto &e) { e.frame_sequence = 0; });
+    auto resync = view;
+    resync.resync = true;
+    const auto singles = detail::perception_event_batch(resync, 0, now);
+    MIRAGE_CHECK(singles.rows.size() <= 16 && singles.cursor < 25);
+    MIRAGE_CHECK(!singles.rows.front().find("prior_samples"));
+    // A full journal forces byte-budget shortening. Every raw event must
+    // remain recoverable across the successive acknowledged prefixes.
+    const auto prototype = view.events.front();
+    view.events.clear();
+    for (unsigned n = 1; n <= 96; ++n) {
+        auto e = prototype;
+        e.frame_id.clear();
+        e.sequence = e.frame_sequence = n;
+        e.text.assign(256, 'x');
+        e.observed_at = now - std::chrono::milliseconds(480 - n * 5);
+        view.events.push_back(std::move(e));
+    }
+    barrier.sequence = 97;
+    view.events.push_back(barrier);
+    view.newest = 97;
+    MIRAGE_CHECK(detail::perception_event_batch(view, 0, now).cursor < view.newest);
+    std::uint64_t after = 0;
+    unsigned total = 0;
+    for (unsigned attempt = 0; after < view.newest && attempt < 97; ++attempt) {
+        const auto next = detail::perception_event_batch(view, after, now);
+        MIRAGE_CHECK(!next.rows.empty() && next.cursor > after);
+        if (next.rows.empty())
+            break;
+        MIRAGE_CHECK(mira::to_json_string(Json{next.rows}).size() <= 7000);
+        for (const auto &row : next.rows) {
+            if (const auto *prior = row.find("prior_samples"))
+                for (const auto &point : *prior->as_array())
+                    MIRAGE_CHECK(point.find("cursor")->as_integer() == ++total);
+            MIRAGE_CHECK(row.find("cursor")->as_integer() == ++total);
+        }
+        after = next.cursor;
+    }
+    MIRAGE_CHECK(total == 97 && after == 97);
+    MIRAGE_CHECK(view.events.size() == 97); // source log unchanged
+}
 } // namespace
 int main() {
+    lossless_event_batching_and_prefixes();
     inheritance_and_late_results();
     reset_gap_budget_and_expiry();
     deferred_evidence_never_renews_or_reactivates_labels();
