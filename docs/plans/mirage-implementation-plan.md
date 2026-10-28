@@ -14,6 +14,11 @@ native-release 与 DEB 交付完成；Release 120/120、真实推理与包校验
 
 ## 当前状态
 
+2026-10-28（M9-29第三增量）：[DEC-131](../decisions/DEC-131-multi-object-wake-priority.md)
+接通多对象显式wake/observe优先级、原子引用认证及失效回退。延后事件仍保留于
+自动供给，关键/未知变化继续唤醒；[验证范围](../compatibility/multi-object-wake-priority-20261028.md)
+限定本机契约，不代表自动任务语义去噪、跨未知帧继承或视频覆盖完成。
+
 2026-10-28（M9-29第二增量）：[DEC-130](../decisions/DEC-130-lossless-event-batching.md)
 将已有普通事件无损批次化供给，逐次变化保留、关键屏障独立、截断按实际请求前缀
 确认。受控25次观察压为4行，6792B降至3798B；本地测试及未执行范围见
@@ -686,7 +691,8 @@ Executor 由 pinned `third_party/mira/third_party/executor` 提供，能力路�
 
 | 编号 | 主题 | 暂定默认值 | 负责人 | 最迟冻结 |
 | --- | --- | --- | --- | --- |
-| DEC-129 | 对象版本任务注意 | [DEC-129](../decisions/DEC-129-versioned-task-attention.md)：focus按已完成请求的对象版本跟随；失效恢复全局并返回原因；多目标重要性仍开放 | Mirage维护者 | M9-29首增量；完整退出按专项计划 |
+| DEC-129 | 对象版本任务注意 | [DEC-129](../decisions/DEC-129-versioned-task-attention.md)：focus按已完成请求的对象版本跟随；失效恢复全局并返回原因；显式多目标由DEC-131承接，自动语义层仍开放 | Mirage维护者 | M9-29首增量；完整退出按专项计划 |
+| DEC-131 | 多对象显式唤醒优先级 | [DEC-131](../decisions/DEC-131-multi-object-wake-priority.md)：最多4目标，准确observe身份仅延后位置/外观唤醒；保留日志、整组失效 | Mirage维护者 | M9-29显式重要性增量；自动语义层继续开放 |
 | DEC-130 | 普通事件无损批次 | [DEC-130](../decisions/DEC-130-lossless-event-batching.md)：同身份普通事件共享字段，逐次样本保留；预算只确认实际呈现前缀 | Mirage维护者 | M9-29批次增量；任务语义去噪继续开放 |
 | DEC-128 | Linux分层视觉生产配置 | [DEC-128](../decisions/DEC-128-layered-perception-production-profile.md)：Linux默认layered/5Hz/5s完整巡检/有界跟踪，稳定CLI和legacy回退；本机验收见生产记录，Windows/Portal/视频门禁保留 | Mirage维护者 | 本机配置已冻结；跨平台M9-33 |
 | DEC-110 | 连续输入与设备兼容性 | Proposed：M7-25 已有契约冻结稿；2026-10-20 补全量键鼠默认本地自然时序、无模型时间参数与完整执行后返回/验证要求，契约及兼容迁移待修订；M7-26 已交付 X11/Portal 完整动作默认自然时序与裸修饰键 tap；持键/IME/设备及真实平台验收未完成 | Mirage 维护者 | M7-25 修订/评审；设备原型前 M7-29/30，任务阈值执行前 M7-31 |

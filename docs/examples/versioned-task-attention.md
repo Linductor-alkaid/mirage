@@ -29,7 +29,7 @@
 不是其中内容已被识别；不会裁剪共享采样或影响其他任务。来源变更/gap/失败时它也
 会失效，防止把旧显示布局继续当新布局过滤。
 
-模型供给新增attention：mode为global/region/object，active、reason、目标版本和
+模型供给新增attention：mode为global/region/object（DEC-131增加objects），active、reason、目标版本和
 region字段对应当前消费者。对象未知/失踪、内容/实例/上下文改变、过期或来源异常时，
 active=false且reason非空，过滤恢复为全局；等待中的desktop.vision.wait返回
 attention_invalidated。根据新证据重新声明意图或明确清除：
@@ -41,4 +41,5 @@ attention_invalidated。根据新证据重新声明意图或明确清除：
 出现/消失/来源重置/未确认区域观察仍绕过焦点过滤。失效不会清空历史事件、推进
 ACK或主动发起模型请求。现有layered CV-only区间不签发内容有效性，对象注意可能
 很快失效；此时应使用与任务意图相符的空间关注，不能循环重设旧对象引用来冒充
-跨未知帧继承。M9-29的多目标重要性与事件窗口合并、M9-30的内容覆盖仍待交付。
+跨未知帧继承。DEC-130已接通普通事件无损批次；DEC-131新增[多对象显式唤醒优先级](multi-object-wake-priority.md)。
+自动任务重要性、精确跨未知帧继承和M9-30内容覆盖继续开放。

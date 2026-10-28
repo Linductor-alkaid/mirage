@@ -37,3 +37,10 @@ M9-29仍In Progress。当前layered CV-only周期不证明对象版本有效，�
 能力核对：Mirador公开fusion/snapshot的stable_id只在源session内有效，不承载
 模型请求认证或消费者任务意图。本增量复用Mirage既有VisualScene版本与已完成
 请求供给表，在产品FeedLease维护任务策略；不实现新的视觉关联/跟踪算法。
+
+## 后续扩展
+
+[DEC-130](DEC-130-lossless-event-batching.md)交付普通事件无损批次；
+[DEC-131](DEC-131-multi-object-wake-priority.md)部分扩展本文单对象限制，增加最多
+4对象与显式wake/observe优先级。旧单对象/矩形契约保持，未知版本整组失效，
+不将这些增量解释为自动任务语义去噪或跨未知帧精确继承。

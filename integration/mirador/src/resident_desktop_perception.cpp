@@ -170,8 +170,9 @@ class FeedLease final : public DesktopPerceptionFeed {
         std::erase_if(result.events, [&](const auto &event) {
             if (event.sequence <= beginning_)
                 return true;
-            if (!attention.active || event.kind == "appeared" || event.kind == "disappeared" ||
-                event.kind == "source_reset" || event.kind == "observed_unconfirmed")
+            if (!attention.active || attention.mode == "objects" || event.kind == "appeared" ||
+                event.kind == "disappeared" || event.kind == "source_reset" ||
+                event.kind == "observed_unconfirmed")
                 return false;
             const auto &r = attention.region;
             return event.x >= r.x + r.width || event.y >= r.y + r.height ||
@@ -211,6 +212,9 @@ class FeedLease final : public DesktopPerceptionFeed {
     bool focus_object(const desktop::VisualSemanticBinding &binding) override {
         return access_.valid() && attention_.object(binding, access_.resource->feed->view());
     }
+    bool focus_objects(const std::vector<PerceptionFocusTarget> &targets) override {
+        return access_.valid() && attention_.objects(targets, access_.resource->feed->view());
+    }
     std::unique_ptr<PerceptionPause> pause() override {
         return access_.valid() ? access_.resource->feed->pause() : nullptr;
     }
@@ -231,8 +235,9 @@ class FeedLease final : public DesktopPerceptionFeed {
                 return "gap";
             if (current.source_epoch != initial.source_epoch || current.dropped != initial.dropped)
                 return "gap";
-            if (std::any_of(current.events.begin(), current.events.end(),
-                            [&](const auto &event) { return event.sequence > after; }))
+            if (std::any_of(current.events.begin(), current.events.end(), [&](const auto &event) {
+                    return event.sequence > after && attention_.wakes(event);
+                }))
                 return "event";
             if (std::chrono::steady_clock::now() >= deadline)
                 return "timeout";

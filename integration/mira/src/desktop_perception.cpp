@@ -60,6 +60,21 @@ std::vector<mira::ModelInputItem> DesktopImageTurn::supply_perception() {
     const auto view = perception_->view();
     perception_semantics_.sync(view);
     auto semantic_scene = perception_semantics_.project();
+    Json::Array attention_targets;
+    if (view.attention)
+        for (const auto &target : view.attention->targets) {
+            if (attention_targets.size() >= 4)
+                break;
+            attention_targets.emplace_back(Json::Object{
+                {"entity", static_cast<std::int64_t>(target.entity)},
+                {"instance_generation", static_cast<std::int64_t>(target.instance_generation)},
+                {"content_revision", static_cast<std::int64_t>(target.content_revision)},
+                {"priority", target.wake ? "wake" : "observe"},
+                {"x", target.region.x},
+                {"y", target.region.y},
+                {"width", target.region.width},
+                {"height", target.region.height}});
+        }
     auto batch = perception_event_batch(view, perception_cursor_, Clock::now());
     auto events = std::move(batch.rows);
     perception_offered_ = batch.cursor;
@@ -112,6 +127,7 @@ std::vector<mira::ModelInputItem> DesktopImageTurn::supply_perception() {
         {"attention",
          view.attention
              ? Json{Json::Object{{"mode", view.attention->mode},
+                                 {"targets", Json{std::move(attention_targets)}},
                                  {"active", view.attention->active},
                                  {"reason", view.attention->invalidation_reason},
                                  {"entity", static_cast<std::int64_t>(view.attention->entity)},
@@ -288,8 +304,25 @@ void DesktopImageTurn::register_perception_tool(mira::BuiltinToolRegistry &regis
         "Alternatively pass only object_ref from the completed request's semantic_scene to "
         "follow the same confirmed object/version. Source/content/instance/unknown evidence "
         "invalidates this binding and restores global events; it never revives automatically. "
+        "Or pass only targets: 1-4 objects with object_ref and priority wake or observe, at "
+        "least one wake. In this mode all events stay in your feed; only confirmed "
+        "position/appearance events of observe identities defer wait wakeup, unless they "
+        "overlap a wake target. Content/lifecycle/unknown/other events still wake. Any target "
+        "invalidates the whole group on stale/unknown evidence. A timeout can include deferred "
+        "changes; it is not evidence nothing changed. "
         "Use a rectangle for persistent spatial watching across unknown frames. Consumer-local: "
         "it never changes sampling, other tasks or permissions. No capture, no input.";
+    const Json reference_schema{
+        Json::Object{{"type", "string"}, {"minLength", 1}, {"maxLength", 64}}};
+    const Json target_schema{Json::Object{
+        {"type", "object"},
+        {"properties",
+         Json{Json::Object{
+             {"object_ref", reference_schema},
+             {"priority", Json{Json::Object{{"type", "string"},
+                                            {"enum", Json{Json::Array{"wake", "observe"}}}}}}}}},
+        {"required", Json{Json::Array{"object_ref", "priority"}}},
+        {"additionalProperties", false}}};
     focus.parameters_schema = mira::JsonSchema{Json{Json::Object{
         {"type", "object"},
         {"properties",
@@ -300,8 +333,11 @@ void DesktopImageTurn::register_perception_tool(mira::BuiltinToolRegistry &regis
               Json{Json::Object{{"type", "integer"}, {"minimum", 0}, {"maximum", 1000000}}}},
              {"height",
               Json{Json::Object{{"type", "integer"}, {"minimum", 0}, {"maximum", 1000000}}}},
-             {"object_ref",
-              Json{Json::Object{{"type", "string"}, {"minLength", 1}, {"maxLength", 64}}}}}}},
+             {"object_ref", reference_schema},
+             {"targets", Json{Json::Object{{"type", "array"},
+                                           {"minItems", 1},
+                                           {"maxItems", 4},
+                                           {"items", target_schema}}}}}}},
         {"additionalProperties", false}}}};
     mira::BuiltinToolHandler focus_handler = [this](const auto &args,
                                                     const auto &ctx) -> mira::Result<Json> {
@@ -315,6 +351,47 @@ void DesktopImageTurn::register_perception_tool(mira::BuiltinToolRegistry &regis
         }
         if (!perception_)
             return Json{Json::Object{{"applied", false}, {"reason", "no_resident_feed"}}};
+        if (const auto *targets = args.find("targets")) {
+            const auto *list = targets->as_array();
+            if (!args.as_object() || args.as_object()->size() != 1 || !list || list->empty() ||
+                list->size() > 4)
+                return Json{Json::Object{{"applied", false}, {"reason", "invalid_argument"}}};
+            std::vector<std::pair<std::string, bool>> requested;
+            bool any_wake = false;
+            for (const auto &target : *list) {
+                const auto *ref = target.find("object_ref"), *priority = target.find("priority");
+                if (!target.as_object() || target.as_object()->size() != 2 || !ref ||
+                    !ref->as_string() || ref->as_string()->empty() ||
+                    ref->as_string()->size() > 64 || !priority || !priority->as_string() ||
+                    (*priority->as_string() != "wake" && *priority->as_string() != "observe") ||
+                    std::any_of(requested.begin(), requested.end(), [&](const auto &entry) {
+                        return entry.first == *ref->as_string();
+                    }))
+                    return Json{Json::Object{{"applied", false}, {"reason", "invalid_argument"}}};
+                const bool wake = *priority->as_string() == "wake";
+                requested.emplace_back(*ref->as_string(), wake);
+                any_wake = any_wake || wake;
+            }
+            if (!any_wake)
+                return Json{Json::Object{{"applied", false}, {"reason", "invalid_argument"}}};
+            if (!desktop_.actions || desktop_.actions->authority_epoch() != native_authority_)
+                return Json{Json::Object{{"applied", false}, {"reason", "authority_changed"}}};
+            perception_semantics_.sync(perception_->view());
+            std::vector<PerceptionFocusTarget> bindings;
+            for (const auto &[ref, wake] : requested) {
+                const auto binding = perception_semantics_.attention_binding(ref);
+                if (!binding)
+                    return Json{Json::Object{{"applied", false},
+                                             {"reason", "object_reference_stale_or_unsupported"}}};
+                bindings.push_back({*binding, wake});
+            }
+            const bool applied = perception_->focus_objects(bindings);
+            return Json{Json::Object{
+                {"applied", applied},
+                {"reason", applied ? "objects_attention" : "object_reference_stale_or_unsupported"},
+                {"input_actionable", false},
+                {"verified", false}}};
+        }
         if (const auto *ref = args.find("object_ref")) {
             if (!args.as_object() || args.as_object()->size() != 1 || !ref->as_string() ||
                 ref->as_string()->empty() || ref->as_string()->size() > 64)
@@ -374,7 +451,8 @@ void DesktopImageTurn::register_perception_tool(mira::BuiltinToolRegistry &regis
     spec.version = {1, 0, 0};
     spec.description =
         "Read one retained historical event-frame preview by frame_id from the "
-        "automatic continuous feed. It is a bounded 640-side preview, never actionable and never "
+        "automatic continuous feed. It is a bounded 640-side preview, never actionable and "
+        "never "
         "current verification evidence. Expired or consumed previews are unavailable. No new "
         "capture.";
     Json property{Json::Object{{"type", "string"}, {"maxLength", std::int64_t{64}}}};

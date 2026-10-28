@@ -80,12 +80,23 @@ struct PerceptionDispatch {
     bool pending = false;
     std::uint64_t regional = 0, ocr_completed = 0, detector_completed = 0;
 };
+// DEC-131: authenticated by the caller; the feed atomically revalidates all targets.
+struct PerceptionFocusTarget {
+    desktop::VisualSemanticBinding object;
+    bool wake = true;
+};
+struct PerceptionAttentionTarget {
+    desktop::WindowGeometry region;
+    std::uint64_t entity = 0, instance_generation = 0, content_revision = 0;
+    bool wake = true;
+};
 // DEC-129: consumer-local intent only; never content freshness or input authority.
 struct PerceptionAttention {
     std::string mode = "global", invalidation_reason;
     bool active = false;
     desktop::WindowGeometry region;
     std::uint64_t entity = 0, instance_generation = 0, content_revision = 0;
+    std::vector<PerceptionAttentionTarget> targets; // DEC-131: at most four, objects mode only.
 };
 struct PerceptionView {
     std::string state = "starting", error;
@@ -122,6 +133,7 @@ class DesktopPerceptionFeed {
     virtual void focus(const desktop::WindowGeometry &) = 0;
     // The caller authenticates model provenance; the feed rechecks observation versions.
     virtual bool focus_object(const desktop::VisualSemanticBinding &) { return false; }
+    virtual bool focus_objects(const std::vector<PerceptionFocusTarget> &) { return false; }
     // Brackets the WHOLE foreground step, including capture/pointer/input.
     virtual std::unique_ptr<PerceptionPause> pause() = 0;
     /// Bounded local subscription; no capture, recognition or model polling.

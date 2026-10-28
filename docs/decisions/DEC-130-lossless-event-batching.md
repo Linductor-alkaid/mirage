@@ -30,3 +30,6 @@ prior_samples。只有当前已有日志被批次化，不在模型生成期间�
 
 实现及实测见[验收记录](../compatibility/lossless-event-batching-20261028.md)，
 输入解释见[批次示例](../examples/lossless-event-batching.md)。
+
+后续[DEC-131](DEC-131-multi-object-wake-priority.md)承接多对象显式唤醒优先级，
+保留本文的完整逐次表示和前缀ACK；自动任务重要性及语义去噪继续开放。

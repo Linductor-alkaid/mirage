@@ -17,6 +17,11 @@
 [批次验收](../compatibility/lossless-event-batching-20261028.md)限定本地序列化收益，
 不代表在线模型收益或已交付任务语义过滤。
 
+2026-10-28：按[DEC-131](../decisions/DEC-131-multi-object-wake-priority.md)扩展M9-29/18
+多对象显式唤醒优先级，最多4目标、原子重验和整组失效；延后观察仍随下一请求
+提交，关键事件不延后。接口/验证见[专项记录](../compatibility/multi-object-wake-priority-20261028.md)。
+自动语义去噪、跨未知帧精确继承和内容时间账本保持开放。
+
 ## 目标
 
 正常长任务不因累计模型步骤或工具次数结束；将可确定的视觉定位、等待和后条件

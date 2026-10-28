@@ -4,6 +4,7 @@
 #include "../support/test.hpp"
 #include <atomic>
 #include <kairo/executor.hpp>
+#include <limits>
 #include <mirage/integration/continuous_desktop_session.hpp>
 #include <mirage/integration/fake_visual_backend.hpp>
 #include <mirage/integration/visual_observation_pipeline.hpp>
@@ -499,6 +500,7 @@ class AttentionFeed final : public DesktopPerceptionFeed {
     PerceptionView state;
     std::function<void()> during_wait;
     unsigned waits = 0, producer_focus_calls = 0;
+    std::string wait_status = "timeout";
     AttentionFeed() {
         state.state = "sampling";
         state.source_epoch = 1;
@@ -523,7 +525,7 @@ class AttentionFeed final : public DesktopPerceptionFeed {
         ++waits;
         if (during_wait)
             during_wait();
-        return cancel.cancelled() ? "cancelled" : "timeout";
+        return cancel.cancelled() ? "cancelled" : wait_status;
     }
     d::VisualSemanticBinding binding() const {
         const auto &scene = *state.scene;
@@ -629,6 +631,142 @@ void attention_invalidation_matrix() {
     run([](auto &v) { v.scene_observed_at += 120s; }, "observation_expired");
     for (const auto *state : {"failed", "stopped", "degraded"})
         run([&](auto &v) { v.state = state; }, "source_unavailable");
+}
+// DEC-131: defer only explicit observe identities, never destroy their history.
+void multi_object_priority_and_wait() {
+    auto producer = std::make_shared<AttentionFeed>();
+    auto other = producer->state.scene->updated.front();
+    other.object.id = 8;
+    other.object.bounds.x = 200;
+    producer->state.scene->updated.push_back(other);
+    auto first_binding = producer->binding(), second_binding = first_binding;
+    second_binding.object_id = 8;
+    const std::vector<PerceptionFocusTarget> targets{{first_binding, true},
+                                                     {second_binding, false}};
+    detail::TaskAttention policy;
+    MIRAGE_CHECK(policy.objects(targets, producer->state));
+    auto background = event("position_or_appearance_changed", 200).events.front();
+    background.source_epoch = background.instance_generation = 1;
+    background.entity = 8;
+    background.y = 10;
+    background.confirmed = true;
+    MIRAGE_CHECK(!policy.wakes(background));
+    auto foreground = background;
+    foreground.entity = 7;
+    foreground.x = 10;
+    MIRAGE_CHECK(policy.wakes(foreground));
+    // Conservative exceptions: unknown identities, critical kinds and overlap.
+    const auto must_wake = [&](auto mutate) {
+        auto e = background;
+        mutate(e);
+        MIRAGE_CHECK(policy.wakes(e));
+    };
+    for (const auto *kind : {"text_changed", "relation_changed", "appeared", "disappeared",
+                             "source_reset", "observed_unconfirmed", "media_keyframe", "unknown"})
+        must_wake([&](auto &e) { e.kind = kind; });
+    must_wake([](auto &e) { e.confirmed = false; });
+    must_wake([](auto &e) { ++e.instance_generation; });
+    must_wake([](auto &e) { ++e.source_epoch; });
+    must_wake([](auto &e) { e.entity = 0; });
+    must_wake([](auto &e) { e.entity = 99; });
+    must_wake([](auto &e) { e.width = 0; });
+    must_wake([](auto &e) { e.x = std::numeric_limits<double>::quiet_NaN(); });
+    must_wake([](auto &e) { e.x = 10; }); // observe target overlaps wake region
+    const auto original = producer->state;
+    auto changed = original;
+    changed.scene->updated[0].object.bounds.x = 50;
+    changed.scene->updated[1].object.bounds.x = 300;
+    ++changed.scene->frame_sequence;
+    const auto moved = policy.update(changed);
+    MIRAGE_CHECK(moved.active && moved.targets.size() == 2);
+    MIRAGE_CHECK(moved.targets[0].region.x == 50 && moved.targets[1].region.x == 300);
+    MIRAGE_CHECK(moved.targets[0].wake && !moved.targets[1].wake);
+    // A rejected replacement is atomic; the prior group and priority survive.
+    auto rejected = targets;
+    ++rejected[1].object.content_revision;
+    MIRAGE_CHECK(!policy.objects(rejected, changed));
+    MIRAGE_CHECK(policy.update(changed).active && policy.update(changed).targets[0].region.x == 50);
+    MIRAGE_CHECK(!policy.objects({}, changed));
+    MIRAGE_CHECK(!policy.objects({targets[0], targets[0]}, changed));
+    MIRAGE_CHECK(!policy.objects({targets[1]}, changed));
+    auto four = targets;
+    for (unsigned id = 9; id <= 10; ++id) {
+        auto record = changed.scene->updated.front();
+        record.object.id = id;
+        changed.scene->updated.push_back(record);
+        auto binding = first_binding;
+        binding.object_id = id;
+        four.push_back({binding, true});
+    }
+    MIRAGE_CHECK(policy.objects(four, changed) && policy.update(changed).targets.size() == 4);
+    auto five = four;
+    five.push_back(four.front());
+    MIRAGE_CHECK(!policy.objects(five, changed) && policy.update(changed).targets.size() == 4);
+    // Each secondary-object failure revokes the WHOLE group; no ABA revival.
+    const auto invalidate = [&](auto mutate, const char *reason) {
+        detail::TaskAttention group;
+        MIRAGE_CHECK(group.objects(targets, original));
+        auto v = original;
+        mutate(v);
+        const auto state = group.update(v);
+        MIRAGE_CHECK(!state.active && state.invalidation_reason == reason);
+        MIRAGE_CHECK(state.targets.size() == 2 && state.targets[0].region.width == 0);
+        MIRAGE_CHECK(!group.update(original).active && group.wakes(background));
+    };
+    invalidate([](auto &v) { v.scene->updated.pop_back(); }, "object_missing");
+    invalidate([](auto &v) { ++v.scene->updated[1].object.content_revision; },
+               "object_version_changed");
+    invalidate([](auto &v) { ++v.scene->updated[1].object.incarnation; }, "object_version_changed");
+    invalidate([](auto &v) { v.scene->updated[1].object.pending = true; }, "object_unknown");
+    invalidate([](auto &v) { v.scene.reset(); }, "object_unknown");
+    invalidate([](auto &v) { v.recognition_deferred = true; }, "object_unknown");
+    invalidate([](auto &v) { ++v.source_epoch; }, "source_changed");
+    invalidate([](auto &v) { ++v.dropped; }, "observation_gap");
+    invalidate([](auto &v) { ++v.scene->context_revision; }, "context_changed");
+    invalidate([](auto &v) { v.scene_observed_at -= 120s; }, "observation_expired");
+    invalidate([](auto &v) { v.state = "failed"; }, "source_unavailable");
+
+    ResidentDesktopPerception resident(
+        [&](auto raw, auto) { return PerceptionConnection{std::move(raw), producer}; });
+    MIRAGE_CHECK(resident.adopt(std::make_unique<Raw>(std::make_shared<SessionState>()), {}, true));
+    auto first = resident.attach(true, {}), second = resident.attach(true, {});
+    MIRAGE_CHECK(!producer->focus_objects(targets)); // legacy feed default rejects
+    MIRAGE_CHECK(first.feed->focus_objects(targets));
+    background.sequence = ++producer->state.newest;
+    producer->state.events.push_back(background);
+    MIRAGE_CHECK(first.feed->wait(0, 1ms, {}) == "timeout");
+    MIRAGE_CHECK(first.feed->view().events.size() == 1 && producer->state.events.size() == 1);
+    MIRAGE_CHECK(second.feed->wait(0, 1ms, {}) == "event"); // independent global consumer
+    MIRAGE_CHECK(first.feed->acknowledge(1)); // cannot remove shared or deferred history
+    MIRAGE_CHECK(producer->state.events.size() == 1);
+    // Event delivery during wait: lower priority wakes the raw subscription,
+    // but does not finish the task wait; the next foreground event does.
+    unsigned delivered = 0;
+    producer->wait_status = "event";
+    producer->during_wait = [&] {
+        auto e = delivered++ ? foreground : background;
+        e.sequence = ++producer->state.newest;
+        producer->state.events.push_back(e);
+    };
+    const auto waits = producer->waits;
+    MIRAGE_CHECK(first.feed->wait(1, 1s, {}) == "event");
+    MIRAGE_CHECK(delivered == 2 && producer->waits == waits + 2);
+    MIRAGE_CHECK(first.feed->view().events.size() == 3);
+    producer->during_wait = [&] { ++producer->state.scene->updated[1].object.content_revision; };
+    MIRAGE_CHECK(first.feed->wait(producer->state.newest, 1s, {}) == "attention_invalidated");
+    MIRAGE_CHECK(!first.feed->view().attention->active && first.feed->view().events.size() == 3);
+    MIRAGE_CHECK(!second.feed->view().attention->active); // remains global, never modified
+    d::CancelToken cancelled;
+    cancelled.request_cancel();
+    MIRAGE_CHECK(first.feed->wait(0, 1s, cancelled) == "cancelled");
+    producer->state.scene = original.scene;
+    MIRAGE_CHECK(first.feed->focus_objects(targets)); // explicit rebind, not ABA revival
+    d::CancelToken during_cancel;
+    producer->during_wait = [&] { during_cancel.request_cancel(); };
+    MIRAGE_CHECK(first.feed->wait(producer->state.newest, 1s, during_cancel) == "cancelled");
+    MIRAGE_CHECK(first.feed->view().attention->active); // cancel does not mutate intent
+    MIRAGE_CHECK(producer->producer_focus_calls == 0);
+    resident.stop();
 }
 void task_adapter() {
     Owner owner;
@@ -844,6 +982,7 @@ int main() {
         feed_focus_clear_semantics();
         versioned_attention_and_task_isolation();
         attention_invalidation_matrix();
+        multi_object_priority_and_wait();
         resident_blocking_shutdown_and_failure();
         retention();
         production_stage_settings_and_large_frame();

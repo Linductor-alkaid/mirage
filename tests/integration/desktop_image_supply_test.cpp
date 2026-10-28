@@ -3,6 +3,7 @@
 #include "../../integration/mira/src/desktop_image_supply.hpp"
 #include "../../integration/mira/src/perception_event_batch.hpp"
 #include "../../integration/mirador/src/perception_journal.hpp"
+#include "../../integration/mirador/src/task_attention.hpp"
 #include "../support/fake_desktop_environment.hpp"
 #include "../support/provider_tool_name.hpp"
 #include <array>
@@ -3293,6 +3294,223 @@ void semantic_annotation_guards() {
     check(env->captures == 1 && env->inputs == 0);
 }
 
+class MultiFocusFeedFixture final : public TaskFeedFixture {
+    mutable detail::TaskAttention attention_;
+    bool configured_ = false;
+
+  public:
+    unsigned focus_attempts = 0;
+    bool supported = true;
+    std::vector<integration::PerceptionFocusTarget> accepted;
+    MultiFocusFeedFixture() {
+        state.source_epoch = 1;
+        state.scene_observed_at = std::chrono::steady_clock::now();
+        state.scene.emplace();
+        auto &scene = *state.scene;
+        scene.ok = scene.reset = true;
+        scene.source_session = "multi-focus-fixture";
+        scene.frame_sequence = scene.context_revision = 1;
+        for (unsigned id = 7; id <= 10; ++id) {
+            mirage::desktop::VisualSceneRecord record;
+            record.object.id = id;
+            record.object.incarnation = record.object.content_revision = 1;
+            record.object.identity_confirmed = true;
+            record.object.text = "Fixture target " + std::to_string(id);
+            record.object.bounds = {static_cast<int>(id * 30), 10, 20, 20};
+            scene.updated.push_back(record);
+        }
+    }
+    integration::PerceptionView view() const override {
+        auto result = state;
+        if (configured_)
+            result.attention = attention_.update(state);
+        return result;
+    }
+    bool focus_objects(const std::vector<integration::PerceptionFocusTarget> &targets) override {
+        ++focus_attempts;
+        if (!supported || !attention_.objects(targets, state))
+            return false;
+        configured_ = true;
+        accepted = targets;
+        return true;
+    }
+};
+void multi_focus_tool_provenance_and_supply() {
+    auto tools = desktop();
+    auto env = std::make_shared<NativeEnvironment>();
+    auto feed = std::make_shared<MultiFocusFeedFixture>();
+    tools.environment = env;
+    tools.resident_session = [env, feed](bool, auto) {
+        return integration::PerceptionConnection{env->create_desktop_capture_session(), feed};
+    };
+    tools.continuous_session = [feed](auto session, auto) {
+        return integration::PerceptionConnection{std::move(session), feed};
+    };
+    const auto owner = context();
+    mirage::desktop::CancelToken cancel;
+    detail::DesktopImageTurn turn(std::make_shared<detail::DesktopImageSource>(), tools, owner,
+                                  cancel);
+    mira::BuiltinToolRegistry registry;
+    turn.register_tool(registry, {}, false);
+    const auto invoke = [&](const JsonValue &args, const auto &ctx) {
+        const auto exposed = registry.exposed_tools();
+        const auto spec = std::find_if(exposed.begin(), exposed.end(), [](const auto &tool) {
+            return tool.wire_name == "desktop.vision.focus";
+        });
+        check(spec != exposed.end());
+        mira::ToolProposal call;
+        call.tool_id = spec->tool_id;
+        call.tool_version = spec->version;
+        call.wire_name = spec->wire_name;
+        call.operation_id = mira::OperationId::generate();
+        call.provider_call_id.value = "multi-focus-" + call.operation_id.to_string();
+        call.arguments = args;
+        call.arguments_digest = mira::canonical_json_digest(call.arguments);
+        return registry.execute(call, ctx);
+    };
+    mira::AgentLoopSpec spec;
+    spec.task_id = owner.task;
+    spec.session_id = owner.session;
+    spec.task_epoch = owner.task_epoch;
+    const auto supplied = turn.supply(spec);
+    check(bool(supplied));
+    JsonValue::Array refs;
+    for (const auto &item : supplied.value())
+        for (const auto &part : item.content)
+            if (const auto *text = std::get_if<mira::TextPart>(&part);
+                text && text->text.starts_with("Untrusted continuous desktop observations")) {
+                const auto parsed =
+                    mira::parse_json(text->text.substr(text->text.find('{'))).value();
+                for (const auto &object :
+                     *parsed.find("semantic_scene")->find("objects")->as_array())
+                    refs.push_back(JsonValue{
+                        JsonValue::Object{{"object_ref", *object.find("object_ref")->as_string()},
+                                          {"priority", refs.empty() ? "wake" : "observe"}}});
+            }
+    check(refs.size() == 4);
+    const JsonValue args{JsonValue::Object{{"targets", JsonValue{refs}}}};
+    check(invoke(args, owner).value().result.find("applied")->as_boolean() == false);
+    check(feed->focus_attempts == 0); // not authenticated until actual completed supply
+    mira::ModelRequest consumed;
+    consumed.request_id = mira::ModelRequestId::generate();
+    turn.perception_consumed(consumed, owner); // context trimming removed supply
+    check(invoke(args, owner).value().result.find("applied")->as_boolean() == false);
+    check(feed->focus_attempts == 0);
+    consumed.input = supplied.value();
+    turn.perception_consumed(consumed, owner);
+    check(invoke(args, owner).value().result.find("applied")->as_boolean() == true);
+    check(feed->focus_attempts == 1 && feed->accepted.size() == 4);
+    for (const auto &target : feed->accepted)
+        check(target.object.model_request_id == consumed.request_id.to_string());
+    check(feed->accepted[0].wake && !feed->accepted[1].wake);
+    const auto reject = [&](const JsonValue &bad) {
+        const auto result = invoke(bad, owner);
+        check(!result || result.value().failed ||
+              result.value().result.find("applied")->as_boolean() == false);
+        check(feed->focus_attempts == 1 && feed->view().attention->active);
+    };
+    reject(JsonValue{JsonValue::Object{{"targets", JsonValue{JsonValue::Array{}}}}});
+    auto bad = refs;
+    bad.push_back(refs.front());
+    reject(JsonValue{JsonValue::Object{{"targets", JsonValue{bad}}}});
+    bad = {refs[0], refs[0]};
+    reject(JsonValue{JsonValue::Object{{"targets", JsonValue{bad}}}});
+    bad = refs;
+    for (auto &target : bad)
+        target.set("priority", "observe");
+    reject(JsonValue{JsonValue::Object{{"targets", JsonValue{bad}}}});
+    for (const auto &priority : {JsonValue{"urgent"}, JsonValue{2}}) {
+        bad = refs;
+        bad.back().set("priority", priority);
+        reject(JsonValue{JsonValue::Object{{"targets", JsonValue{bad}}}});
+    }
+    bad = refs;
+    bad.back().set("object_ref", "not-supplied");
+    reject(JsonValue{JsonValue::Object{{"targets", JsonValue{bad}}}});
+    bad = refs;
+    bad.back().set("object_ref", 7);
+    reject(JsonValue{JsonValue::Object{{"targets", JsonValue{bad}}}});
+    auto mixed = args;
+    mixed.set("object_ref", *refs[0].find("object_ref"));
+    reject(mixed);
+    mixed = args;
+    mixed.set("x", 0);
+    reject(mixed);
+    auto foreign = owner;
+    foreign.task = mira::TaskId::generate();
+    const auto outside = invoke(args, foreign);
+    check(!outside || outside.value().failed);
+    auto expired = owner;
+    expired.deadline = std::chrono::steady_clock::now() - std::chrono::seconds(1);
+    const auto late = invoke(args, expired);
+    check(!late || late.value().failed);
+    check(feed->focus_attempts == 1);
+    // A valid but unsupported feed also returns applied=false, without changing policy.
+    feed->supported = false;
+    check(invoke(args, owner).value().result.find("applied")->as_boolean() == false);
+    feed->supported = true;
+    check(feed->view().attention->active);
+    // Ordinary observe events still appear automatically in the next model request,
+    // and four attention targets coexist with the event/whole-request byte budgets.
+    const auto now = std::chrono::steady_clock::now();
+    for (unsigned n = 1; n <= 96; ++n) {
+        integration::PerceptionEvent event;
+        event.sequence = event.frame_sequence = ++feed->state.newest;
+        event.entity = 8;
+        event.instance_generation = event.source_epoch = 1;
+        event.confirmed = true;
+        event.kind = "position_or_appearance_changed";
+        event.text.assign(256, 'p');
+        event.x = 240;
+        event.y = 10;
+        event.width = event.height = 10;
+        event.observed_at = now - std::chrono::milliseconds(480 - n * 5);
+        feed->state.events.push_back(event);
+    }
+    const auto next = turn.supply(spec);
+    check(bool(next));
+    bool projected = false;
+    std::uint64_t offered = 0;
+    for (const auto &item : next.value())
+        for (const auto &part : item.content)
+            if (const auto *text = std::get_if<mira::TextPart>(&part);
+                text && text->text.starts_with("Untrusted continuous desktop observations")) {
+                check(text->text.size() <= 8192);
+                const auto parsed =
+                    mira::parse_json(text->text.substr(text->text.find('{'))).value();
+                const auto &attention = *parsed.find("attention");
+                check(*attention.find("mode")->as_string() == "objects");
+                check(attention.find("targets")->as_array()->size() == 4);
+                check(*attention.find("targets")->as_array()->at(1).find("priority")->as_string() ==
+                      "observe");
+                offered = static_cast<std::uint64_t>(*parsed.find("cursor")->as_integer());
+                check(offered > 1 && offered < feed->state.newest);
+                bool retained = false;
+                for (const auto &event : *parsed.find("events")->as_array())
+                    retained = retained || event.find("entity")->as_integer() == 8;
+                check(retained);
+                projected = true;
+            }
+    check(projected && feed->acknowledged == 1);
+    consumed.input = next.value();
+    turn.perception_consumed(consumed, owner);
+    check(feed->acknowledged == offered && feed->state.events.size() == 97);
+    // Re-authenticate current refs, then one stale secondary rejects the whole call.
+    ++feed->state.scene->updated[1].object.content_revision;
+    ++feed->state.scene->frame_sequence;
+    const auto attempts = feed->focus_attempts;
+    check(invoke(args, owner).value().result.find("applied")->as_boolean() == false);
+    check(feed->focus_attempts == attempts && !feed->view().attention->active);
+    tools.actions->takeover();
+    const auto takeover = invoke(args, owner);
+    check(!takeover || takeover.value().failed ||
+          takeover.value().result.find("applied")->as_boolean() == false);
+    cancel.request_cancel();
+    const auto cancelled = invoke(args, owner);
+    check(!cancelled || cancelled.value().failed);
+    check(env->captures == 0 && env->inputs == 0);
+}
+
 class SharedScript final : public mira::IModelProvider {
   public:
     mira::ModelProfile profile_;
@@ -5215,6 +5433,7 @@ int main() {
         task_feed_model_layer(executor);
         semantic_feed_model_layer(executor);
         executor.submit_auto([] { semantic_annotation_guards(); }).get();
+        executor.submit_auto([] { multi_focus_tool_provenance_and_supply(); }).get();
         task_feed_model_layer(executor, true);
         shared_registration_rejection();
         contracts(executor);
