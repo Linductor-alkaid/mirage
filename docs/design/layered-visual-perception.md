@@ -233,3 +233,21 @@ Host的sample_only、识别准入和session变化比较均使用降采样图。�
 这避免反复识别静态画面，不改变原帧时间、未知状态、年龄或必要确认。
 资源/精度实际证据见[生产记录](../compatibility/layered-perception-production-20261028.md)，
 指标属于受控像素producer，不能替代Portal/Windows或完整视频/音频测试。
+
+## 按对象版本绑定注意区域（DEC-129）
+
+M9-29首增量沿原任务FeedLease实现consumer-local策略，扩展focus的object_ref
+替代参数。引用由已完成模型请求的实际供给认证，PerceptionSemantics再核对当前
+source/context、对象ID/incarnation/content_revision；FeedLease在每次view/wait
+重验原观察版本。确认的同版本移动更新区域，未知/缺失/过期/换源/gap/失败则
+单向失效并恢复全局事件；旧对象不自动复活。坐标模式也按来源版本撤销旧过滤。
+
+PerceptionView/模型供给投影attention状态；wait通过现有可取消等待的有界检查
+在无新cursor时也识别失效，不增加worker/定时器/模型轮询。无活动注意时取消检查
+不额外读取观察快照；有活动策略时重验会增加有界元数据读取和对象搜索，未声明
+整进程零开销或新增频率保证。每消费者仅一项、无像素，字符串/绑定合计≤4KiB；
+复用既有至多256对象快照，不新建对象/事件缓存。ACK与历史帧预算不变。
+
+M9-29多目标重要性、普通事件窗口合并、跨未知帧精确继承仍开放，不能以本增量
+关闭整个任务语义层。使用与失败见[示例](../examples/versioned-task-attention.md)，
+验证见[注意力验收](../compatibility/versioned-task-attention-20261028.md)。

@@ -80,6 +80,13 @@ struct PerceptionDispatch {
     bool pending = false;
     std::uint64_t regional = 0, ocr_completed = 0, detector_completed = 0;
 };
+// DEC-129: consumer-local intent only; never content freshness or input authority.
+struct PerceptionAttention {
+    std::string mode = "global", invalidation_reason;
+    bool active = false;
+    desktop::WindowGeometry region;
+    std::uint64_t entity = 0, instance_generation = 0, content_revision = 0;
+};
 struct PerceptionView {
     std::string state = "starting", error;
     std::uint64_t newest = 0, oldest = 0, dropped = 0, filtered = 0, source_epoch = 0;
@@ -93,6 +100,7 @@ struct PerceptionView {
     std::size_t journal_bytes = 0, preview_bytes = 0;
     std::uint64_t ack_rejected = 0, ack_depth = 0; // kairo CommStats projection
     PerceptionMediaActivity media;
+    std::optional<PerceptionAttention> attention;
     std::vector<PerceptionEvent> events;
     // Full bounded observation state; contains no model annotations or input refs.
     std::optional<desktop::VisualSceneDelta> scene;
@@ -112,6 +120,8 @@ class DesktopPerceptionFeed {
     virtual bool acknowledge(std::uint64_t cursor) = 0;
     virtual bool acknowledge_frame(const std::string &) = 0;
     virtual void focus(const desktop::WindowGeometry &) = 0;
+    // The caller authenticates model provenance; the feed rechecks observation versions.
+    virtual bool focus_object(const desktop::VisualSemanticBinding &) { return false; }
     // Brackets the WHOLE foreground step, including capture/pointer/input.
     virtual std::unique_ptr<PerceptionPause> pause() = 0;
     /// Bounded local subscription; no capture, recognition or model polling.

@@ -40,11 +40,14 @@ void inheritance_and_late_results() {
     journal.append(sample(1), {}, now);
     semantics.sync(journal.view());
     const auto original = ref(semantics.project());
+    MIRAGE_CHECK(!semantics.attention_binding(original));
     MIRAGE_CHECK(!semantics.annotate(original, "搜索框").ok); // not yet consumed
     semantics.consumed("host-request-1");
+    MIRAGE_CHECK(semantics.attention_binding(original));
     MIRAGE_CHECK(!semantics.annotate("invented", "搜索框").ok);
     journal.append(sample(2, "Search", 50), {}, now);
     semantics.sync(journal.view());
+    MIRAGE_CHECK(semantics.attention_binding(original));     // same version may move
     MIRAGE_CHECK(semantics.annotate(original, "搜索框").ok); // moved while model thought
     auto view = semantics.project();
     MIRAGE_CHECK(state(view) == "active");
@@ -58,6 +61,7 @@ void inheritance_and_late_results() {
     journal.focus({0, 0, 1, 1});
     journal.append(sample(3, "Delete", 50), {}, now);
     semantics.sync(journal.view());
+    MIRAGE_CHECK(!semantics.attention_binding(moved));
     MIRAGE_CHECK(!semantics.annotate(moved, "过时解释").ok);
     view = semantics.project();
     MIRAGE_CHECK(state(view) == "suspended");

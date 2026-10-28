@@ -14,6 +14,13 @@
 
 ### 功能
 
+- DEC-129：desktop.vision.focus支持已完成模型请求的object_ref，按来源/对象/内容
+  版本跟随已确认移动；失效恢复全局事件，wait返回attention_invalidated。矩形
+  焦点也在来源变更/gap/失败后撤销；原事件ACK与其他任务不受影响。
+  [使用示例](docs/examples/versioned-task-attention.md)及
+  [验收记录](docs/compatibility/versioned-task-attention-20261028.md)保留跨未知帧继承、
+  多目标重要性与事件合并的未完成范围。
+
 - DEC-128：Linux服务在配置OCR资源后默认使用分层视觉（5Hz采样、5秒完整巡检、
   有界跟踪）；旧Host的准入/变化比较同样先用≤320灰度工作图，识别缓存保持原图
   证据，坐标回映。新增`--perception-mode layered|legacy`、

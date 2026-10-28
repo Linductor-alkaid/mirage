@@ -2458,6 +2458,7 @@ class TaskFeedFixture : public integration::DesktopPerceptionFeed {
     int frame_reads = 0, pause_depth = 0, waits = 0;
     TaskFeedFixture() {
         state.state = "sampling";
+        state.attention.emplace();
         preview = std::make_shared<integration::PerceptionPreview>();
         preview->id = "event-frame-fixture";
         preview->image.width = 4;
@@ -2498,6 +2499,12 @@ class TaskFeedFixture : public integration::DesktopPerceptionFeed {
     std::vector<mirage::desktop::WindowGeometry> focus_calls;
     void focus(const mirage::desktop::WindowGeometry &region) override {
         focus_calls.push_back(region);
+        state.attention.emplace();
+        if (region.width > 0 && region.height > 0) {
+            state.attention->mode = "region";
+            state.attention->active = true;
+            state.attention->region = region;
+        }
     }
     struct Pause final : integration::PerceptionPause {
         int &depth;
@@ -2583,7 +2590,9 @@ void focus_tool_contract() {
         check(result && result.value().failed && feed->focus_calls.empty());
     }
     // Handler rejections: missing members and missing resident feed.
-    for (const char *args : {"{}", R"({"x":1,"y":2,"width":3})", R"({"x":1,"y":2,"height":3})"}) {
+    for (const char *args : {"{}", R"({"x":1,"y":2,"width":3})", R"({"x":1,"y":2,"height":3})",
+                             R"({"x":2147483648,"y":0,"width":1,"height":1})",
+                             R"({"x":999999,"y":0,"width":2,"height":1})"}) {
         const auto [result, feed] = invoke(args);
         check(result && !result.value().failed &&
               *result.value().result.find("applied")->as_boolean() == false &&
@@ -2891,6 +2900,11 @@ class SemanticFeedFixture final : public TaskFeedFixture {
     std::uint64_t frame_ = 0;
 
   public:
+    std::vector<mirage::desktop::VisualSemanticBinding> object_focus_calls;
+    bool focus_object(const mirage::desktop::VisualSemanticBinding &binding) override {
+        object_focus_calls.push_back(binding);
+        return true;
+    }
     SemanticFeedFixture() { update("Search", 10); }
     void update(const std::string &text, int x) {
         integration::PerceptionSample sample;
@@ -3072,12 +3086,24 @@ void semantic_annotation_guards() {
     for (const auto &item : supplied.value())
         for (const auto &part : item.content)
             if (const auto *text = std::get_if<mira::TextPart>(&part);
-                text && text->text.starts_with("Untrusted continuous desktop observations"))
-                scene = *mira::parse_json(text->text.substr(text->text.find('{')))
-                             .value()
-                             .find("semantic_scene");
+                text && text->text.starts_with("Untrusted continuous desktop observations")) {
+                check(text->text.size() <= 8192);
+                const auto observation =
+                    mira::parse_json(text->text.substr(text->text.find('{'))).value();
+                check(*observation.find("attention")->find("mode")->as_string() == "global");
+                check(observation.find("attention")->find("input_actionable")->as_boolean() ==
+                      false);
+                scene = *observation.find("semantic_scene");
+            }
     const auto ref = *scene.find("objects")->as_array()->front().find("object_ref")->as_string();
     const JsonValue args{JsonValue::Object{{"label", "搜索框"}, {"object_ref", ref}}};
+    const JsonValue focus_args{JsonValue::Object{{"object_ref", ref}}};
+    check(invoke("desktop.vision.focus", focus_args, owner)
+              .value()
+              .result.find("applied")
+              ->as_boolean() == false);
+    check(feed->object_focus_calls.empty());
+
     check(invoke("desktop.vision.annotate", args, owner)
               .value()
               .result.find("applied")
@@ -3090,21 +3116,56 @@ void semantic_annotation_guards() {
               .value()
               .result.find("applied")
               ->as_boolean() == false);
+    check(invoke("desktop.vision.focus", focus_args, owner)
+              .value()
+              .result.find("applied")
+              ->as_boolean() == false);
+    check(feed->object_focus_calls.empty());
     consumed.input = supplied.value();
     turn.perception_consumed(consumed, owner);
     check(invoke("desktop.vision.annotate", args, owner)
               .value()
               .result.find("applied")
               ->as_boolean() == true);
+    check(invoke("desktop.vision.focus", focus_args, owner)
+              .value()
+              .result.find("applied")
+              ->as_boolean() == true);
+    check(feed->object_focus_calls.size() == 1 && feed->object_focus_calls.back().object_id == 7 &&
+          feed->object_focus_calls.back().model_request_id == consumed.request_id.to_string());
+    auto mixed = focus_args;
+    mixed.set("x", 0);
+    check(
+        invoke("desktop.vision.focus", mixed, owner).value().result.find("applied")->as_boolean() ==
+        false);
+    check(feed->object_focus_calls.size() == 1);
+    feed->update("Search", 50);
+    check(invoke("desktop.vision.focus", focus_args, owner)
+              .value()
+              .result.find("applied")
+              ->as_boolean() == true);
+    feed->update("Delete", 50);
+    check(invoke("desktop.vision.focus", focus_args, owner)
+              .value()
+              .result.find("applied")
+              ->as_boolean() == false);
+    check(feed->object_focus_calls.size() == 2);
     auto foreign = owner;
     foreign.task = mira::TaskId::generate();
+    const auto foreign_focus = invoke("desktop.vision.focus", focus_args, foreign);
+    check(!foreign_focus || foreign_focus.value().failed);
     const auto foreign_result = invoke("desktop.vision.annotate", args, foreign);
     check(!foreign_result || foreign_result.value().failed);
     auto expired = owner;
     expired.deadline = std::chrono::steady_clock::now() - std::chrono::seconds(1);
+    const auto expired_focus = invoke("desktop.vision.focus", focus_args, expired);
+    check(!expired_focus || expired_focus.value().failed);
     const auto timed_out = invoke("desktop.vision.annotate", args, expired);
     check(!timed_out || timed_out.value().failed);
     tools.actions->takeover();
+    const auto takeover_focus = invoke("desktop.vision.focus", focus_args, owner);
+    check(!takeover_focus || takeover_focus.value().failed ||
+          takeover_focus.value().result.find("applied")->as_boolean() == false);
     const auto takeover_result = invoke("desktop.vision.annotate", args, owner);
     check(!takeover_result || takeover_result.value().failed);
     cancel.request_cancel();

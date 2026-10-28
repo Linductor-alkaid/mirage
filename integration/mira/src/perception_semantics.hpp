@@ -172,6 +172,21 @@ class PerceptionSemantics {
             binding.model_request_id = request_id;
         }
     }
+    std::optional<desktop::VisualSemanticBinding> attention_binding(const std::string &ref) const {
+        const auto it = trusted_.find(ref);
+        if (!scene_ || it == trusted_.end())
+            return std::nullopt;
+        const auto &binding = it->second;
+        const auto snapshot = scene_->snapshot();
+        const auto *record = scene_->find(binding.object_id);
+        if (snapshot.source_session != binding.source_session ||
+            snapshot.context_revision != binding.context_revision || !record ||
+            record->object.incarnation != binding.incarnation ||
+            record->object.content_revision != binding.content_revision ||
+            !record->object.identity_confirmed || record->object.pending)
+            return std::nullopt;
+        return binding;
+    }
     desktop::VisualSceneDelta annotate(const std::string &ref, const std::string &label) {
         const auto it = trusted_.find(ref);
         if (!scene_ || it == trusted_.end()) {

@@ -7,6 +7,11 @@
 > 建议发布点：持续任务与文本观察 Linux 预览；标签未定，Windows/原生 Wayland 单列验收
 > 更新日期：2026-10-28
 
+2026-10-28：按[DEC-129](../decisions/DEC-129-versioned-task-attention.md)推进M9-29/18的
+对象版本注意区域，扩展既有focus与wait，保持任务间隔离；多目标重要性、事件窗口
+合并、精确跨未知帧继承和内容时间账本继续开放。专项完成证据见
+[验收记录](../compatibility/versioned-task-attention-20261028.md)。
+
 ## 目标
 
 正常长任务不因累计模型步骤或工具次数结束；将可确定的视觉定位、等待和后条件

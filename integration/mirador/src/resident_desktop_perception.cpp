@@ -1,3 +1,4 @@
+#include "task_attention.hpp"
 #include <mirage/integration/continuous_desktop_session.hpp>
 
 #include <algorithm>
@@ -149,8 +150,8 @@ class SessionLease final : public desktop::DesktopCaptureSession {
 class FeedLease final : public DesktopPerceptionFeed {
     Access access_;
     std::uint64_t beginning_ = 0;
-    std::set<std::string> consumed_; // <=8 previews, task-serial owner.
-    std::optional<desktop::WindowGeometry> focus_;
+    std::set<std::string> consumed_;          // <=8 previews, task-serial owner.
+    mutable detail::TaskAttention attention_; // Same serialized task owner as cursor/focus.
 
   public:
     explicit FeedLease(Access access) : access_(std::move(access)) {
@@ -160,17 +161,21 @@ class FeedLease final : public DesktopPerceptionFeed {
         PerceptionView result;
         if (!access_.valid()) {
             result.state = "stopped";
+            result.attention = attention_.update(result);
             return result;
         }
         result = access_.resource->feed->view();
+        const auto &attention = attention_.update(result);
+        result.attention = attention;
         std::erase_if(result.events, [&](const auto &event) {
             if (event.sequence <= beginning_)
                 return true;
-            if (!focus_ || event.kind == "appeared" || event.kind == "disappeared" ||
+            if (!attention.active || event.kind == "appeared" || event.kind == "disappeared" ||
                 event.kind == "source_reset" || event.kind == "observed_unconfirmed")
                 return false;
-            return event.x >= focus_->x + focus_->width || event.y >= focus_->y + focus_->height ||
-                   event.x + event.width <= focus_->x || event.y + event.height <= focus_->y;
+            const auto &r = attention.region;
+            return event.x >= r.x + r.width || event.y >= r.y + r.height ||
+                   event.x + event.width <= r.x || event.y + event.height <= r.y;
         });
         std::erase_if(result.previews, [&](const auto &preview) {
             return consumed_.contains(preview.first) ||
@@ -201,11 +206,10 @@ class FeedLease final : public DesktopPerceptionFeed {
         // events. A non-positive extent clears the attention region (DEC-118).
         if (!access_.valid())
             return;
-        if (region.width <= 0 || region.height <= 0) {
-            focus_.reset();
-            return;
-        }
-        focus_ = region;
+        (void)attention_.region(region, access_.resource->feed->view());
+    }
+    bool focus_object(const desktop::VisualSemanticBinding &binding) override {
+        return access_.valid() && attention_.object(binding, access_.resource->feed->view());
     }
     std::unique_ptr<PerceptionPause> pause() override {
         return access_.valid() ? access_.resource->feed->pause() : nullptr;
@@ -221,6 +225,8 @@ class FeedLease final : public DesktopPerceptionFeed {
             if (cancel.cancelled() || !access_.valid())
                 return "cancelled";
             const auto current = view();
+            if (current.attention && !current.attention->invalidation_reason.empty())
+                return "attention_invalidated";
             if (current.oldest > after && current.oldest - after > 1)
                 return "gap";
             if (current.source_epoch != initial.source_epoch || current.dropped != initial.dropped)
@@ -230,11 +236,32 @@ class FeedLease final : public DesktopPerceptionFeed {
                 return "event";
             if (std::chrono::steady_clock::now() >= deadline)
                 return "timeout";
+            bool attention_invalidated = false;
+            const bool watch_attention = current.attention && current.attention->active;
+            const desktop::CancelToken attentive{[&] {
+                if (cancel.cancelled())
+                    return true;
+                if (!access_.valid()) {
+                    PerceptionView retired;
+                    retired.state = "stopped";
+                    (void)attention_.update(retired);
+                    return true;
+                }
+                if (!watch_attention)
+                    return false;
+                attention_invalidated =
+                    !attention_.update(access_.resource->feed->view()).invalidation_reason.empty();
+                return attention_invalidated;
+            }};
             const auto status =
                 access_.resource->feed->wait(current.newest,
                                              std::chrono::duration_cast<std::chrono::milliseconds>(
                                                  deadline - std::chrono::steady_clock::now()),
-                                             access_.cancel(cancel));
+                                             attentive);
+            if (cancel.cancelled() || !access_.valid())
+                return "cancelled";
+            if (attention_invalidated)
+                return "attention_invalidated";
             if (status != "event")
                 return status;
         }

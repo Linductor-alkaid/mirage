@@ -1,4 +1,5 @@
 #include "../../integration/mirador/src/perception_journal.hpp"
+#include "../../integration/mirador/src/task_attention.hpp"
 #include "../support/fake_desktop_environment.hpp"
 #include "../support/test.hpp"
 #include <atomic>
@@ -478,6 +479,7 @@ void feed_focus_clear_semantics() {
         return std::any_of(view.events.begin(), view.events.end(),
                            [&](const auto &event) { return event.kind == kind; });
     };
+    MIRAGE_CHECK(until([&] { return lease.feed->view().source_epoch == 1; }));
     lease.feed->focus({0, 0, 8, 8}); // attention region far from x=40
     emit_text = true;
     MIRAGE_CHECK(until([&] { return delivered.exchange(false); }));
@@ -490,6 +492,143 @@ void feed_focus_clear_semantics() {
     MIRAGE_CHECK(until([&] { return delivered.exchange(false); }));
     MIRAGE_CHECK(until([&] { return has_kind("text_changed"); }));
     resident.stop();
+}
+// Synchronous immutable feed fixture: no capture or worker is started here.
+class AttentionFeed final : public DesktopPerceptionFeed {
+  public:
+    PerceptionView state;
+    std::function<void()> during_wait;
+    unsigned waits = 0, producer_focus_calls = 0;
+    AttentionFeed() {
+        state.state = "sampling";
+        state.source_epoch = 1;
+        state.scene_observed_at = Clock::now();
+        state.scene.emplace();
+        auto &scene = *state.scene;
+        scene.ok = scene.reset = true;
+        scene.source_session = "attention-source";
+        scene.context_revision = scene.frame_sequence = 1;
+        d::VisualSceneRecord record;
+        record.object = {
+            7, 1, 1, d::VisualRegionSource::kOcr, {10, 10, 20, 20}, "Search", "", .9, true, false};
+        scene.updated.push_back(record);
+    }
+    PerceptionView view() const override { return state; }
+    bool acknowledge(std::uint64_t) override { return true; }
+    bool acknowledge_frame(const std::string &) override { return true; }
+    void focus(const d::WindowGeometry &) override { ++producer_focus_calls; }
+    std::unique_ptr<PerceptionPause> pause() override { return {}; }
+    std::string wait(std::uint64_t, std::chrono::milliseconds,
+                     const d::CancelToken &cancel) override {
+        ++waits;
+        if (during_wait)
+            during_wait();
+        return cancel.cancelled() ? "cancelled" : "timeout";
+    }
+    d::VisualSemanticBinding binding() const {
+        const auto &scene = *state.scene;
+        const auto &o = scene.updated.front().object;
+        return {scene.source_session,
+                "completed-request",
+                "",
+                scene.context_revision,
+                o.id,
+                o.incarnation,
+                o.content_revision,
+                scene.frame_sequence};
+    }
+};
+void versioned_attention_and_task_isolation() {
+    auto producer = std::make_shared<AttentionFeed>();
+    ResidentDesktopPerception resident(
+        [&](auto raw, auto) { return PerceptionConnection{std::move(raw), producer}; });
+    MIRAGE_CHECK(resident.adopt(std::make_unique<Raw>(std::make_shared<SessionState>()), {}, true));
+    auto first = resident.attach(true, {}), second = resident.attach(true, {});
+    const auto binding = producer->binding();
+    MIRAGE_CHECK(first.feed->focus_object(binding));
+    auto ordinary = event().events.front();
+    ordinary.sequence = ++producer->state.newest;
+    ordinary.x = 200;
+    ordinary.y = 10;
+    producer->state.events.push_back(ordinary);
+    MIRAGE_CHECK(first.feed->view().events.empty());
+    MIRAGE_CHECK(second.feed->view().events.size() == 1);
+    auto barrier = ordinary;
+    barrier.kind = "appeared";
+    barrier.sequence = ++producer->state.newest;
+    producer->state.events.push_back(barrier);
+    MIRAGE_CHECK(first.feed->view().events.size() == 1);
+    // Same identity/content moves: the lease follows observed geometry.
+    producer->state.scene->updated.front().object.bounds.x = 200;
+    producer->state.scene->frame_sequence = 2;
+    auto moved = first.feed->view();
+    MIRAGE_CHECK(moved.attention->active && moved.attention->region.x == 200);
+    MIRAGE_CHECK(moved.events.size() == 2);
+    // Failed replacement and oversized binding leave the active focus intact.
+    auto invalid = binding;
+    invalid.incarnation = 42;
+    MIRAGE_CHECK(!first.feed->focus_object(invalid));
+    invalid = binding;
+    invalid.model_request_id.assign(129, 'r');
+    MIRAGE_CHECK(!first.feed->focus_object(invalid));
+    MIRAGE_CHECK(first.feed->view().attention->active);
+    // Content changes with NO new event/cursor while inside wait. The existing
+    // bounded cancellation check must break the wait and restore global events.
+    second.feed->focus({0, 0, 1, 1});
+    producer->during_wait = [&] {
+        ++producer->state.scene->updated.front().object.content_revision;
+    };
+    MIRAGE_CHECK(first.feed->wait(producer->state.newest, 1s, {}) == "attention_invalidated");
+    MIRAGE_CHECK(producer->waits == 1);
+    const auto retired = first.feed->view();
+    MIRAGE_CHECK(!retired.attention->active &&
+                 retired.attention->invalidation_reason == "object_version_changed");
+    MIRAGE_CHECK(retired.events.size() == 2);
+    MIRAGE_CHECK(second.feed->view().attention->active && second.feed->view().events.size() == 1);
+    // A producer ABA cannot silently resurrect an invalidated focus.
+    producer->state.scene->updated.front().object.content_revision = binding.content_revision;
+    MIRAGE_CHECK(!first.feed->view().attention->active);
+    first.feed->focus({0, 0, 0, 0});
+    producer->during_wait = {};
+    MIRAGE_CHECK(first.feed->wait(producer->state.newest, 1ms, {}) == "timeout");
+    MIRAGE_CHECK(producer->producer_focus_calls == 0); // no shared sampling mutation
+    // Source changes also retire the other task's coordinate filter.
+    ++producer->state.source_epoch;
+    MIRAGE_CHECK(!second.feed->view().attention->active);
+    MIRAGE_CHECK(second.feed->view().events.size() == 2);
+    d::CancelToken cancelled;
+    cancelled.request_cancel();
+    MIRAGE_CHECK(second.feed->wait(0, 1s, cancelled) == "cancelled");
+    resident.stop();
+}
+void attention_invalidation_matrix() {
+    AttentionFeed producer;
+    const auto original = producer.state;
+    const auto binding = producer.binding();
+    const auto run = [&](auto mutate, const char *reason) {
+        detail::TaskAttention policy;
+        MIRAGE_CHECK(policy.object(binding, original));
+        auto changed = original;
+        mutate(changed);
+        const auto state = policy.update(changed);
+        MIRAGE_CHECK(!state.active && state.invalidation_reason == reason);
+        MIRAGE_CHECK(!policy.update(original).active);
+    };
+    run([](auto &v) { v.scene.reset(); }, "object_unknown");
+    run([](auto &v) { v.scene->updated.clear(); }, "object_missing");
+    run([](auto &v) { v.scene->updated.front().object.pending = true; }, "object_unknown");
+    run([](auto &v) { v.scene->updated.front().object.identity_confirmed = false; },
+        "object_unknown");
+    run([](auto &v) { ++v.scene->updated.front().object.incarnation; }, "object_version_changed");
+    run([](auto &v) { v.recognition_deferred = true; }, "object_unknown");
+    run([](auto &v) { ++v.source_epoch; }, "source_changed");
+    run([](auto &v) { ++v.scene->context_revision; }, "context_changed");
+    run([](auto &v) { v.scene->source_session = "another-source"; }, "context_changed");
+    run([](auto &v) { ++v.dropped; }, "observation_gap");
+    run([](auto &v) { v.scene_observed_at -= 120s; }, "observation_expired");
+    run([](auto &v) { v.scene_observed_at += 120s; }, "observation_expired");
+    for (const auto *state : {"failed", "stopped", "degraded"})
+        run([&](auto &v) { v.state = state; }, "source_unavailable");
 }
 void task_adapter() {
     Owner owner;
@@ -703,6 +842,8 @@ int main() {
     try {
         resident_lifetime_and_consumers();
         feed_focus_clear_semantics();
+        versioned_attention_and_task_isolation();
+        attention_invalidation_matrix();
         resident_blocking_shutdown_and_failure();
         retention();
         production_stage_settings_and_large_frame();

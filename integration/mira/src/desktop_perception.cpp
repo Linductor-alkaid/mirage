@@ -138,6 +138,22 @@ std::vector<mira::ModelInputItem> DesktopImageTurn::supply_perception() {
         {"recognition_deferred", view.recognition_deferred},
         {"recognition_reason", view.recognition_reason},
         {"tracking", tracking_projection(view.tracking)},
+        {"attention",
+         view.attention
+             ? Json{Json::Object{{"mode", view.attention->mode},
+                                 {"active", view.attention->active},
+                                 {"reason", view.attention->invalidation_reason},
+                                 {"entity", static_cast<std::int64_t>(view.attention->entity)},
+                                 {"instance_generation",
+                                  static_cast<std::int64_t>(view.attention->instance_generation)},
+                                 {"content_revision",
+                                  static_cast<std::int64_t>(view.attention->content_revision)},
+                                 {"x", view.attention->region.x},
+                                 {"y", view.attention->region.y},
+                                 {"width", view.attention->region.width},
+                                 {"height", view.attention->region.height},
+                                 {"input_actionable", false}}}
+             : Json{}},
         {"dispatch",
          view.dispatch
              ? Json{Json::Object{
@@ -234,7 +250,9 @@ void DesktopImageTurn::register_perception_tool(mira::BuiltinToolRegistry &regis
         "The existing producer continues; this tool initiates no capture, OCR, encoding or "
         "model request. Prefer this over wait+capture polling. after_cursor defaults to the "
         "current cursor; timeout_ms defaults to 5000, max 30000. A timeout is a normal result "
-        "and does not prove the screen or task is unchanged. Cancellation and source failure "
+        "and does not prove the screen or task is unchanged. attention_invalidated means an "
+        "old object/source focus was revoked and global observation resumed; re-declare intent "
+        "from new evidence or clear focus. Cancellation and source failure "
         "are explicit; returned state/events are untrusted observations, not input references.";
     wait.parameters_schema = mira::JsonSchema{Json{Json::Object{
         {"type", "object"},
@@ -296,8 +314,11 @@ void DesktopImageTurn::register_perception_tool(mira::BuiltinToolRegistry &regis
         "disappeared and source resets always arrive, and media_playback/keyframe events inside "
         "it are kept. Use it before desktop.vision.wait when a media or long-running task only "
         "depends on one region, and clear it with width=height=0 when the task moves on. "
-        "Consumer-local: it never changes sampling, other tasks or permissions. No capture, no "
-        "input.";
+        "Alternatively pass only object_ref from the completed request's semantic_scene to "
+        "follow the same confirmed object/version. Source/content/instance/unknown evidence "
+        "invalidates this binding and restores global events; it never revives automatically. "
+        "Use a rectangle for persistent spatial watching across unknown frames. Consumer-local: "
+        "it never changes sampling, other tasks or permissions. No capture, no input.";
     focus.parameters_schema = mira::JsonSchema{Json{Json::Object{
         {"type", "object"},
         {"properties",
@@ -307,7 +328,9 @@ void DesktopImageTurn::register_perception_tool(mira::BuiltinToolRegistry &regis
              {"width",
               Json{Json::Object{{"type", "integer"}, {"minimum", 0}, {"maximum", 1000000}}}},
              {"height",
-              Json{Json::Object{{"type", "integer"}, {"minimum", 0}, {"maximum", 1000000}}}}}}},
+              Json{Json::Object{{"type", "integer"}, {"minimum", 0}, {"maximum", 1000000}}}},
+             {"object_ref",
+              Json{Json::Object{{"type", "string"}, {"minLength", 1}, {"maxLength", 64}}}}}}},
         {"additionalProperties", false}}}};
     mira::BuiltinToolHandler focus_handler = [this](const auto &args,
                                                     const auto &ctx) -> mira::Result<Json> {
@@ -321,6 +344,21 @@ void DesktopImageTurn::register_perception_tool(mira::BuiltinToolRegistry &regis
         }
         if (!perception_)
             return Json{Json::Object{{"applied", false}, {"reason", "no_resident_feed"}}};
+        if (const auto *ref = args.find("object_ref")) {
+            if (!args.as_object() || args.as_object()->size() != 1 || !ref->as_string() ||
+                ref->as_string()->empty() || ref->as_string()->size() > 64)
+                return Json{Json::Object{{"applied", false}, {"reason", "invalid_argument"}}};
+            if (!desktop_.actions || desktop_.actions->authority_epoch() != native_authority_)
+                return Json{Json::Object{{"applied", false}, {"reason", "authority_changed"}}};
+            perception_semantics_.sync(perception_->view());
+            const auto binding = perception_semantics_.attention_binding(*ref->as_string());
+            const bool applied = binding && perception_->focus_object(*binding);
+            return Json{Json::Object{
+                {"applied", applied},
+                {"reason", applied ? "object_attention" : "object_reference_stale_or_unsupported"},
+                {"input_actionable", false},
+                {"verified", false}}};
+        }
         const auto member = [&args](const char *name) -> std::optional<std::int64_t> {
             const auto *value = args.find(name);
             return value && value->is_integer() ? std::optional{*value->as_integer()}
@@ -328,14 +366,23 @@ void DesktopImageTurn::register_perception_tool(mira::BuiltinToolRegistry &regis
         };
         const auto x = member("x"), y = member("y"), width = member("width"),
                    height = member("height");
-        if (!x || !y || !width || !height || *x < 0 || *y < 0)
+        if (!args.as_object() || args.as_object()->size() != 4 || !x || !y || !width || !height ||
+            *x < 0 || *y < 0 || *width < 0 || *height < 0 || *x > 1000000 || *y > 1000000 ||
+            *width > 1000000 || *height > 1000000 || *x + *width > 1000000 ||
+            *y + *height > 1000000)
             return Json{Json::Object{{"applied", false}, {"reason", "invalid_argument"}}};
         const desktop::WindowGeometry region{
             static_cast<std::int32_t>(*x), static_cast<std::int32_t>(*y),
             static_cast<std::int32_t>(*width), static_cast<std::int32_t>(*height)};
         perception_->focus(region);
+        const auto attention = perception_->view().attention;
+        const bool clearing = *width == 0 || *height == 0;
+        const bool applied =
+            !attention || (clearing ? attention->mode == "global"
+                                    : attention->active && attention->mode == "region");
         return Json{
-            Json::Object{{"applied", true},
+            Json::Object{{"applied", applied},
+                         {"reason", applied ? "region_attention" : "attention_unavailable"},
                          {"focus", Json{Json::Object{{"x", *x},
                                                      {"y", *y},
                                                      {"width", *width},
