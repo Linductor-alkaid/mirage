@@ -27,12 +27,12 @@
 
 using mirage::desktop::CancelToken;
 using mirage::desktop::SemanticSnapshotLimits;
+using mirage::desktop::WindowActionOutcome;
 using mirage::desktop::WindowInfo;
 using mirage::desktop::WindowListLimits;
 using mirage::desktop::WindowListOutcome;
 using mirage::desktop::WindowProvider;
 using mirage::desktop::WindowQueryOutcome;
-using mirage::desktop::WindowActionOutcome;
 using mirage::testing::FakeAtspiDesktop;
 
 namespace {
@@ -49,9 +49,7 @@ class ScriptedWindows final : public WindowProvider {
         return outcome;
     }
     WindowQueryOutcome front_window(const CancelToken &) override { return {}; }
-    WindowActionOutcome activate(const std::string &, const CancelToken &) override {
-        return {};
-    }
+    WindowActionOutcome activate(const std::string &, const CancelToken &) override { return {}; }
 };
 
 WindowInfo window_info(const std::string &app, const std::string &title) {
@@ -71,8 +69,8 @@ int main() {
         FakeAtspiDesktop desktop;
         desktop.nodes.push_back({"/org/a11y/atspi/accessible/root", ATSPI_ROLE_DESKTOP_FRAME,
                                  "test-desktop", "", -1, false, false, "", false});
-        desktop.nodes.push_back({"/org/fake/app", ATSPI_ROLE_APPLICATION, "FakeApp", "", 0,
-                                 false, false, "", false});
+        desktop.nodes.push_back(
+            {"/org/fake/app", ATSPI_ROLE_APPLICATION, "FakeApp", "", 0, false, false, "", false});
         desktop.nodes.push_back({"/org/fake/app/win", ATSPI_ROLE_FRAME, "Doc — Viewer", "", 1,
                                  false, false, "", false});
         desktop.nodes.push_back({"/org/fake/app/win/sidebar", ATSPI_ROLE_PANEL, "sidebar", "", 2,
@@ -81,8 +79,8 @@ int main() {
                                  "", 3, true, false, "", false});
         desktop.nodes.push_back({"/org/fake/app/win/sidebar/nav2", ATSPI_ROLE_PUSH_BUTTON,
                                  "Settings", "", 3, true, false, "", false});
-        desktop.nodes.push_back({"/org/fake/app/win/main", ATSPI_ROLE_PANEL, "main", "", 2,
-                                 false, false, "", false});
+        desktop.nodes.push_back(
+            {"/org/fake/app/win/main", ATSPI_ROLE_PANEL, "main", "", 2, false, false, "", false});
         desktop.nodes.push_back({"/org/fake/app/win/main/title", ATSPI_ROLE_LABEL, "Title", "", 6,
                                  false, false, "", false});
         desktop.nodes.push_back({"/org/fake/app/win/main/body", ATSPI_ROLE_PANEL, "body", "", 6,
@@ -184,7 +182,7 @@ int main() {
         // d. Window rename: the AT-SPI window renames (page navigation) and the
         // provider reports the new id; the stale id still resolves through the
         // application-segment fallback.
-        desktop.nodes[2].name = "Article — Viewer"; // the window frame node
+        desktop.rename_node(2, "Article — Viewer"); // the window frame node
         windows.windows = {window_info("FakeApp", "Article — Viewer")};
         const auto renamed = backend->semantic_snapshot(window_id, {}, {});
         MIRAGE_CHECK(renamed.ok);
@@ -204,17 +202,23 @@ int main() {
         // the titled one identifies the application uniquely.
         windows.windows = {window_info("FakeApp", "Article — Viewer"), window_info("FakeApp", "")};
         const auto untitled_peer = backend->semantic_snapshot(window_id, {}, {});
-        MIRAGE_CHECK(untitled_peer.ok &&
-                     untitled_peer.snapshot.window_title == "Article — Viewer");
+        MIRAGE_CHECK(untitled_peer.ok && untitled_peer.snapshot.window_title == "Article — Viewer");
 
-        // A different application with the same title does not block the
-        // fallback, but two windows sharing one title keep the ambiguity guard.
+        // A different application with the same title neither blocks the
+        // rename fallback nor the exact id: ids are scoped by their
+        // application segment, so both resolve to FakeApp's window.
         windows.windows = {window_info("FakeApp", "Article — Viewer"),
                            window_info("SecondApp", "Article — Viewer")};
         const auto cross_app = backend->semantic_snapshot(window_id, {}, {});
-        MIRAGE_CHECK(!cross_app.ok && cross_app.error.code == "unsupported_window");
+        MIRAGE_CHECK(cross_app.ok);
+        MIRAGE_CHECK(cross_app.snapshot.application == "FakeApp");
+        MIRAGE_CHECK(cross_app.snapshot.window_title == "Article — Viewer");
+        MIRAGE_CHECK(cross_app.snapshot.nodes.size() == 8);
         const auto new_id = backend->semantic_snapshot("atspi:FakeApp/Article — Viewer", {}, {});
-        MIRAGE_CHECK(!new_id.ok && new_id.error.code == "unsupported_window");
+        MIRAGE_CHECK(new_id.ok);
+        MIRAGE_CHECK(new_id.snapshot.application == "FakeApp");
+        MIRAGE_CHECK(new_id.snapshot.window_title == "Article — Viewer");
+        MIRAGE_CHECK(new_id.snapshot.nodes.size() == 8);
 
         // A foreign id with no application segment and no exact match stays
         // not_found, with the re-run hint.

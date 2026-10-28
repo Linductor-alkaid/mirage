@@ -50,6 +50,26 @@ int main() {
                                  "SecondButton", "", 7, true, false, "", false});
         desktop.nodes.push_back({"/org/second/root/window/note", ATSPI_ROLE_ENTRY, "Note",
                                  "Note field", 7, false, true, "", false});
+        // A QQ-style shell application with two same-title windows gives the
+        // occurrence-suffix id mapping a real multi-window target; a second
+        // application reusing one of the titles covers cross-application
+        // same-title resolution.
+        desktop.nodes.push_back({"/org/shell/root", ATSPI_ROLE_APPLICATION, "ShelledApp", "", 0,
+                                 false, false, "", false});
+        desktop.nodes.push_back({"/org/shell/root/first", ATSPI_ROLE_FRAME, "TwinWindow", "", 10,
+                                 false, false, "", false});
+        desktop.nodes.push_back({"/org/shell/root/first/alpha", ATSPI_ROLE_PUSH_BUTTON, "TwinAlpha",
+                                 "", 11, true, false, "", false});
+        desktop.nodes.push_back({"/org/shell/root/second", ATSPI_ROLE_FRAME, "TwinWindow", "", 10,
+                                 false, false, "", false});
+        desktop.nodes.push_back({"/org/shell/root/second/beta", ATSPI_ROLE_PUSH_BUTTON, "TwinBeta",
+                                 "", 13, true, false, "", false});
+        desktop.nodes.push_back({"/org/peer/root", ATSPI_ROLE_APPLICATION, "ShelledPeer", "", 0,
+                                 false, false, "", false});
+        desktop.nodes.push_back({"/org/peer/root/window", ATSPI_ROLE_FRAME, "TwinWindow", "", 15,
+                                 false, false, "", false});
+        desktop.nodes.push_back({"/org/peer/root/window/button", ATSPI_ROLE_PUSH_BUTTON,
+                                 "TwinGamma", "", 16, true, false, "", false});
         if (!desktop.start(session.bus_address())) {
             return 1;
         }
@@ -59,11 +79,18 @@ int main() {
         auto native_windows = mirage::platform::linux_backend::AtspiBackend::open_window_provider();
         MIRAGE_CHECK(native_windows != nullptr);
         const auto native_list = native_windows->list_windows();
-        MIRAGE_CHECK(native_list.ok && native_list.windows.size() == 2);
-        if (native_list.windows.size() == 2) {
+        MIRAGE_CHECK(native_list.ok && native_list.windows.size() == 5);
+        if (native_list.windows.size() == 5) {
             MIRAGE_CHECK(native_list.windows[0].title == "FakeWindow — main");
             MIRAGE_CHECK(native_list.windows[0].geometry.width == 200);
             MIRAGE_CHECK(native_list.windows[1].title == "SecondWindow");
+            // Same-title windows get "#N" occurrence suffixes in enumeration
+            // order; a different application's same title stays unsuffixed.
+            MIRAGE_CHECK(native_list.windows[2].id == "atspi:ShelledApp/TwinWindow");
+            MIRAGE_CHECK(native_list.windows[3].id == "atspi:ShelledApp/TwinWindow#1");
+            MIRAGE_CHECK(native_list.windows[4].id == "atspi:ShelledPeer/TwinWindow");
+            for (std::size_t i = 2; i < 5; ++i)
+                MIRAGE_CHECK(native_list.windows[i].title == "TwinWindow");
         }
         mirage::desktop::WindowListLimits native_tight;
         native_tight.max_windows = 1;
@@ -76,8 +103,12 @@ int main() {
         MIRAGE_CHECK(native_windows->front_window().found);
         MIRAGE_CHECK(!native_windows->activate("atspi:FakeEditor/FakeWindow — main").ok);
         MIRAGE_CHECK(!native_windows->activation_supported());
-        // Title-only v1 mapping must refuse duplicate observations rather
-        // than returning the first window's tree for a second window id.
+        // Same-title ids resolve by (application, title) occurrence index in
+        // listing order, not by unique title. Listing the same real window
+        // twice — the second id carrying the "#1" suffix — keeps the
+        // unsuffixed id on that window's tree, while "#1" has no second
+        // backing window and must fail not_found instead of silently
+        // returning the first window's tree.
         class DuplicateWindows final : public mirage::desktop::WindowProvider {
           public:
             std::vector<mirage::desktop::WindowInfo> windows;
@@ -97,10 +128,54 @@ int main() {
         duplicate_windows.windows.back().id += "#1";
         auto duplicate_backend =
             mirage::platform::linux_backend::AtspiBackend::open(&duplicate_windows);
-        for (const auto &window : duplicate_windows.windows) {
-            const auto duplicate = duplicate_backend->semantic_snapshot(window.id, {}, {});
-            MIRAGE_CHECK(!duplicate.ok && duplicate.error.code == "unsupported_window");
-            MIRAGE_CHECK(duplicate.snapshot.nodes.empty());
+        const auto primary =
+            duplicate_backend->semantic_snapshot(duplicate_windows.windows.front().id, {}, {});
+        MIRAGE_CHECK(primary.ok);
+        MIRAGE_CHECK(primary.snapshot.application == "FakeEditor");
+        MIRAGE_CHECK(primary.snapshot.window_title == "FakeWindow — main");
+        MIRAGE_CHECK(primary.snapshot.nodes.size() == 4); // frame, pane, button, entry
+        const auto ghost =
+            duplicate_backend->semantic_snapshot(duplicate_windows.windows.back().id, {}, {});
+        MIRAGE_CHECK(!ghost.ok && ghost.error.code == "not_found");
+        MIRAGE_CHECK(ghost.error.message.find("re-run desktop.window.list") != std::string::npos);
+        MIRAGE_CHECK(ghost.snapshot.nodes.empty());
+
+        // QQ-style same-title multi-window regression: one application with
+        // two frames titled "TwinWindow" — the shape the earlier uniqueness
+        // refusal made entirely unsnapshotable. Each occurrence id snapshots
+        // its own frame's tree (no cross-window bleed), and a same title from
+        // another application resolves independently.
+        auto twin_backend =
+            mirage::platform::linux_backend::AtspiBackend::open(native_windows.get());
+        const auto twin_alpha =
+            twin_backend->semantic_snapshot("atspi:ShelledApp/TwinWindow", {}, {});
+        MIRAGE_CHECK(twin_alpha.ok);
+        MIRAGE_CHECK(twin_alpha.snapshot.application == "ShelledApp");
+        MIRAGE_CHECK(twin_alpha.snapshot.window_title == "TwinWindow");
+        MIRAGE_CHECK(twin_alpha.snapshot.nodes.size() == 2); // frame + TwinAlpha
+        if (twin_alpha.snapshot.nodes.size() == 2) {
+            MIRAGE_CHECK(twin_alpha.snapshot.nodes[1].name == "TwinAlpha");
+        }
+        const auto twin_beta =
+            twin_backend->semantic_snapshot("atspi:ShelledApp/TwinWindow#1", {}, {});
+        MIRAGE_CHECK(twin_beta.ok);
+        MIRAGE_CHECK(twin_beta.snapshot.application == "ShelledApp");
+        MIRAGE_CHECK(twin_beta.snapshot.window_title == "TwinWindow");
+        MIRAGE_CHECK(twin_beta.snapshot.nodes.size() == 2); // frame + TwinBeta
+        if (twin_beta.snapshot.nodes.size() == 2) {
+            MIRAGE_CHECK(twin_beta.snapshot.nodes[1].name == "TwinBeta");
+        }
+        // Cross-application same title: the occurrence index counts only the
+        // id's own application segment, so ShelledPeer's unsuffixed id does
+        // not land on ShelledApp's first twin.
+        const auto twin_gamma =
+            twin_backend->semantic_snapshot("atspi:ShelledPeer/TwinWindow", {}, {});
+        MIRAGE_CHECK(twin_gamma.ok);
+        MIRAGE_CHECK(twin_gamma.snapshot.application == "ShelledPeer");
+        MIRAGE_CHECK(twin_gamma.snapshot.window_title == "TwinWindow");
+        MIRAGE_CHECK(twin_gamma.snapshot.nodes.size() == 2); // frame + TwinGamma
+        if (twin_gamma.snapshot.nodes.size() == 2) {
+            MIRAGE_CHECK(twin_gamma.snapshot.nodes[1].name == "TwinGamma");
         }
         // Use the environment constructor, rather than manually joining the
         // providers: this catches the pure Wayland nullptr wiring regression.
@@ -109,7 +184,7 @@ int main() {
                                                {.enabled = true});
             MIRAGE_CHECK(native_env.window() && native_env.accessibility());
             const auto windows = native_env.window()->list_windows();
-            MIRAGE_CHECK(windows.ok && windows.windows.size() == 2);
+            MIRAGE_CHECK(windows.ok && windows.windows.size() == 5);
             const auto snapshot =
                 native_env.accessibility()->semantic_snapshot(windows.windows.front().id, {}, {});
             MIRAGE_CHECK(snapshot.ok && !snapshot.snapshot.nodes.empty());

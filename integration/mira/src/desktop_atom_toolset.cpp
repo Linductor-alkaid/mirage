@@ -790,7 +790,9 @@ AtomRegistration accessibility_semantic_snapshot(
     registration.spec.wire_name = "desktop.accessibility.semantic_snapshot";
     registration.spec.description =
         "Takes the semantic snapshot (interactable element tree) of one window and returns it in "
-        "the deterministic rendered form. Budget: 4096 nodes. Very large trees fail with "
+        "the deterministic rendered form. The capture is accepted only while the target window "
+        "is the foreground window — focus it first (e.g. one click into the window), or the "
+        "call fails with stale_observation. Budget: 4096 nodes. Very large trees fail with "
         "snapshot_too_large: instead of falling back to screenshots, pass max_depth to collect "
         "the top levels first — frontier nodes render '(+N children)' and are expanded by a "
         "follow-up call with subtree=@eN. Window ids embed the window title; when a page "
@@ -798,9 +800,9 @@ AtomRegistration accessibility_semantic_snapshot(
         "invent @e refs.";
     registration.spec.parameters_schema = mira::JsonSchema{object_schema(
         {{"window_id", string_schema("Window id from desktop.window.list")},
-         {"max_depth",
-          integer_schema(1, 64, "Collect at most this many levels (1 = window node only); "
-                                "frontier nodes report (+N children)")},
+         {"max_depth", integer_schema(1, 64,
+                                      "Collect at most this many levels (1 = window node only); "
+                                      "frontier nodes report (+N children)")},
          {"subtree", string_schema("Expand the subtree of an @eN node from the most recent "
                                    "snapshot of this window")}},
         {"window_id"})};
@@ -1484,10 +1486,18 @@ void DesktopAtomToolset::register_harness_tools(mira::BuiltinToolRegistry &regis
                                               : string_member(args, "window_id");
                     const bool no_front = name == "desktop.window.front" && expected.empty() &&
                                           front.ok && !front.found;
-                    if (!front.ok || (!no_front && (!front.found || front.window.id != expected)) ||
-                        epoch != desktop.actions->epoch())
+                    if (!front.ok || epoch != desktop.actions->epoch() ||
+                        (!no_front && !front.found))
                         return action_failure(
                             {"stale_observation", "focused window changed during capture"});
+                    // A still-present front window carrying another id means
+                    // the target was never foreground — say so, or the caller
+                    // retries a capture that cannot succeed.
+                    if (!no_front && front.window.id != expected)
+                        return action_failure(
+                            {"stale_observation",
+                             "target window is not the foreground window; focus it first, "
+                             "then re-observe"});
                     if (front.found) {
                         observation->window = front.window.id;
                         observation->geometry = front.window.geometry;
