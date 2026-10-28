@@ -3296,6 +3296,91 @@ void content_task_tool_contract() {
     check(!stopped || stopped.value().failed);
     check(env->captures == 0 && env->inputs == 0);
 }
+void content_ready_wait_tool_contract() {
+    auto env = std::make_shared<NativeEnvironment>();
+    auto feed = std::make_shared<StoryboardFeed>();
+    auto tools = desktop();
+    tools.environment = env;
+    tools.resident_session = [env, feed](bool, auto) {
+        return integration::PerceptionConnection{env->create_desktop_capture_session(), feed};
+    };
+    tools.continuous_session = [feed](auto session, auto) {
+        return integration::PerceptionConnection{std::move(session), feed};
+    };
+    auto owner = context();
+    detail::DesktopImageTurn turn(std::make_shared<detail::DesktopImageSource>(), tools, owner, {},
+                                  true);
+    mira::BuiltinToolRegistry registry;
+    turn.register_tool(registry, {}, false);
+    const auto wait = [&](const char *args) {
+        return execute_native_tool(registry, owner, "desktop.vision.wait", args);
+    };
+    auto inactive = wait(R"({"until":"content_ready","after_cursor":2})");
+    check(inactive && *inactive.value().result.find("status")->as_string() == "content_inactive");
+    check(feed->waits == 0);
+    auto legacy = wait(R"({"after_cursor":2,"timeout_ms":1})");
+    check(legacy && *legacy.value().result.find("status")->as_string() == "timeout" &&
+          feed->waits == 1);
+    for (const auto *args : {R"({"until":"unknown"})", R"({"until":true})",
+                             R"({"until":"content_ready","timeout_ms":30001})"}) {
+        const auto invalid = wait(args);
+        check(!invalid || invalid.value().failed);
+    }
+    auto begin = execute_native_tool(
+        registry, owner, "desktop.vision.content",
+        R"({"action":"begin","scope":"observed_samples","requires_audio":false,"auto_storyboard":true})");
+    check(begin && begin.value().result.find("applied")->as_boolean() == true);
+    // A keyword string without the typed producer bit is never coalesced.
+    auto urgent = wait(R"({"until":"content_ready","after_cursor":0})");
+    check(urgent && *urgent.value().result.find("status")->as_string() == "event");
+    auto ready = wait(R"({"until":"content_ready","after_cursor":2,"timeout_ms":5000})");
+    check(ready && *ready.value().result.find("status")->as_string() == "content_ready");
+    check(feed->waits == 1 && feed->read_ids.empty() && feed->acknowledged == 0);
+    check(feed->state.events.size() == 2 && feed->state.previews.size() == 2);
+    mira::AgentLoopSpec spec;
+    spec.task_id = owner.task;
+    spec.session_id = owner.session;
+    spec.task_epoch = owner.task_epoch;
+    mira::ModelRequest request;
+    request.request_id = mira::ModelRequestId::generate();
+    request.task_id = owner.task;
+    request.task_epoch = owner.task_epoch;
+    auto supplied = turn.supply(spec);
+    check(bool(supplied));
+    request.input = supplied.value();
+    unsigned images = 0;
+    for (const auto &item : request.input)
+        for (const auto &part : item.content)
+            images += std::holds_alternative<mira::ImagePart>(part);
+    check(images == 1 && feed->read_ids.empty());
+    auto stub = std::make_shared<EvidenceCompletionProvider>();
+    detail::ObservedProvider provider(stub);
+    provider.request_guard = [&](const auto &r, const auto &ctx) {
+        return turn.validate_request(r, ctx);
+    };
+    provider.consumed = [&](const auto &r, const auto &ctx) { turn.perception_consumed(r, ctx); };
+    stub->status = mira::ModelCompletionStatus::Completed;
+    check(bool(provider.infer(request, owner, {})) && feed->read_ids.size() == 2);
+    auto cooldown = wait(R"({"until":"content_ready","after_cursor":2})");
+    // This fixture reports timeout without advancing time; stop instead of spinning.
+    check(cooldown && *cooldown.value().result.find("status")->as_string() == "wait_no_progress" &&
+          feed->waits == 2);
+    auto event = feed->state.events.back();
+    event.sequence = ++feed->state.newest;
+    event.kind = "text_changed";
+    event.text = "important caption";
+    feed->state.events.push_back(event);
+    urgent = wait(R"({"until":"content_ready","after_cursor":2})");
+    check(urgent && *urgent.value().result.find("status")->as_string() == "event" &&
+          feed->waits == 2);
+    ++feed->state.source_epoch;
+    const auto retired = wait(R"({"until":"content_ready","after_cursor":3})");
+    check(retired && *retired.value().result.find("status")->as_string() == "content_inactive");
+    tools.actions->takeover();
+    const auto denied = wait(R"({"until":"content_ready"})");
+    check(!denied || denied.value().failed);
+    check(env->captures == 0 && env->inputs == 0);
+}
 void automatic_content_supply(const std::string &mode) {
     auto env = std::make_shared<NativeEnvironment>();
     auto feed = std::make_shared<StoryboardFeed>();
@@ -6046,6 +6131,7 @@ int main(int argc, char **argv) {
         config.min_threads = config.max_threads = 3;
         check(static_cast<bool>(executor.initialize(config)));
         if (automatic_suite) {
+            content_ready_wait_tool_contract();
             for (const auto *mode :
                  {"normal", "budget", "pending", "missing", "pack_failure", "text_only", "cancel"})
                 automatic_content_supply(mode);

@@ -265,6 +265,7 @@ PerceptionSample VisualObservationPipeline::observe_image(
                     event.frame_sequence = image.source_sequence;
                     event.kind = "visual_region_changed";
                     event.text = "keyframe";
+                    event.temporal_keyframe = true;
                     event.x = left;
                     event.y = top;
                     event.width = right - left;
@@ -420,7 +421,8 @@ PerceptionSample VisualObservationPipeline::observe_image(
             out.objects.push_back(std::move(entry));
         }
     const auto append = [&](std::uint64_t entity, const mirador::RectF &bounds, const char *kind,
-                            bool confirmed, std::uint64_t instance, const std::string &text = {}) {
+                            bool confirmed, std::uint64_t instance, const std::string &text = {},
+                            bool temporal_keyframe = false) {
         if (out.events.size() >= 256) {
             out.resync = true;
             return;
@@ -432,6 +434,7 @@ PerceptionSample VisualObservationPipeline::observe_image(
         event.frame_sequence = image.source_sequence;
         event.kind = kind;
         event.confirmed = confirmed;
+        event.temporal_keyframe = temporal_keyframe;
         event.observed_at = observed_at;
         event.x = bounds.x;
         event.y = bounds.y;
@@ -552,7 +555,7 @@ PerceptionSample VisualObservationPipeline::observe_image(
                         change->frame_similarity < config_.media_keyframe_similarity &&
                         now - media_.last_event >= config_.media_event_min_interval) {
                         media_.last_event = now;
-                        append(0, largest, "visual_region_changed", false, 0, "keyframe");
+                        append(0, largest, "visual_region_changed", false, 0, "keyframe", true);
                     }
                 } else if (++media_.misses >= config_.media_miss_samples) {
                     media_.active = false;

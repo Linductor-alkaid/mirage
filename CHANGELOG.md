@@ -14,6 +14,12 @@
 
 ### 功能
 
+- DEC-136：wait 1.1.0可选until=content_ready，在一次既有工具调用中合并自动
+  内容供图尚未就绪的媒体帧唤醒；保留非媒体事件、来源/取消及原日志/ACK，
+  原event模式兼容，无新增采图或模型请求。新增默认false的媒体关键帧事实位。
+  [示例](docs/examples/content-ready-wait.md)和
+  [验收](docs/compatibility/content-ready-wait-20261029.md)限定本机验证范围。
+
 - DEC-135：内容begin可用auto_storyboard=true，让既有模型请求按需携带缓存低清
   拼图，省去取图工具往返；5秒门禁、完成评估/中断停止、低预算与显式待图优先。
   原手动流程兼容，后台CV/识别不降频、不新增模型请求；自动供图会退役旧输入

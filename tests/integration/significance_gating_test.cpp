@@ -277,13 +277,15 @@ void keyframes_are_throttled_scene_events() {
         MIRAGE_CHECK(rig.observe(*pipeline, media(100)).ok); // pending
         const auto started = rig.observe(*pipeline, media(140));
         MIRAGE_CHECK(started.media.active);
+        MIRAGE_CHECK(std::none_of(started.events.begin(), started.events.end(),
+                                  [](const auto &e) { return e.temporal_keyframe; }));
         const auto cut = rig.observe(*pipeline, keyframe(0));
         MIRAGE_CHECK(cut.ok);
         MIRAGE_CHECK(count_kind(cut, "visual_region_changed") == 1);
         const auto kf = std::find_if(cut.events.begin(), cut.events.end(), [](const auto &e) {
             return e.kind == "visual_region_changed";
         });
-        MIRAGE_CHECK(kf != cut.events.end() && kf->text == "keyframe");
+        MIRAGE_CHECK(kf != cut.events.end() && kf->text == "keyframe" && kf->temporal_keyframe);
         MIRAGE_CHECK(count_kind(cut, "media_playback") == 0);
         MIRAGE_CHECK(cut.media.active); // the cut does not end playback
         pipeline->stop();
@@ -533,6 +535,8 @@ void experimental_media_defers_and_recovers() {
     // A media scene cut still emits a bounded temporal keyframe without OCR.
     const auto cut = accept(keyframe(0));
     MIRAGE_CHECK(cut.recognition_deferred && count_kind(cut, "visual_region_changed") == 1);
+    MIRAGE_CHECK(cut.events.back().temporal_keyframe);
+    MIRAGE_CHECK(journal.view().events.back().temporal_keyframe);
     MIRAGE_CHECK(ocr.calls == count);
     MIRAGE_CHECK(detector.calls == count);
     // Explicit precision reads are independent of the background deferral.

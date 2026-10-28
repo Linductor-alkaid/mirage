@@ -23,6 +23,8 @@ struct PerceptionEvent {
                   instance_generation = 0;
     std::string kind, text, frame_id;
     bool confirmed = false;
+    // DEC-136: emitted by product media-keyframe branches, not inferred from text.
+    bool temporal_keyframe = false;
     double x = 0, y = 0, width = 0, height = 0;
     std::chrono::steady_clock::time_point observed_at{};
 };

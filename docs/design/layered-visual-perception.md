@@ -1,7 +1,7 @@
 # 分层视觉感知：LLM 语义 / 识别 / CV 跟踪
 
 > 状态：In Progress（本机验证范围见验收记录；目标态各项单独验收）
-> 更新日期：2026-10-28
+> 更新日期：2026-10-29
 > 负责人：Mirage 维护者
 > 工作项：M9-23/24、M9-25～33；决策：[DEC-121](../decisions/DEC-121-three-tier-perception-delivery.md)
 > 前序：DEC-118 显著性门控；DEC-120 时间拼图
@@ -29,8 +29,8 @@
   M9-13）、`desktop.vision.focus`（本决策新增的注意力焦点）。
 - 触发：语义场景/事件文本能回答时零调用；关键帧、任务边界、状态依赖时按需。
 - M9-29 目标：对象语义绑定 source_epoch + stable_id + incarnation +
-  content_revision，变化即失效；任务焦点可跟随已验证对象。当前 annotate 仅支持
-  text/category，focus 是消费者像素过滤，尚未完成外观/关系语义与对象跟随。
+  content_revision，变化即失效；DEC-129/131已接通版本绑定的对象焦点跟随和显式
+  多目标优先级。annotate的text/category之外，外观/关系语义与自动重要性仍待验。
 - 模型输入优先语义场景文本，图像通路包括节流的关键帧预览（`event_frame`）、
   [DEC-120](../decisions/DEC-120-temporal-storyboard-observation.md) 的稀疏时间拼图
   （`storyboard`）和显式 capture 的按需供图。
@@ -362,3 +362,26 @@ M9-30仍待真实媒体语义、ROI、在线成本、播放器/声音覆盖与�
 模型请求4→3、取图工具1→0、图片1张不变；不推广为真实任务或token收益。
 [使用示例](../examples/automatic-content-visual-supply.md)明确opt-in、引用退役与
 内容范围。M9-30/29的真实语义、播放器/声音覆盖及在线质量/成本验收继续开放。
+
+
+## 内容可供图等待（DEC-136）
+
+[DEC-136](../decisions/DEC-136-content-ready-wait.md)在既有wait 1.1.0增加可选
+until=content_ready，供已声明自动内容任务等待新证据。原event模式保持。
+同一个有限工具调用复用feed.wait等待门禁到期和2张新缓存帧，最多30秒/64轮，
+每轮只读有界view元数据与弱预览，沿现有Executor owner、取消与shutdown收敛；
+不新建任务/定时器/队列或模型请求。timeout必须到预算边界，允许底层毫秒取整
+最多1ms差异，明显提前/无进展返回有明确诊断，避免忙重试。
+
+PerceptionEvent新增默认false的temporal_keyframe，仅现有两条媒体关键帧分支
+设置；原journal保留，事件JSON仅true时发出，普通事件批次以此为屏障。只合并
+同源、有限正几何、无对象身份、非confirmed的有效媒体视觉事件，不从text推断。
+可见非媒体/未知事件优先于就绪判定；来源代际、gap、注意失效、失败、取消明确
+退出。原feed注意过滤仍适用；已被显式策略延后的事件在下一feed唤醒或期限后
+检查。等待游标是私有检查位置，不推进ACK，不丢弃原日志；supplier仍按实际
+呈现前缀和Completed消费。就绪仍受原图像/文本步骤与预算准入、缓存有效性约束，
+更不证明语义理解。
+
+[示例](../examples/content-ready-wait.md)与[验收](../compatibility/content-ready-wait-20261029.md)
+界定新增返回状态、公开字段重编译与兼容性。自动语义重要性、播放器/完整视频、
+声音、在线模型实际收益及Windows/Portal门禁保持开放。

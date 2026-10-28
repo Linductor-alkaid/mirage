@@ -35,9 +35,10 @@ inline PerceptionEventBatch perception_event_batch(const PerceptionView &view, s
     };
     const auto compatible = [&](const PerceptionEvent &first, const PerceptionEvent &last,
                                 const PerceptionEvent &next) {
-        return !view.resync && first.kind == "position_or_appearance_changed" && first.confirmed &&
-               first.entity && first.instance_generation && first.source_epoch &&
-               next.kind == first.kind && next.confirmed && next.entity == first.entity &&
+        return !view.resync && !first.temporal_keyframe && !next.temporal_keyframe &&
+               first.kind == "position_or_appearance_changed" && first.confirmed && first.entity &&
+               first.instance_generation && first.source_epoch && next.kind == first.kind &&
+               next.confirmed && next.entity == first.entity &&
                next.instance_generation == first.instance_generation &&
                next.source_epoch == first.source_epoch && next.text == first.text &&
                next.sequence > last.sequence && next.sequence - last.sequence == 1 &&
@@ -67,6 +68,8 @@ inline PerceptionEventBatch perception_event_batch(const PerceptionView &view, s
             row.set("kind", last.kind);
             row.set("text", last.text);
             row.set("confirmed", last.confirmed);
+            if (last.temporal_keyframe)
+                row.set("temporal_keyframe", true);
             row.set("entity", static_cast<std::int64_t>(last.entity));
             row.set("instance_generation", static_cast<std::int64_t>(last.instance_generation));
             row.set("source_epoch", static_cast<std::int64_t>(last.source_epoch));

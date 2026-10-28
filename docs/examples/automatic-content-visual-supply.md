@@ -16,7 +16,8 @@ OCR/YOLO仍由原识别层触发。模型没有请求时，不为供图唤醒它
 每次自动构建尝试至少间隔5秒，Completed后亦至少间隔5秒；窗口30秒、最多4张
 未消费帧，复用8预览/256事件、320格/640²预算。指定窗口不等于完整覆盖。
 已有未消费的显式图片优先并保持原工件重试，不重复编码；预算低或文本精读时
-不构建自动图片。无2张有效新帧则等待事件，不轮询截图。
+不构建自动图片。无2张有效新帧时使用[内容就绪等待](content-ready-wait.md)的
+`{"until":"content_ready","timeout_ms":30000}`，在本地合并媒体唤醒，不轮询截图。
 
 `content_visual_supply`随既有连续观察说明offered/image_pending/cooldown、
 context_budget_low、候选不足、失败或assessed_or_interrupted；冷却时提供

@@ -309,6 +309,12 @@ void lossless_event_batching_and_prefixes() {
     boundary([](auto &e) { ++e.source_epoch; });
     boundary([](auto &e) { e.text = "new content"; });
     boundary([](auto &e) { e.confirmed = false; });
+    boundary([](auto &e) { e.temporal_keyframe = true; });
+    auto typed = view;
+    typed.events.front().temporal_keyframe = true;
+    const auto marked = detail::perception_event_batch(typed, 0, now);
+    MIRAGE_CHECK(marked.rows.front().find("temporal_keyframe")->as_boolean() == true);
+    MIRAGE_CHECK(!batch.rows.front().find("temporal_keyframe"));
     boundary([](auto &e) { ++e.sequence; });
     boundary([](auto &e) { e.observed_at -= std::chrono::seconds(2); });
     boundary([](auto &e) { e.observed_at += std::chrono::seconds(2); });

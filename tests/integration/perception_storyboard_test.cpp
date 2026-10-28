@@ -1,10 +1,13 @@
+#include "../../integration/mira/src/content_ready_wait.hpp"
 #include "../../integration/mira/src/content_task_assessment.hpp"
 #include "../../integration/mira/src/content_visual_supply.hpp"
 #include "../../integration/mira/src/perception_storyboard.hpp"
 #include "../../integration/mira/src/perception_temporal_selection.hpp"
 #include <algorithm>
 #include <array>
+#include <functional>
 #include <iostream>
+#include <limits>
 #include <source_location>
 #include <stdexcept>
 
@@ -54,6 +57,188 @@ struct Fixture {
         return detail::make_perception_storyboard(view, ids, now, {});
     }
 };
+struct ContentWaitFixture {
+    Clock::time_point now = Clock::now();
+    integration::PerceptionView view;
+    std::vector<std::shared_ptr<integration::PerceptionPreview>> frames;
+    detail::PerceptionContentEvidence evidence;
+    detail::ContentTaskAssessment task;
+    detail::ContentVisualSupply gate;
+    std::function<std::string(std::uint64_t, std::chrono::milliseconds)> step;
+    unsigned waits = 0;
+    ContentWaitFixture() {
+        view.source_epoch = 7;
+        view.state = "sampling";
+        evidence.sync(view);
+        check(task.begin("observed_samples", false, evidence, true));
+    }
+    void append(bool preview = true) {
+        auto p = std::make_shared<integration::PerceptionPreview>();
+        p->id = "wait-" + std::to_string(++view.newest);
+        p->observed_at = now;
+        p->image.width = 4;
+        p->image.height = 2;
+        p->image.stride = 16;
+        p->image.pixels.resize(32);
+        integration::PerceptionEvent e;
+        e.sequence = e.frame_sequence = view.newest;
+        e.source_epoch = view.source_epoch;
+        e.frame_id = p->id;
+        e.observed_at = now;
+        e.kind = "visual_region_changed";
+        e.temporal_keyframe = true;
+        e.width = 4;
+        e.height = 2;
+        view.events.push_back(e);
+        if (preview) {
+            view.previews.emplace_back(p->id, p);
+            frames.push_back(p);
+        }
+    }
+    std::string run(std::chrono::milliseconds timeout = std::chrono::seconds{30},
+                    const mirage::desktop::CancelToken &cancel = {}, std::uint64_t after = 0) {
+        return detail::wait_for_content(
+            [&] {
+                evidence.sync(view);
+                task.sync(evidence, "wait-scope");
+                return view;
+            },
+            [&](auto cursor, auto budget, const auto &) {
+                ++waits;
+                check(budget.count() > 0 && budget <= timeout);
+                return step(cursor, budget);
+            },
+            [&] { return now; }, task, evidence, gate, "wait-scope", after, timeout, cancel);
+    }
+};
+void content_ready_wait_contract() {
+    using namespace std::chrono_literals;
+    ContentWaitFixture f;
+    f.gate.attempted(f.now);
+    f.step = [&](auto cursor, auto budget) {
+        check(cursor == f.view.newest);
+        check(budget == std::chrono::seconds{6 - f.waits});
+        f.now += 1s;
+        if (f.waits < 5) {
+            f.append();
+            return std::string{"event"};
+        }
+        return std::string{"timeout"};
+    };
+    check(f.run() == "content_ready" && f.waits == 5);
+    check(f.view.events.size() == 4 && f.view.previews.size() == 4 && f.evidence.size() == 0);
+    check(detail::select_temporal_frames(f.view, f.evidence, "wait-scope", 30s, 4, f.now, {})
+              .ids.size() == 4);
+    // A ready gate still needs two distinct new cached frames.
+    ContentWaitFixture two;
+    two.step = [&](auto, auto) {
+        two.now += 1s;
+        two.append();
+        return std::string{"event"};
+    };
+    check(two.run() == "content_ready" && two.waits == 2 && two.evidence.size() == 0);
+    // Critical, unknown and malformed events win even when images are ready.
+    const auto urgent = [](auto mutate) {
+        ContentWaitFixture c;
+        c.append();
+        c.now += 1ms;
+        c.append();
+        mutate(c.view.events.back(), c);
+        check(c.run() == "event" && c.waits == 0);
+    };
+    urgent([](auto &e, auto &) {
+        e.temporal_keyframe = false;
+        e.text = "keyframe";
+    });
+    for (const auto *kind :
+         {"appeared", "disappeared", "text_changed", "media_playback", "unknown"})
+        urgent([&](auto &e, auto &) { e.kind = kind; });
+    urgent([](auto &e, auto &) { e.confirmed = true; });
+    urgent([](auto &e, auto &) { e.entity = 1; });
+    urgent([](auto &e, auto &) { e.instance_generation = 1; });
+    urgent([](auto &e, auto &) { ++e.source_epoch; });
+    urgent([](auto &e, auto &) { e.frame_sequence = 0; });
+    urgent([](auto &e, auto &) { e.frame_id.clear(); });
+    urgent([](auto &e, auto &) { e.frame_id.assign(65, 'x'); });
+    urgent([](auto &e, auto &) { e.width = 0; });
+    urgent([](auto &e, auto &) { e.x = -1; });
+    urgent([](auto &e, auto &) { e.y = std::numeric_limits<double>::quiet_NaN(); });
+    urgent([](auto &e, auto &c) { e.observed_at = c.now + 1ms; });
+    urgent([](auto &e, auto &c) { e.observed_at = c.now - 120s; });
+    const auto during_wait = [](auto mutate, const char *expected) {
+        ContentWaitFixture c;
+        c.step = [&](auto, auto) {
+            c.now += 1ms;
+            mutate(c);
+            return std::string{"event"};
+        };
+        check(c.run() == expected && c.waits == 1);
+    };
+    during_wait([](auto &c) { ++c.view.source_epoch; }, "gap");
+    during_wait([](auto &c) { ++c.view.dropped; }, "gap");
+    during_wait([](auto &c) { c.view.resync = true; }, "gap");
+    during_wait([](auto &c) { c.evidence.replace_source(); }, "gap");
+    during_wait([](auto &c) { c.view.oldest = 3; }, "gap");
+    during_wait(
+        [](auto &c) {
+            c.view.attention.emplace();
+            c.view.attention->invalidation_reason = "gone";
+        },
+        "attention_invalidated");
+    for (const auto *state : {"failed", "stopped", "degraded"})
+        during_wait([&](auto &c) { c.view.state = state; }, "source_unavailable");
+    during_wait([](auto &c) { c.view.events.resize(257); }, "source_capacity_exceeded");
+    during_wait([](auto &c) { c.view.previews.resize(9); }, "source_capacity_exceeded");
+    during_wait([](auto &) {}, "wait_no_progress");
+    ContentWaitFixture timed;
+    timed.step = [&](auto, auto budget) {
+        timed.now += budget;
+        return std::string{"timeout"};
+    };
+    check(timed.run(30000ms) == "timeout" && timed.waits == 1);
+    ContentWaitFixture stuck;
+    stuck.step = [](auto, auto) { return std::string{"timeout"}; };
+    check(stuck.run() == "wait_no_progress" && stuck.waits == 1);
+    ContentWaitFixture early;
+    early.step = [&](auto, auto) {
+        early.now += 1ms;
+        return std::string{"timeout"};
+    };
+    check(early.run() == "wait_no_progress" && early.waits == 1);
+    ContentWaitFixture bounded;
+    bounded.step = [&](auto, auto) {
+        bounded.now += 1ms;
+        bounded.append(false);
+        return std::string{"event"};
+    };
+    check(bounded.run() == "wake_budget_exhausted" && bounded.waits == 64);
+    for (const auto *status :
+         {"unavailable", "failed", "cancelled", "gap", "attention_invalidated"}) {
+        ContentWaitFixture c;
+        c.step = [&](auto, auto) { return std::string{status}; };
+        check(c.run() == status && c.waits == 1);
+    }
+    ContentWaitFixture inactive;
+    check(
+        inactive.task.assess("insufficient", "", "no evidence", {}, inactive.evidence, "wait-scope")
+            .empty());
+    check(inactive.run() == "content_inactive" && inactive.waits == 0);
+    ContentWaitFixture cancelled;
+    mirage::desktop::CancelToken token;
+    cancelled.step = [&](auto, auto) {
+        token.request_cancel();
+        return std::string{"event"};
+    };
+    check(cancelled.run(30s, token) == "cancelled" && cancelled.waits == 1);
+    check(cancelled.run(30s, token) == "cancelled" && cancelled.waits == 1);
+    ContentWaitFixture ahead;
+    ahead.step = [&](auto cursor, auto budget) {
+        check(cursor == 100);
+        ahead.now += budget;
+        return std::string{"timeout"};
+    };
+    check(ahead.run(1s, {}, 100) == "timeout" && ahead.waits == 1);
+}
 void delivered_evidence_window_and_barriers() {
     using namespace std::chrono_literals;
     Fixture f;
@@ -527,6 +712,7 @@ void boundaries() {
 } // namespace
 int main() {
     try {
+        content_ready_wait_contract();
         delivered_evidence_window_and_barriers();
         content_assessment_contract();
         automatic_supply_gate();

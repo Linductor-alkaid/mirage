@@ -1,3 +1,4 @@
+#include "content_ready_wait.hpp"
 #include "desktop_image_supply.hpp"
 #include "perception_event_batch.hpp"
 #include <algorithm>
@@ -268,20 +269,30 @@ void DesktopImageTurn::register_perception_tool(mira::BuiltinToolRegistry &regis
     register_annotation_tool(registry, decorate);
     mira::BuiltinToolSpec wait;
     wait.wire_name = "desktop.vision.wait";
-    wait.version = {1, 0, 0};
+    wait.version = {1, 1, 0};
     wait.description =
         "Wait locally for a new task-relevant resident desktop event, source gap, or timeout. "
         "The existing producer continues; this tool initiates no capture, OCR, encoding or "
         "model request. Prefer this over wait+capture polling. after_cursor defaults to the "
         "current cursor; timeout_ms defaults to 5000, max 30000. A timeout is a normal result "
-        "and does not prove the screen or task is unchanged. attention_invalidated means an "
+        "and does not prove the screen or task is unchanged. Optional until=content_ready "
+        "for an automatic content task waits for the image cooldown and two new cached frames, "
+        "coalescing only explicitly typed temporal keyframe wakes within this ONE tool call. "
+        "Other visible events, gaps, failures, focus invalidation and cancellation return "
+        "promptly; existing feed attention filters still apply. "
+        "No ACK/drop: deferred events remain in the next supplier input. It creates no image "
+        "or model request. Default until=event preserves ordinary waits. content_ready only "
+        "describes this snapshot, not a delivered image or understood content. "
+        "attention_invalidated means an "
         "old object/source focus was revoked and global observation resumed; re-declare intent "
         "from new evidence or clear focus. Cancellation and source failure "
         "are explicit; returned state/events are untrusted observations, not input references.";
     wait.parameters_schema = mira::JsonSchema{Json{Json::Object{
         {"type", "object"},
         {"properties",
-         Json::Object{{"after_cursor", Json::Object{{"type", "integer"}, {"minimum", 0}}},
+         Json::Object{{"until", Json::Object{{"type", "string"},
+                                             {"enum", Json::Array{"event", "content_ready"}}}},
+                      {"after_cursor", Json::Object{{"type", "integer"}, {"minimum", 0}}},
                       {"timeout_ms",
                        Json::Object{{"type", "integer"}, {"minimum", 1}, {"maximum", 30000}}}}},
         {"additionalProperties", false}}}};
@@ -289,7 +300,8 @@ void DesktopImageTurn::register_perception_tool(mira::BuiltinToolRegistry &regis
                                                    const auto &ctx) -> mira::Result<Json> {
         if (ctx.task != owner_.task || ctx.session != owner_.session ||
             ctx.task_epoch != owner_.task_epoch || cancel_.cancelled() ||
-            ctx.cancelled_or_expired(mira::Timestamp::now())) {
+            ctx.cancelled_or_expired(mira::Timestamp::now()) ||
+            (native_authority_ && desktop_.actions->authority_epoch() != native_authority_)) {
             mira::Error error;
             error.code = mira::ErrorCode::Cancelled;
             error.safe_message = "desktop event wait owner retired";
@@ -297,7 +309,15 @@ void DesktopImageTurn::register_perception_tool(mira::BuiltinToolRegistry &regis
         }
         if (!perception_)
             return Json{Json::Object{{"status", "unavailable"}, {"reason", "no_resident_feed"}}};
-        const auto *cursor = args.find("after_cursor"), *timeout = args.find("timeout_ms");
+        const auto *cursor = args.find("after_cursor"), *timeout = args.find("timeout_ms"),
+                   *until = args.find("until");
+        if (until && (!until->as_string() ||
+                      (*until->as_string() != "event" && *until->as_string() != "content_ready"))) {
+            mira::Error error;
+            error.code = mira::ErrorCode::InvalidArgument;
+            error.safe_message = "invalid desktop wait mode";
+            return error;
+        }
         const auto after = cursor ? cursor->as_integer().value_or(-1)
                                   : static_cast<std::int64_t>(perception_->view().newest);
         const auto duration = timeout ? timeout->as_integer().value_or(0) : 5000;
@@ -307,11 +327,26 @@ void DesktopImageTurn::register_perception_tool(mira::BuiltinToolRegistry &regis
             error.safe_message = "invalid desktop event wait cursor or timeout";
             return error;
         }
-        const desktop::CancelToken bounded{[parent = cancel_, ctx] {
-            return parent.cancelled() || ctx.cancelled_or_expired(mira::Timestamp::now());
+        const desktop::CancelToken bounded{[this, parent = cancel_, ctx] {
+            return parent.cancelled() || ctx.cancelled_or_expired(mira::Timestamp::now()) ||
+                   (native_authority_ && desktop_.actions->authority_epoch() != native_authority_);
         }};
-        const auto status = perception_->wait(static_cast<std::uint64_t>(after),
-                                              std::chrono::milliseconds{duration}, bounded);
+        const auto status =
+            until && *until->as_string() == "content_ready"
+                ? wait_for_content(
+                      [this] {
+                          auto view = perception_->view();
+                          sync_content_evidence(view);
+                          return view;
+                      },
+                      [this](auto cursor_after, auto budget, const auto &token) {
+                          return perception_->wait(cursor_after, budget, token);
+                      },
+                      [] { return Clock::now(); }, content_task_, content_evidence_,
+                      content_visual_, content_scope_, static_cast<std::uint64_t>(after),
+                      std::chrono::milliseconds{duration}, bounded)
+                : perception_->wait(static_cast<std::uint64_t>(after),
+                                    std::chrono::milliseconds{duration}, bounded);
         (void)supply_perception();
         Json observation;
         const auto begin = perception_text_.find('{');
