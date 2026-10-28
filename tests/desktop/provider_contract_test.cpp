@@ -1143,16 +1143,14 @@ void depth_limited_frontier_rendering() {
     auto leaf = node("@e1", "button", "OK");
     leaf.collapsed_children = 0;
     zero.nodes.push_back(leaf);
-    MIRAGE_CHECK(mirage::desktop::render_semantic_snapshot(zero) ==
-                 "@e1 button \"OK\"\n");
+    MIRAGE_CHECK(mirage::desktop::render_semantic_snapshot(zero) == "@e1 button \"OK\"\n");
 
     // Rendering stays deterministic with markers present.
     const std::string first = mirage::desktop::render_semantic_snapshot(snapshot);
     const std::string second = mirage::desktop::render_semantic_snapshot(snapshot);
     MIRAGE_CHECK(first == second);
     // Node order is preserved with markers.
-    MIRAGE_CHECK(first.find("@e1") < first.find("@e2") &&
-                 first.find("@e2") < first.find("@e3"));
+    MIRAGE_CHECK(first.find("@e1") < first.find("@e2") && first.find("@e2") < first.find("@e3"));
 }
 
 void screen_and_notification_edges() {
