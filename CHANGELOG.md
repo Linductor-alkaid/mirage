@@ -14,6 +14,12 @@
 
 ### 功能
 
+- DEC-133：desktop.vision.content显式声明内容范围/声音要求，凭已完成供图引用评估；
+  有效片段答案附固定稀疏说明，完整视频/声音证据不足、未评估或来源失效不能成功。
+  [示例](docs/examples/grounded-content-assessment.md)与
+  [验收](docs/compatibility/grounded-content-assessment-20261028.md)说明opt-in、语义未验证
+  及真实媒体门禁，未增加图像缓存/调度或固定LLM调用。
+
 - DEC-132：连续观察自动携带已完成请求实际呈现的事件帧/拼图时间证据，保留
   最多32样本元数据、时间跨度/间隔和来源中断；失败/未完成/缺图/预算扣留不计数。
   请求ID与完整工件身份防止相同像素误记新帧；事件帧补来源/时刻检查。

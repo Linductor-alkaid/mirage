@@ -1,4 +1,5 @@
 #pragma once
+#include "content_task_assessment.hpp"
 #include "ime_text_input.hpp"
 #include "perception_content_evidence.hpp"
 #include "perception_semantics.hpp"
@@ -82,6 +83,7 @@ class DesktopImageTurn {
                            const DesktopAtomToolset::Decorator &);
     void perception_consumed(const mira::ModelRequest &, const mira::OperationContext &);
     bool supplied_image() const { return supplied_image_; }
+    ContentTaskResult settle_content_task();
     // DEC-069: workflow-local fresh target resolution through the same numbered action path.
     mira::Result<mira::JsonValue> local_click(const mira::JsonValue &,
                                               const mira::OperationContext &);
@@ -139,10 +141,14 @@ class DesktopImageTurn {
                                   const DesktopAtomToolset::Decorator &);
     void register_storyboard_tool(mira::BuiltinToolRegistry &,
                                   const DesktopAtomToolset::Decorator &);
+    void register_content_task_tool(mira::BuiltinToolRegistry &,
+                                    const DesktopAtomToolset::Decorator &);
     void bind_perception(std::shared_ptr<DesktopPerceptionFeed>);
     void sync_content_evidence(const PerceptionView &);
     std::shared_ptr<DesktopPerceptionFeed> perception_;
     PerceptionContentEvidence content_evidence_;
+    ContentTaskAssessment content_task_;
+    std::string content_scope_;
     std::optional<ContentEvidenceOffer> content_offer_;
     std::optional<mira::ModelRequestId> content_request_;
     PerceptionSessionOptions perception_options(std::uint64_t authority) const;

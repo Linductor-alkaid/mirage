@@ -27,6 +27,12 @@
 [验证](../compatibility/delivered-visual-evidence-20261028.md)仅覆盖本机证据边界；
 完整内容任务状态、播放器进度及实际视频理解继续开放。
 
+2026-10-28：M9-30按[DEC-133](../decisions/DEC-133-grounded-content-task-assessment.md)
+增加显式范围/声音要求、实际供图引用评估与产品完成门禁；片段答案固定披露稀疏，
+完整视频/声音证据不足不成功。协议/矩阵见
+[验收](../compatibility/grounded-content-assessment-20261028.md)。模型声明与理解正确性、
+播放器覆盖及真实媒体验收继续开放，M9-30保持In Progress。
+
 ## 目标
 
 正常长任务不因累计模型步骤或工具次数结束；将可确定的视觉定位、等待和后条件

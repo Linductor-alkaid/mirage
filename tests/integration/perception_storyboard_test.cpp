@@ -1,4 +1,4 @@
-#include "../../integration/mira/src/perception_content_evidence.hpp"
+#include "../../integration/mira/src/content_task_assessment.hpp"
 #include "../../integration/mira/src/perception_storyboard.hpp"
 #include <algorithm>
 #include <iostream>
@@ -172,6 +172,120 @@ void delivered_evidence_window_and_barriers() {
     check(bounded.project(f.now).find("segment")->as_integer() == segment);
     check(!bounded.offer(lost, one, f.now));
 }
+void content_assessment_contract() {
+    using namespace std::chrono_literals;
+    Fixture f;
+    detail::PerceptionContentEvidence ledger;
+    ledger.sync(f.view);
+    const std::string owner = "task/session/epoch", foreign = "other/task/epoch";
+    detail::ContentTaskAssessment task;
+    check(!task.result().active && !task.result().satisfied);
+    check(task.assess("answerable", "answer", "sparse", {}, ledger, owner) ==
+          "content_task_not_started");
+    check(!task.begin("invented", false, ledger));
+    check(task.begin("observed_samples", false, ledger));
+    check(*task.project().find("state")->as_string() == "locating");
+    const auto offered =
+        *ledger.offer(f.view, std::vector<std::string>{"frame-0", "frame-1"}, f.now);
+    const auto ref =
+        detail::PerceptionContentEvidence::reference(owner, offered, offered.samples[0]);
+    check(!ledger.contains_reference(owner, ref));
+    check(task.assess("answerable", "answer", "sparse", {ref}, ledger, owner) ==
+          "content_reference_not_delivered");
+    check(ledger.consumed(offered, f.now));
+    task.sync(ledger, owner);
+    check(*task.project().find("state")->as_string() == "observing_content");
+    check(ledger.contains_reference(owner, ref) && !ledger.contains_reference(foreign, ref));
+    check(task.assess("answerable", "bounded answer", "sparse samples", {ref}, ledger, owner)
+              .empty());
+    check(task.result().satisfied && task.result().answer == "bounded answer");
+    const auto preserved = mira::to_json_string(task.project());
+    check(task.begin("observed_samples", false, ledger));
+    check(!task.begin("entire_video", false, ledger));
+    check(!task.begin("observed_samples", true, ledger));
+    for (const auto &refs : std::vector<std::vector<std::string>>{{}, {"forged"}, {ref, ref}})
+        check(!task.assess("answerable", "replacement", "limits", refs, ledger, owner).empty());
+    check(!task.assess("answerable", "", "limits", {ref}, ledger, owner).empty());
+    check(!task.assess("answerable", "x", "", {ref}, ledger, owner).empty());
+    check(
+        !task.assess("answerable", std::string(1025, 'x'), "limits", {ref}, ledger, owner).empty());
+    check(!task.assess("answerable", "x", std::string(513, 'x'), {ref}, ledger, owner).empty());
+    check(!task.assess("invented", "x", "limits", {ref}, ledger, owner).empty());
+    check(mira::to_json_string(task.project()) == preserved &&
+          task.result().answer == "bounded answer");
+    check(ledger.consumed(offered, f.now)); // exact retry does not invalidate an assessment
+    task.sync(ledger, owner);
+    check(task.result().satisfied);
+    auto next = *ledger.offer(f.view, std::vector<std::string>{"frame-2"}, f.now);
+    check(ledger.consumed(next, f.now));
+    task.sync(ledger, owner);
+    check(!task.result().satisfied && task.result().answer.empty());
+    check(task.result().reason == "new_content_requires_assessment");
+    check(task.assess("insufficient", "ignored", "need another scene", {}, ledger, owner).empty());
+    check(!task.result().satisfied && task.result().answer.empty());
+    check(task.assess("answerable", "new answer", "sparse", {ref}, ledger, owner).empty());
+    ++f.view.dropped;
+    ledger.sync(f.view);
+    task.sync(ledger, owner);
+    check(task.result().reason == "content_evidence_retired" && task.result().answer.empty());
+    check(task.assess("insufficient", "", "gap", {}, ledger, owner) == "content_task_interrupted");
+    check(task.begin("observed_samples", false, ledger));
+    check(*task.project().find("state")->as_string() == "locating");
+    const auto fresh = *ledger.offer(f.view, std::vector<std::string>{"frame-0"}, f.now);
+    const auto new_ref =
+        detail::PerceptionContentEvidence::reference(owner, fresh, fresh.samples[0]);
+    check(new_ref != ref && ledger.consumed(fresh, f.now));
+    check(!ledger.contains_reference(owner, ref));
+    for (bool audio : {false, true}) {
+        detail::ContentTaskAssessment unavailable;
+        check(unavailable.begin(audio ? "observed_samples" : "entire_video", audio, ledger));
+        check(unavailable
+                  .assess("answerable", "unsupported full answer", "missing coverage", {}, ledger,
+                          owner)
+                  .empty());
+        check(!unavailable.result().satisfied && unavailable.result().answer.empty());
+        check(unavailable.result().reason ==
+              (audio ? "audio_evidence_unavailable" : "whole_video_coverage_unavailable"));
+        check(mira::to_json_string(unavailable.project()).size() <= 512);
+    }
+    // At a full window, unchanged sample count must not mask a new content revision.
+    detail::PerceptionContentEvidence window;
+    window.sync(f.view);
+    auto batch = fresh;
+    batch.generation = window.generation();
+    for (unsigned i = 1; i <= 32; ++i) {
+        batch.samples = {{"window-" + std::to_string(i), i, f.now - 100ms + i * 1ms}};
+        check(window.consumed(batch, f.now));
+    }
+    detail::ContentTaskAssessment bounded;
+    check(bounded.begin("observed_samples", false, window));
+    auto last = detail::PerceptionContentEvidence::reference(owner, batch, batch.samples[0]);
+    check(bounded.assess("answerable", "last", "sparse", {last}, window, owner).empty());
+    batch.samples = {{"window-33", 33, f.now - 67ms}};
+    check(window.consumed(batch, f.now) && window.size() == 32);
+    bounded.sync(window, owner);
+    check(!bounded.result().satisfied &&
+          bounded.result().reason == "new_content_requires_assessment");
+    check(bounded.assess("answerable", "still retained", "sparse", {last}, window, owner).empty());
+    for (unsigned i = 34; i <= 64; ++i) {
+        batch.samples = {{"window-" + std::to_string(i), i, f.now - 100ms + i * 1ms}};
+        check(window.consumed(batch, f.now));
+    }
+    bounded.sync(window, owner);
+    check(bounded.result().reason == "content_evidence_retired");
+    check(window.references(owner).as_array()->size() == 4);
+    check(mira::to_json_string(window.references(owner)).size() <= 1024);
+    check(mira::to_json_string(bounded.project()).size() <= 512);
+    detail::PerceptionContentEvidence escaped;
+    escaped.sync(f.view);
+    batch.generation = escaped.generation();
+    for (unsigned i = 1; i <= 4; ++i) {
+        batch.samples = {{std::string(63, '\1') + std::to_string(i), i, f.now - 5ms + i * 1ms}};
+        check(escaped.consumed(batch, f.now));
+    }
+    check(!escaped.references(owner).as_array()->empty());
+    check(mira::to_json_string(escaped.references(owner)).size() <= 1024);
+}
 void pixels_and_time() {
     Fixture f;
     auto board = f.make();
@@ -262,6 +376,7 @@ void boundaries() {
 int main() {
     try {
         delivered_evidence_window_and_barriers();
+        content_assessment_contract();
         pixels_and_time();
         boundaries();
         std::cout << checks << " checks passed\n";

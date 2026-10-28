@@ -3115,6 +3115,217 @@ void delivered_evidence_tool_contract() {
     check(feed->read_ids.size() == before && env->captures == 0 && env->inputs == 0);
 }
 
+void content_task_tool_contract() {
+    auto env = std::make_shared<NativeEnvironment>();
+    auto feed = std::make_shared<StoryboardFeed>();
+    auto tools = desktop();
+    tools.environment = env;
+    tools.resident_session = [env, feed](bool, auto) {
+        return integration::PerceptionConnection{env->create_desktop_capture_session(), feed};
+    };
+    tools.continuous_session = [feed](auto session, auto) {
+        return integration::PerceptionConnection{std::move(session), feed};
+    };
+    auto owner = context();
+    mirage::desktop::CancelToken cancel;
+    detail::DesktopImageTurn turn(std::make_shared<detail::DesktopImageSource>(), tools, owner,
+                                  cancel);
+    mira::BuiltinToolRegistry registry;
+    turn.register_tool(registry, {}, false);
+    const auto call = [&](const std::string &args) {
+        return execute_native_tool(registry, owner, "desktop.vision.content", args.c_str());
+    };
+    check(!turn.settle_content_task().active);
+    const auto begin =
+        call(R"({"action":"begin","scope":"observed_samples","requires_audio":false})");
+    check(begin && begin.value().result.find("applied")->as_boolean() == true);
+    const auto changed =
+        call(R"({"action":"begin","scope":"entire_video","requires_audio":false})");
+    check(changed && changed.value().result.find("applied")->as_boolean() == false);
+    const auto unknown = call(R"({"action":"status","unexpected":true})");
+    check(!unknown || unknown.value().failed ||
+          unknown.value().result.find("applied")->as_boolean() == false);
+    const auto board = execute_native_tool(registry, owner, "desktop.vision.storyboard",
+                                           R"({"frame_ids":["story-0","story-1"]})");
+    check(board && !board.value().failed);
+    const auto ref =
+        *board.value().result.find("tiles")->as_array()->front().find("content_ref")->as_string();
+    const auto assessment = mira::to_json_string(
+        JsonValue{JsonValue::Object{{"action", "assess"},
+                                    {"verdict", "answerable"},
+                                    {"answer", "two observed samples"},
+                                    {"limitations", "no sound; sparse"},
+                                    {"evidence_refs", JsonValue{JsonValue::Array{ref}}}}});
+    const auto premature = call(assessment);
+    check(premature && premature.value().result.find("applied")->as_boolean() == false);
+    mira::AgentLoopSpec spec;
+    spec.task_id = owner.task;
+    spec.session_id = owner.session;
+    spec.task_epoch = owner.task_epoch;
+    mira::ModelRequest request;
+    request.request_id = mira::ModelRequestId::generate();
+    request.task_id = owner.task;
+    request.task_epoch = owner.task_epoch;
+    request.input = turn.supply(spec).value();
+    for (const auto &item : request.input)
+        for (const auto &part : item.content)
+            if (const auto *text = std::get_if<mira::TextPart>(&part);
+                text && text->text.starts_with("Untrusted continuous desktop observations"))
+                check(text->text.size() <= 8192);
+    check(bool(turn.validate_request(request, owner)));
+    turn.perception_consumed(request, owner);
+    auto status = call(R"({"action":"status"})");
+    check(status && status.value().result.find("available_refs")->as_array()->size() == 2);
+    check(mira::to_json_string(*status.value().result.find("available_refs")).size() <= 1024);
+    const auto assessed = call(assessment);
+    check(assessed && assessed.value().result.find("applied")->as_boolean() == true);
+    check(turn.settle_content_task().satisfied);
+    ++feed->state.source_epoch;
+    check(!turn.settle_content_task().satisfied);
+    check(turn.settle_content_task().reason == "content_evidence_retired");
+    auto foreign = context();
+    const auto wrong_owner =
+        execute_native_tool(registry, foreign, "desktop.vision.content", R"({"action":"status"})");
+    check(!wrong_owner || wrong_owner.value().failed);
+    cancel.request_cancel();
+    const auto stopped = call(R"({"action":"status"})");
+    check(!stopped || stopped.value().failed);
+    check(env->captures == 0 && env->inputs == 0);
+}
+class ContentTaskScript final : public mira::IModelProvider {
+    mira::ModelProfile profile_;
+    std::shared_ptr<StoryboardFeed> feed_;
+    std::string mode_;
+    mirage::desktop::CancelToken cancel_;
+
+  public:
+    unsigned calls = 0;
+    ContentTaskScript(mira::ModelProfile profile, std::shared_ptr<StoryboardFeed> feed,
+                      std::string mode, mirage::desktop::CancelToken cancel)
+        : profile_(std::move(profile)), feed_(std::move(feed)), mode_(std::move(mode)),
+          cancel_(std::move(cancel)) {}
+    const mira::ModelProfile &profile() const override { return profile_; }
+    mira::Result<mira::ModelResponse> infer(const mira::ModelRequest &request,
+                                            const mira::OperationContext &,
+                                            const mira::ProviderInferOptions &) override {
+        JsonValue::Array refs;
+        unsigned images = 0;
+        for (const auto &item : request.input)
+            for (const auto &part : item.content) {
+                images += std::holds_alternative<mira::ImagePart>(part);
+                const auto *text = std::get_if<mira::TextPart>(&part);
+                if (!text)
+                    continue;
+                if (text->text.starts_with("Untrusted continuous desktop observations"))
+                    check(text->text.size() <= 8192);
+                const std::string prefix = "Untrusted desktop image; coordinates and source: ";
+                if (text->text.starts_with(prefix)) {
+                    const auto meta = mira::parse_json(text->text.substr(prefix.size())).value();
+                    for (const auto &tile : *meta.find("tiles")->as_array())
+                        refs.emplace_back(*tile.find("content_ref"));
+                }
+            }
+        mira::ModelResponse response;
+        response.request_id = request.request_id;
+        response.operation_id = request.operation_id;
+        response.profile_id = profile_.id;
+        response.status = mira::ModelCompletionStatus::Completed;
+        const bool terminal = calls == 3 || (mode_ == "unassessed" && calls == 1);
+        if (!terminal) {
+            const std::string name =
+                calls == 1 ? "desktop.vision.storyboard" : "desktop.vision.content";
+            const auto tool =
+                std::find_if(request.tools.begin(), request.tools.end(), [&](const auto &t) {
+                    return t.wire_name == mirage::testing::fixture_tool_name(name);
+                });
+            check(tool != request.tools.end());
+            mira::ToolCallOutput call;
+            call.tool_id = tool->tool_id;
+            call.provider_name = tool->wire_name;
+            call.provider_call_id.value = "content-" + std::to_string(calls);
+            if (calls == 0)
+                call.arguments = JsonValue{JsonValue::Object{
+                    {"action", "begin"},
+                    {"scope", mode_ == "full" ? "entire_video" : "observed_samples"},
+                    {"requires_audio", mode_ == "audio"}}};
+            else if (calls == 1)
+                call.arguments = JsonValue{JsonValue::Object{
+                    {"frame_ids", JsonValue{JsonValue::Array{"story-0", "story-1"}}}}};
+            else {
+                check(images == 1 && refs.size() == 2 && feed_->read_ids.empty());
+                call.arguments =
+                    JsonValue{JsonValue::Object{{"action", "assess"},
+                                                {"verdict", "answerable"},
+                                                {"answer", "受控画面片段回答"},
+                                                {"limitations", "稀疏画面，无音频"},
+                                                {"evidence_refs", JsonValue{std::move(refs)}}}};
+                if (mode_ == "retired")
+                    ++feed_->state.source_epoch;
+            }
+            call.arguments_digest = mira::digest_string(mira::to_json_string(call.arguments));
+            response.output.emplace_back(std::move(call));
+        } else {
+            if (mode_ == "cancel")
+                cancel_.request_cancel();
+            mira::MessageOutput message;
+            message.content.emplace_back(
+                mira::OutputTextPart{"我已完整看完视频并听清了全部旁白。", {}});
+            response.output.emplace_back(std::move(message));
+        }
+        ++calls;
+        return response;
+    }
+};
+void content_task_model_layer(kairo::Executor &executor, const std::string &mode) {
+    auto tools = desktop();
+    auto env = std::make_shared<NativeEnvironment>();
+    auto feed = std::make_shared<StoryboardFeed>();
+    tools.environment = env;
+    tools.resident_session = [env, feed](bool, auto) {
+        return integration::PerceptionConnection{env->create_desktop_capture_session(), feed};
+    };
+    tools.continuous_session = [feed](auto session, auto) {
+        return integration::PerceptionConnection{std::move(session), feed};
+    };
+    mirage::desktop::CancelToken cancel;
+    std::shared_ptr<ContentTaskScript> script;
+    integration::ModelProviderOverride provider([&](const auto &profile) {
+        script = std::make_shared<ContentTaskScript>(profile, feed, mode, cancel);
+        return script;
+    });
+    integration::ModelLayerConfig config;
+    config.enabled = config.supports_images = true;
+    config.model_selector = "content-fixture";
+    integration::ModelLayer model(executor, config, &provider, tools);
+    const auto result =
+        executor
+            .submit_auto([&] {
+                return model.complete_harness_turn("", "根据用户所需范围观察内容", context(), "",
+                                                   true, {}, {}, cancel);
+            })
+            .get();
+    if (mode == "sample") {
+        if (!result.ok)
+            std::cerr << "content fixture: " << result.error << '\n';
+        check(result.ok && !result.failed &&
+              result.reply_text.find("受控画面片段回答") != std::string::npos);
+        check(result.reply_text.find("仅基于已观察的稀疏片段") != std::string::npos);
+    } else if (mode == "cancel")
+        check(result.cancelled && !result.ok);
+    else {
+        check(!result.ok && result.failed);
+        check(result.error.find(mode == "full"      ? "完整视频"
+                                : mode == "audio"   ? "声音证据"
+                                : mode == "retired" ? "失效"
+                                                    : "尚未完成评估") != std::string::npos);
+        check(result.reply_text == result.error);
+    }
+    check(result.reply_text.find("听清了全部旁白") == std::string::npos);
+    check(script->calls == (mode == "unassessed" ? 2u : 4u));
+    check(env->captures == 0 && env->inputs == 0);
+    model.shutdown();
+}
+
 class TaskFeedScript final : public mira::IModelProvider {
   public:
     mira::ModelProfile profile_;
@@ -5645,6 +5856,8 @@ int main() {
             executor.submit_auto([&] { ime_fill_tool(fault); }).get();
         task_feed_model_layer(executor);
         semantic_feed_model_layer(executor);
+        for (const auto *mode : {"sample", "full", "audio", "unassessed", "retired", "cancel"})
+            content_task_model_layer(executor, mode);
         executor.submit_auto([] { semantic_annotation_guards(); }).get();
         executor.submit_auto([] { multi_focus_tool_provenance_and_supply(); }).get();
         task_feed_model_layer(executor, true);
@@ -5697,6 +5910,7 @@ int main() {
         focus_tool_contract();
         storyboard_tool_contract();
         delivered_evidence_tool_contract();
+        content_task_tool_contract();
         native_session_poison_discipline();
         native_transient_recovery_contract();
         native_observation_efficiency();

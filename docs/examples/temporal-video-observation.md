@@ -74,3 +74,8 @@ capture/OCR或更早turn曾提供其他内容。工具仅返回成功、图片�
 请求guard的request ID，防止内容寻址的相同像素被错误当成另一时刻的新证据。
 本账不跨harness turn持久化，没有完整视频完成判定；[DEC-132](../decisions/DEC-132-delivered-visual-evidence-ledger.md)
 和[验收](../compatibility/delivered-visual-evidence-20261028.md)说明首增量与后续边界。
+
+
+后续[显式内容任务评估](grounded-content-assessment.md)按DEC-133使用这些已完成供图
+引用进行范围声明、评估与产品收口；完整视频/声音、未评估和旧证据不能成功。
+它仍不保证模型正确声明用户目标或回答语义正确，真实内容验收保持开放。

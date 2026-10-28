@@ -69,6 +69,16 @@ void DesktopImageTurn::register_storyboard_tool(mira::BuiltinToolRegistry &regis
             return Json{Json::Object{{"available", false},
                                      {"reason", "source_time_or_event_unavailable"},
                                      {"input_actionable", false}}};
+        for (auto &[key, value] : board.value().metadata)
+            if (key == "tiles") {
+                auto tiles = *value.as_array();
+                for (auto &tile : tiles)
+                    for (const auto &sample : offer->samples)
+                        if (*tile.find("frame_id")->as_string() == sample.frame_id)
+                            tile.set("content_ref", PerceptionContentEvidence::reference(
+                                                        content_scope_, *offer, sample));
+                value = Json{std::move(tiles)};
+            }
         auto published = publish_image(
             board.value().image, {0, 0, board.value().image.width, board.value().image.height},
             "storyboard", "retained_event_frames", desktop_.actions->epoch(), now, bounded,

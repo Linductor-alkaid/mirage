@@ -305,3 +305,22 @@ unobserved/sparse_observation/interrupted是证据子状态，独立于尚未交
 实现使用原串行owner和Mira Completed回调，不增加worker、队列、定时器或LLM调用。
 [示例](../examples/temporal-video-observation.md)和[证据](../compatibility/delivered-visual-evidence-20261028.md)
 保留未执行的真实视频/模型/平台验收。
+
+
+## 显式内容评估与完成门禁（DEC-133）
+
+M9-30第二增量通过[DEC-133](../decisions/DEC-133-grounded-content-task-assessment.md)
+将时间账连接到产品收口：desktop.vision.content先声明用户所需范围与声音要求，
+实际供图引用完成消费后才可评估；范围在本turn不能降级。领域状态为locating、
+observing_content、coverage_assessed/insufficient和interrupted，不代替Mira生命周期。
+新实际样本需重评，源/权限/gap和引用淘汰使旧评估失效，同配置begin可显式重开。
+
+当前仅observed_samples且不需声音可凭有效引用形成片段回答；完整视频/声音需求
+自动成为不足。内容任务未有效评估不能成功收口，已评估答案以有界回答加固定稀疏
+说明发布，自由终答不能扩大范围；其他失败与取消优先。每任务新增≤4KiB元数据，
+自动摘要≤512B，status最多4引用/≤1KiB，完整观察仍≤8KiB，不增图像缓存或调度。
+
+这是显式opt-in策略：模型是否漏声明/理解错范围以及回答语义正确性尚未独立证明，
+不声称完整视频理解。播放器/声音覆盖、真实模型/平台/性能验收继续开放。
+[示例](../examples/grounded-content-assessment.md)与[验收](../compatibility/grounded-content-assessment-20261028.md)
+说明协议与限制。

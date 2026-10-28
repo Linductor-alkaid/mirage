@@ -56,6 +56,7 @@ void DesktopImageTurn::sync_content_evidence(const PerceptionView &view) {
     content_evidence_.sync(
         view, desktop_.actions &&
                   (!native_authority_ || desktop_.actions->authority_epoch() == native_authority_));
+    content_task_.sync(content_evidence_, content_scope_);
 }
 void DesktopImageTurn::bind_perception(std::shared_ptr<DesktopPerceptionFeed> feed) {
     if (perception_ != feed) {
@@ -181,6 +182,7 @@ std::vector<mira::ModelInputItem> DesktopImageTurn::supply_perception() {
                                     {"height", view.media.height}}}},
         {"semantic_scene", std::move(semantic_scene)},
         {"retained_visual_evidence", content_evidence_.project()},
+        {"content_task", content_task_.project()},
         {"recent_read_context", Json{std::move(recent)}},
         {"events", Json{events}}}};
     perception_text_ =
@@ -258,6 +260,7 @@ void DesktopImageTurn::register_perception_tool(mira::BuiltinToolRegistry &regis
                                                 const DesktopAtomToolset::Decorator &decorate) {
     if (!desktop_.continuous_session)
         return;
+    register_content_task_tool(registry, decorate);
     register_annotation_tool(registry, decorate);
     mira::BuiltinToolSpec wait;
     wait.wire_name = "desktop.vision.wait";
@@ -536,6 +539,8 @@ void DesktopImageTurn::register_perception_tool(mira::BuiltinToolRegistry &regis
                 {{"available", true},
                  {"historical", true},
                  {"input_actionable", false},
+                 {"content_ref", PerceptionContentEvidence::reference(content_scope_, *offer,
+                                                                      offer->samples.front())},
                  {"event_source_epoch", static_cast<std::int64_t>(offer->source_epoch)},
                  {"event_frame_sequence",
                   static_cast<std::int64_t>(offer->samples.front().frame_sequence)},

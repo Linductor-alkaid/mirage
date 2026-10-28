@@ -148,6 +148,8 @@ DesktopImageTurn::DesktopImageTurn(std::shared_ptr<DesktopImageSource> source,
       }),
       supply_images_(supply_images), acquire_budget_(acquire_budget),
       image_max_age_(image_max_age) {
+    content_scope_ = owner_.task.to_string() + ":" + owner_.session.to_string() + ":" +
+                     std::to_string(owner_.task_epoch);
     if (!source_->bind(store_))
         throw std::runtime_error("desktop image store admission rejected");
     if (desktop_.resident_session && desktop_.actions && desktop_.capture_scope.empty()) {

@@ -17,6 +17,7 @@ add_library(mirage_integration_mira STATIC
     src/desktop_perception.cpp
     src/perception_storyboard.cpp
     src/desktop_storyboard.cpp
+    src/desktop_content_task.cpp
     src/desktop_shared_input.cpp
     src/desktop_visual_tools.cpp
     src/desktop_region_tools.cpp

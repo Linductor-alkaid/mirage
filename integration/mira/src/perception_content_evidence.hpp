@@ -1,6 +1,7 @@
 #pragma once
 #include <algorithm>
 #include <mira/json.hpp>
+#include <mira/model_digest.hpp>
 #include <mirage/integration/desktop_perception.hpp>
 #include <span>
 
@@ -18,11 +19,12 @@ struct ContentEvidenceOffer {
 class PerceptionContentEvidence {
     using Clock = std::chrono::steady_clock;
     std::vector<ContentEvidenceSample> samples_; // At most 32; latest observation-time window.
-    std::uint64_t generation_ = 1, epoch_ = 0, dropped_ = 0;
+    std::uint64_t generation_ = 1, epoch_ = 0, dropped_ = 0, revision_ = 0;
     bool initialized_ = false, unavailable_ = false, resync_ = false, truncated_ = false;
     std::string interruption_, rejection_;
     void barrier(const char *reason) {
         ++generation_;
+        ++revision_;
         samples_.clear();
         truncated_ = false;
         interruption_ = reason;
@@ -123,6 +125,7 @@ class PerceptionContentEvidence {
                 continue;
             }
             samples_.push_back(s);
+            ++revision_;
             std::sort(samples_.begin(), samples_.end(),
                       [](const auto &a, const auto &b) { return a.observed_at < b.observed_at; });
             if (samples_.size() > 32) {
@@ -132,6 +135,45 @@ class PerceptionContentEvidence {
         }
         rejection_.clear();
         return true;
+    }
+    std::uint64_t generation() const { return generation_; }
+    std::uint64_t revision() const { return revision_; }
+    std::size_t size() const { return samples_.size(); }
+    static std::string reference(const std::string &scope, const ContentEvidenceOffer &offer,
+                                 const ContentEvidenceSample &sample) {
+        using Json = mira::JsonValue;
+        return mira::canonical_json_digest(
+                   Json{Json::Array{scope, std::to_string(offer.generation),
+                                    std::to_string(offer.source_epoch), sample.frame_id,
+                                    std::to_string(sample.frame_sequence),
+                                    std::to_string(sample.observed_at.time_since_epoch().count())}})
+            .to_string();
+    }
+    bool contains_reference(const std::string &scope, const std::string &ref) const {
+        if (unavailable_ || !initialized_ || !epoch_ || ref.size() != 64)
+            return false;
+        const ContentEvidenceOffer current{generation_, epoch_, {}};
+        return std::any_of(samples_.begin(), samples_.end(), [&](const auto &sample) {
+            return reference(scope, current, sample) == ref;
+        });
+    }
+    mira::JsonValue references(const std::string &scope) const {
+        using Json = mira::JsonValue;
+        Json::Array result;
+        const ContentEvidenceOffer current{generation_, epoch_, {}};
+        const auto begin = samples_.size() > 4 ? samples_.size() - 4 : 0;
+        if (!unavailable_)
+            for (std::size_t i = begin; i < samples_.size(); ++i) {
+                Json entry{Json::Object{
+                    {"evidence_ref", reference(scope, current, samples_[i])},
+                    {"frame_id", samples_[i].frame_id},
+                    {"frame_sequence", static_cast<std::int64_t>(samples_[i].frame_sequence)}}};
+                auto candidate = result;
+                candidate.push_back(std::move(entry));
+                if (mira::to_json_string(Json{candidate}).size() <= 1024)
+                    result = std::move(candidate);
+            }
+        return Json{std::move(result)};
     }
     mira::JsonValue project(Clock::time_point now = Clock::now()) const {
         const auto ms = [](auto duration) {

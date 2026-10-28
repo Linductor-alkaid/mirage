@@ -1485,6 +1485,14 @@ DialogCompletion ModelLayer::complete_harness_turn(
             "content understanding. Describe what you actually observed over time and the "
             "observation interval; disclose sparse/missing coverage and lack of audio. Never "
             "claim to have watched the whole video without evidence of its content and coverage. "
+            "For a content-watching question, call desktop.vision.content begin with the user's "
+            "actual scope (observed_samples or entire_video) and requires_audio before observing. "
+            "After viewing actual evidence, assess with content_ref citations from delivered "
+            "event/storyboard metadata, a bounded answer and explicit limitations. Do not "
+            "downgrade a full-video/audio requirement to sampled visuals. Declared content tasks "
+            "cannot finish without assessment; insufficient/interrupted evidence is a failure "
+            "to complete that goal. Only the assessed sampled answer is published, with scope "
+            "disclosure. Use status only if reference context was lost, never as a polling loop. "
             "retained_visual_evidence counts only retained event/storyboard frames actually "
             "presented in completed requests of this turn; text events, tool receipts and "
             "playback status do not increase it. Its observer span and sample gaps are not "
@@ -1785,6 +1793,34 @@ DialogCompletion ModelLayer::complete_harness_turn(
             mira::ModelResponse response;
             response.usage = value.last_usage;
             capture_context_usage(completion, response, impl_->config, capture.last_input_estimate);
+        }
+    }
+    // DEC-133: keep the Mira loop/lifecycle intact; apply the product's domain
+    // evidence policy at its existing settlement boundary. Free terminal prose
+    // cannot broaden the declared/assessed content scope.
+    if (!completion.cancelled && image_turn) {
+        const auto content = image_turn->settle_content_task();
+        if (content.active) {
+            if (completion.ok && content.satisfied) {
+                completion.reply_text = "以下仅基于已观察的稀疏片段，不代表完整观看：\n\n" +
+                                        content.answer + "\n\n限制：" + content.limitations;
+            } else if (completion.ok) {
+                completion.ok = false;
+                completion.failed = true;
+                const auto reason = content.reason == "whole_video_coverage_unavailable"
+                                        ? "尚无完整视频的播放时间、起止与覆盖证据。"
+                                    : content.reason == "audio_evidence_unavailable"
+                                        ? "尚无任务要求的声音证据。"
+                                    : content.reason == "content_evidence_retired"
+                                        ? "来源或内容证据已失效，需要重新观察和评估。"
+                                        : "内容证据尚未完成评估或不足以回答当前问题。";
+                completion.error = std::string("内容任务未完成：") + reason;
+                if (!content.limitations.empty())
+                    completion.error += " 限制：" + content.limitations;
+                completion.reply_text = completion.error;
+            } else {
+                completion.reply_text = completion.error; // no unsupported terminal success claim
+            }
         }
     }
     // Later overrides (supply failure, verification rejection, cancel) own the
