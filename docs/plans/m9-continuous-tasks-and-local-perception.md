@@ -33,6 +33,11 @@
 [验收](../compatibility/grounded-content-assessment-20261028.md)。模型声明与理解正确性、
 播放器覆盖及真实媒体验收继续开放，M9-30保持In Progress。
 
+2026-10-28：M9-30按[DEC-134](../decisions/DEC-134-observer-window-storyboard-selection.md)
+接通按观察时间窗选2–4张未消费帧的拼图模式，减少模型枚举帧ID，不加固定采集/
+模型请求。协议与实际验证见[记录](../compatibility/observer-window-storyboard-20261028.md)；
+M9-30整体继续In Progress，真实语义/播放器/声音/成本门禁保持开放。
+
 ## 目标
 
 正常长任务不因累计模型步骤或工具次数结束；将可确定的视觉定位、等待和后条件

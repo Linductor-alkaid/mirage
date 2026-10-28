@@ -2772,6 +2772,7 @@ class StoryboardFeed final : public TaskFeedFixture {
   public:
     std::vector<std::shared_ptr<integration::PerceptionPreview>> frames;
     std::vector<std::string> read_ids;
+    bool reject_frame_ack = false;
     StoryboardFeed() {
         state.events.clear();
         state.previews.clear();
@@ -2796,6 +2797,8 @@ class StoryboardFeed final : public TaskFeedFixture {
     }
     bool acknowledge_frame(const std::string &id) override {
         read_ids.push_back(id);
+        if (reject_frame_ack)
+            return false;
         std::erase_if(state.previews, [&](const auto &p) { return p.first == id; });
         return true;
     }
@@ -3115,6 +3118,107 @@ void delivered_evidence_tool_contract() {
     check(feed->read_ids.size() == before && env->captures == 0 && env->inputs == 0);
 }
 
+void temporal_storyboard_tool_contract() {
+    auto env = std::make_shared<NativeEnvironment>();
+    auto feed = std::make_shared<StoryboardFeed>();
+    feed->reject_frame_ack = true; // local completion ledger must suppress even a retained preview
+    auto tools = desktop();
+    tools.environment = env;
+    tools.resident_session = [env, feed](bool, auto) {
+        return integration::PerceptionConnection{env->create_desktop_capture_session(), feed};
+    };
+    tools.continuous_session = [feed](auto session, auto) {
+        return integration::PerceptionConnection{std::move(session), feed};
+    };
+    auto owner = context();
+    detail::DesktopImageTurn turn(std::make_shared<detail::DesktopImageSource>(), tools, owner, {});
+    mira::BuiltinToolRegistry registry;
+    turn.register_tool(registry, {}, false);
+    const auto call = [&](const char *args = R"({"window_ms":10000})") {
+        return execute_native_tool(registry, owner, "desktop.vision.storyboard", args);
+    };
+    for (const auto *args :
+         {"{}", R"({"max_frames":2})", R"({"window_ms":99})", R"({"window_ms":120001})",
+          R"({"window_ms":10000,"max_frames":5})", R"({"window_ms":10000,"max_frames":1})",
+          R"({"window_ms":10000,"max_frames":2.5})",
+          R"({"window_ms":10000,"frame_ids":["story-0","story-1"]})",
+          R"({"frame_ids":["story-0","story-1"],"max_frames":2})",
+          R"({"window_ms":10000,"unknown":2})", R"({"window_ms":"10000"})"}) {
+        const auto bad = call(args);
+        check(!bad || bad.value().failed);
+    }
+    auto chosen = call(R"({"window_ms":10000,"max_frames":2})");
+    check(chosen && !chosen.value().failed);
+    const auto &meta = chosen.value().result;
+    check(*meta.find("selection")->as_string() == "observer_window_maximin");
+    check(meta.find("window_ms")->as_integer() == 10000);
+    check(meta.find("eligible_frames")->as_integer() == 2 &&
+          meta.find("selected_frames")->as_integer() == 2);
+    check(meta.find("width")->as_integer() == 640 && meta.find("height")->as_integer() == 320);
+    check(meta.find("input_actionable")->as_boolean() == false);
+    const auto tiles = *meta.find("tiles")->as_array();
+    check(*tiles[0].find("frame_id")->as_string() == "story-0" &&
+          *tiles[1].find("frame_id")->as_string() == "story-1");
+    check(tiles[0].find("content_ref")->as_string()->size() == 64);
+    mira::AgentLoopSpec spec;
+    spec.task_id = owner.task;
+    spec.session_id = owner.session;
+    spec.task_epoch = owner.task_epoch;
+    const auto request = [&] {
+        mira::ModelRequest value;
+        value.request_id = mira::ModelRequestId::generate();
+        value.task_id = owner.task;
+        value.task_epoch = owner.task_epoch;
+        value.input = turn.supply(spec).value();
+        for (const auto &item : value.input)
+            for (const auto &part : item.content)
+                if (const auto *text = std::get_if<mira::TextPart>(&part);
+                    text && text->text.starts_with("Untrusted continuous desktop observations"))
+                    check(text->text.size() <= 8192);
+        return value;
+    };
+    auto stub = std::make_shared<EvidenceCompletionProvider>();
+    detail::ObservedProvider provider(stub);
+    provider.request_guard = [&](const auto &r, const auto &ctx) {
+        return turn.validate_request(r, ctx);
+    };
+    provider.consumed = [&](const auto &r, const auto &ctx) { turn.perception_consumed(r, ctx); };
+    turn.set_budget_remaining([] { return std::optional<std::int64_t>{5000}; });
+    check(bool(provider.infer(request(), owner, {})) && feed->read_ids.empty());
+    turn.set_budget_remaining({});
+    check(call().value().result.find("eligible_frames")->as_integer() == 2);
+    stub->fail = true;
+    check(!provider.infer(request(), owner, {}) && feed->read_ids.empty());
+    stub->fail = false;
+    check(call().value().result.find("eligible_frames")->as_integer() == 2);
+    stub->status = mira::ModelCompletionStatus::Incomplete;
+    check(bool(provider.infer(request(), owner, {})) && feed->read_ids.empty());
+    stub->status = mira::ModelCompletionStatus::Completed;
+    check(bool(provider.infer(request(), owner, {})));
+    check(feed->read_ids.size() == 2 && feed->state.previews.size() == 2);
+    const auto no_new = call();
+    check(no_new && no_new.value().result.find("available")->as_boolean() == false);
+    check(*no_new.value().result.find("reason")->as_string() == "no_new_temporal_frames");
+    check(call(R"({"frame_ids":["story-0","story-1"]})")
+              .value()
+              .result.find("available")
+              ->as_boolean() == true);
+    ++feed->state.dropped;
+    check(call().value().result.find("available")->as_boolean() == true);
+    const auto old = request();
+    check(bool(turn.validate_request(old, owner)));
+    ++feed->state.source_epoch;
+    (void)request();
+    --feed->state.source_epoch;
+    turn.perception_consumed(old, owner);
+    check(feed->read_ids.size() == 2);
+    check(call().value().result.find("available")->as_boolean() == true);
+    tools.actions->takeover();
+    const auto revoked = call();
+    check(!revoked || revoked.value().failed);
+    check(env->captures == 0 && env->inputs == 0);
+}
+
 void content_task_tool_contract() {
     auto env = std::make_shared<NativeEnvironment>();
     auto feed = std::make_shared<StoryboardFeed>();
@@ -3221,6 +3325,10 @@ class ContentTaskScript final : public mira::IModelProvider {
                 const std::string prefix = "Untrusted desktop image; coordinates and source: ";
                 if (text->text.starts_with(prefix)) {
                     const auto meta = mira::parse_json(text->text.substr(prefix.size())).value();
+                    if (mode_ == "sample") {
+                        check(*meta.find("selection")->as_string() == "observer_window_maximin");
+                        check(meta.find("eligible_frames")->as_integer() == 2);
+                    }
                     for (const auto &tile : *meta.find("tiles")->as_array())
                         refs.emplace_back(*tile.find("content_ref"));
                 }
@@ -3249,8 +3357,11 @@ class ContentTaskScript final : public mira::IModelProvider {
                     {"scope", mode_ == "full" ? "entire_video" : "observed_samples"},
                     {"requires_audio", mode_ == "audio"}}};
             else if (calls == 1)
-                call.arguments = JsonValue{JsonValue::Object{
-                    {"frame_ids", JsonValue{JsonValue::Array{"story-0", "story-1"}}}}};
+                call.arguments =
+                    mode_ == "sample"
+                        ? JsonValue{JsonValue::Object{{"window_ms", 10000}, {"max_frames", 4}}}
+                        : JsonValue{JsonValue::Object{
+                              {"frame_ids", JsonValue{JsonValue::Array{"story-0", "story-1"}}}}};
             else {
                 check(images == 1 && refs.size() == 2 && feed_->read_ids.empty());
                 call.arguments =
@@ -5911,6 +6022,7 @@ int main() {
         storyboard_tool_contract();
         delivered_evidence_tool_contract();
         content_task_tool_contract();
+        temporal_storyboard_tool_contract();
         native_session_poison_discipline();
         native_transient_recovery_contract();
         native_observation_efficiency();

@@ -42,3 +42,7 @@
 尚未声明begin的任务保持原行为。因此这道门禁不能保证模型一定声明内容任务或
 正确理解用户目标；真实视频、在线模型与意图一致性验收仍开放，见
 [验证记录](../compatibility/grounded-content-assessment-20261028.md)。
+
+
+也可使用[观察时间窗拼图](observer-window-storyboard.md)一次选择最近窗口内的
+未消费帧，免去手选frame_id；仍需实际完成供图后才能使用content_ref评估。

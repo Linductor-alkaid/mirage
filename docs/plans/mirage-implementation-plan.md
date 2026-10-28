@@ -14,6 +14,11 @@ native-release 与 DEB 交付完成；Release 120/120、真实推理与包校验
 
 ## 当前状态
 
+2026-10-28（M9-30第三增量）：[DEC-134](../decisions/DEC-134-observer-window-storyboard-selection.md)
+新增观察时间窗拼图选帧，保留原显式ID模式；2–4张未消费帧按时间分散，不额外采集/
+推理，失败重试与ACK失败去重受实际消费边界约束。
+[验收](../compatibility/observer-window-storyboard-20261028.md)不代替语义/播放器/真实媒体门禁。
+
 2026-10-28（M9-30第二增量）：[DEC-133](../decisions/DEC-133-grounded-content-task-assessment.md)
 把已完成供图引用连接到显式范围评估和产品收口，有效片段回答附固定稀疏说明；完整视频、
 声音、未评估/来源失效不能成功。[验证](../compatibility/grounded-content-assessment-20261028.md)
@@ -703,6 +708,7 @@ Executor 由 pinned `third_party/mira/third_party/executor` 提供，能力路�
 | 编号 | 主题 | 暂定默认值 | 负责人 | 最迟冻结 |
 | --- | --- | --- | --- | --- |
 | DEC-129 | 对象版本任务注意 | [DEC-129](../decisions/DEC-129-versioned-task-attention.md)：focus按已完成请求的对象版本跟随；失效恢复全局并返回原因；显式多目标由DEC-131承接，自动语义层仍开放 | Mirage维护者 | M9-29首增量；完整退出按专项计划 |
+| DEC-134 | 观察时间窗拼图选帧 | [DEC-134](../decisions/DEC-134-observer-window-storyboard-selection.md)：现有缓存选2–4未消费帧，最早/最新加最远时刻；时间分散非语义覆盖，原ID模式兼容 | Mirage维护者 | M9-30第三增量；真实内容/播放器门禁保留 |
 | DEC-133 | 显式内容评估与完成门禁 | [DEC-133](../decisions/DEC-133-grounded-content-task-assessment.md)：不可降级范围、实际供图引用、片段评估收口；完整视频/声音不足失败，语义正确性未验证 | Mirage维护者 | M9-30第二增量；播放器/真实内容验收继续开放 |
 | DEC-132 | 已完成供图时间证据账 | [DEC-132](../decisions/DEC-132-delivered-visual-evidence-ledger.md)：32样本元数据，实际请求/工件/来源绑定，稀疏时间和中断，不作完整视频声明 | Mirage维护者 | M9-30证据首增量；内容/播放器验收继续开放 |
 | DEC-131 | 多对象显式唤醒优先级 | [DEC-131](../decisions/DEC-131-multi-object-wake-priority.md)：最多4目标，准确observe身份仅延后位置/外观唤醒；保留日志、整组失效 | Mirage维护者 | M9-29显式重要性增量；自动语义层继续开放 |

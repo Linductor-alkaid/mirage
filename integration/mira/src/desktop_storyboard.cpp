@@ -1,5 +1,6 @@
 #include "desktop_image_supply.hpp"
 #include "perception_storyboard.hpp"
+#include "perception_temporal_selection.hpp"
 #include <stdexcept>
 
 namespace mirage::integration::detail {
@@ -8,9 +9,14 @@ void DesktopImageTurn::register_storyboard_tool(mira::BuiltinToolRegistry &regis
     using Json = mira::JsonValue;
     mira::BuiltinToolSpec spec;
     spec.wire_name = "desktop.vision.storyboard";
-    spec.version = {1, 0, 0};
+    spec.version = {1, 1, 0};
     spec.description =
-        "Batch 2-4 retained frame_ids from the continuous feed into ONE chronological image "
+        "Choose EITHER explicit frame_ids (2-4), OR window_ms (100-120000, observer time) with "
+        "optional max_frames (2-4, default 4). Window mode chooses only undelivered retained "
+        "frames: oldest/newest then farthest observer times, at most 8 candidates. It may "
+        "return unavailable if fewer than two new valid frames; wait for events instead of "
+        "polling. This is temporal spread, not semantic importance or full-video coverage. "
+        "Batch the chosen frames from the continuous feed into ONE chronological image "
         "(left to right, then top to bottom; each 320px cell preserves aspect ratio). "
         "Prefer this for a sparse temporal overview of video or desktop progress over reading "
         "each event_frame separately. No new capture, OCR or detector. Tile timestamps are "
@@ -20,13 +26,16 @@ void DesktopImageTurn::register_storyboard_tool(mira::BuiltinToolRegistry &regis
     spec.parameters_schema = mira::JsonSchema{Json{Json::Object{
         {"type", "object"},
         {"properties",
-         Json::Object{{"frame_ids", Json::Object{{"type", "array"},
-                                                 {"minItems", 2},
-                                                 {"maxItems", 4},
-                                                 {"items", Json::Object{{"type", "string"},
-                                                                        {"minLength", 1},
-                                                                        {"maxLength", 64}}}}}}},
-        {"required", Json::Array{Json{"frame_ids"}}},
+         Json::Object{
+             {"frame_ids", Json::Object{{"type", "array"},
+                                        {"minItems", 2},
+                                        {"maxItems", 4},
+                                        {"items", Json::Object{{"type", "string"},
+                                                               {"minLength", 1},
+                                                               {"maxLength", 64}}}}},
+             {"window_ms",
+              Json::Object{{"type", "integer"}, {"minimum", 100}, {"maximum", 120000}}},
+             {"max_frames", Json::Object{{"type", "integer"}, {"minimum", 2}, {"maximum", 4}}}}},
         {"additionalProperties", false}}}};
     mira::BuiltinToolHandler handler = [this](const auto &args,
                                               const auto &ctx) -> mira::Result<Json> {
@@ -41,14 +50,33 @@ void DesktopImageTurn::register_storyboard_tool(mira::BuiltinToolRegistry &regis
             ctx.cancelled_or_expired(mira::Timestamp::now()) ||
             (native_authority_ && desktop_.actions->authority_epoch() != native_authority_))
             return fail(mira::ErrorCode::Cancelled, "storyboard owner retired");
-        const auto *values = args.find("frame_ids");
-        if (!args.as_object() || args.as_object()->size() != 1 || !values || !values->as_array())
-            return fail(mira::ErrorCode::InvalidArgument, "frame_ids array required");
+        const auto *values = args.find("frame_ids"), *window = args.find("window_ms"),
+                   *maximum = args.find("max_frames");
+        if (!args.as_object())
+            return fail(mira::ErrorCode::InvalidArgument, "storyboard object required");
         std::vector<std::string> ids;
-        for (const auto &value : *values->as_array()) {
-            if (!value.as_string())
-                return fail(mira::ErrorCode::InvalidArgument, "frame_ids must be strings");
-            ids.push_back(*value.as_string());
+        std::chrono::milliseconds interval{0};
+        std::size_t limit = 4;
+        if (window) {
+            if (values || args.as_object()->size() != (maximum ? 2u : 1u) ||
+                !window->as_integer() || *window->as_integer() < 100 ||
+                *window->as_integer() > 120000 ||
+                (maximum && (!maximum->as_integer() || *maximum->as_integer() < 2 ||
+                             *maximum->as_integer() > 4)))
+                return fail(mira::ErrorCode::InvalidArgument,
+                            "invalid storyboard window selection");
+            interval = std::chrono::milliseconds{*window->as_integer()};
+            if (maximum)
+                limit = static_cast<std::size_t>(*maximum->as_integer());
+        } else {
+            if (args.as_object()->size() != 1 || !values || !values->as_array())
+                return fail(mira::ErrorCode::InvalidArgument,
+                            "frame_ids array or window_ms required");
+            for (const auto &value : *values->as_array()) {
+                if (!value.as_string())
+                    return fail(mira::ErrorCode::InvalidArgument, "frame_ids must be strings");
+                ids.push_back(*value.as_string());
+            }
         }
         if (!perception_)
             return Json{Json::Object{{"available", false}, {"reason", "no_resident_feed"}}};
@@ -59,6 +87,20 @@ void DesktopImageTurn::register_storyboard_tool(mira::BuiltinToolRegistry &regis
         }};
         const auto view = perception_->view();
         sync_content_evidence(view);
+        TemporalFrameSelection selection;
+        if (window) {
+            selection = select_temporal_frames(view, content_evidence_, content_scope_, interval,
+                                               limit, now, bounded);
+            if (selection.reason == "cancelled")
+                return fail(mira::ErrorCode::Cancelled, "storyboard selection cancelled");
+            if (!selection.reason.empty())
+                return Json{
+                    Json::Object{{"available", false},
+                                 {"reason", selection.reason},
+                                 {"eligible_frames", static_cast<std::int64_t>(selection.eligible)},
+                                 {"input_actionable", false}}};
+            ids = selection.ids;
+        }
         const auto offer = content_evidence_.offer(view, ids, now);
         auto board = make_perception_storyboard(view, ids, now, bounded);
         if (!board)
@@ -69,6 +111,13 @@ void DesktopImageTurn::register_storyboard_tool(mira::BuiltinToolRegistry &regis
             return Json{Json::Object{{"available", false},
                                      {"reason", "source_time_or_event_unavailable"},
                                      {"input_actionable", false}}};
+        if (window) {
+            auto &meta = board.value().metadata;
+            meta.emplace_back("selection", "observer_window_maximin");
+            meta.emplace_back("window_ms", interval.count());
+            meta.emplace_back("eligible_frames", static_cast<std::int64_t>(selection.eligible));
+            meta.emplace_back("selected_frames", static_cast<std::int64_t>(ids.size()));
+        }
         for (auto &[key, value] : board.value().metadata)
             if (key == "tiles") {
                 auto tiles = *value.as_array();

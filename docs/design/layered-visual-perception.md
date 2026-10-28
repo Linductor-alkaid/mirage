@@ -324,3 +324,21 @@ observing_content、coverage_assessed/insufficient和interrupted，不代替Mira
 不声称完整视频理解。播放器/声音覆盖、真实模型/平台/性能验收继续开放。
 [示例](../examples/grounded-content-assessment.md)与[验收](../compatibility/grounded-content-assessment-20261028.md)
 说明协议与限制。
+
+
+## 观察时间窗选帧（DEC-134）
+
+M9-30第三增量扩展storyboard为1.1.0：frame_ids模式保持；window_ms与可选
+max_frames由产品Adapter从现有8预览/256事件中选未完成消费的2–4帧。按观察
+单调时间窗口过滤，保留最早/最新，再逐次选离已选时刻最远者，同分取早，最终
+按时间排序。它只减少模型枚举帧ID的负担，不判断语义重要性或播放器进度。
+
+源/时刻/帧号/有效期与DEC-132消费边界共用；预算扣留或失败不消费，完成后即使
+ACK失败也不因预览仍在而重复选择。无新帧/仅1帧不凑图，容量/几何/时序冲突明确
+不足。复用既有PNG320格/640²和Mirador缩放，无新像素所有权、采样或推理调度。
+[决策](../decisions/DEC-134-observer-window-storyboard-selection.md)、
+[协议](../examples/observer-window-storyboard.md)及
+[验收](../compatibility/observer-window-storyboard-20261028.md)记录范围。
+
+M9-30仍待真实媒体语义、ROI、在线成本、播放器/声音覆盖与意图正确性验收，时间
+分散不等于保留所有关键动作/字幕，也不使指定窗口成为完整观察区间。

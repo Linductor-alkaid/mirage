@@ -79,3 +79,7 @@ capture/OCR或更早turn曾提供其他内容。工具仅返回成功、图片�
 后续[显式内容任务评估](grounded-content-assessment.md)按DEC-133使用这些已完成供图
 引用进行范围声明、评估与产品收口；完整视频/声音、未评估和旧证据不能成功。
 它仍不保证模型正确声明用户目标或回答语义正确，真实内容验收保持开放。
+
+
+[观察时间窗模式](observer-window-storyboard.md)在storyboard 1.1.0提供window_ms与
+max_frames，按原观察时间从现有缓存选未消费帧；不代表播放器时间或语义覆盖。

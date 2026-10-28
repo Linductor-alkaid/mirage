@@ -139,6 +139,9 @@ class PerceptionContentEvidence {
     std::uint64_t generation() const { return generation_; }
     std::uint64_t revision() const { return revision_; }
     std::size_t size() const { return samples_.size(); }
+    bool before_retained_window(std::chrono::steady_clock::time_point observed_at) const {
+        return samples_.size() == 32 && observed_at < samples_.front().observed_at;
+    }
     static std::string reference(const std::string &scope, const ContentEvidenceOffer &offer,
                                  const ContentEvidenceSample &sample) {
         using Json = mira::JsonValue;

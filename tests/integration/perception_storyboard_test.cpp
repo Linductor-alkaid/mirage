@@ -1,6 +1,8 @@
 #include "../../integration/mira/src/content_task_assessment.hpp"
 #include "../../integration/mira/src/perception_storyboard.hpp"
+#include "../../integration/mira/src/perception_temporal_selection.hpp"
 #include <algorithm>
+#include <array>
 #include <iostream>
 #include <source_location>
 #include <stdexcept>
@@ -286,6 +288,120 @@ void content_assessment_contract() {
     check(!escaped.references(owner).as_array()->empty());
     check(mira::to_json_string(escaped.references(owner)).size() <= 1024);
 }
+void temporal_window_selection() {
+    using namespace std::chrono_literals;
+    struct TemporalFixture {
+        Clock::time_point now = Clock::now();
+        integration::PerceptionView view;
+        detail::PerceptionContentEvidence ledger;
+        std::vector<std::shared_ptr<integration::PerceptionPreview>> frames;
+        const std::string scope = "window/task/session/epoch";
+        TemporalFixture() {
+            view.source_epoch = 7;
+            const std::array offsets{0, 10, 20, 400, 410, 800, 810, 1000};
+            for (unsigned i = 0; i < offsets.size(); ++i) {
+                auto frame = std::make_shared<integration::PerceptionPreview>();
+                frame->id = "window-" + std::to_string(i);
+                frame->observed_at = now - 1100ms + std::chrono::milliseconds{offsets[i]};
+                frame->image.width = 4;
+                frame->image.height = 2;
+                frame->image.stride = 16;
+                frame->image.pixels.assign(32, 1);
+                integration::PerceptionEvent event;
+                event.source_epoch = 7;
+                event.frame_sequence = i + 1;
+                event.frame_id = frame->id;
+                event.observed_at = frame->observed_at;
+                view.events.push_back(event);
+                view.previews.emplace_back(frame->id, frame);
+                frames.push_back(std::move(frame));
+            }
+            ledger.sync(view);
+        }
+        auto select(std::chrono::milliseconds window = 1100ms, std::size_t limit = 4,
+                    const mirage::desktop::CancelToken &cancel = {}) {
+            return detail::select_temporal_frames(view, ledger, scope, window, limit, now, cancel);
+        }
+    } f;
+    const auto selected = f.select();
+    check(selected.reason.empty() && selected.eligible == 8);
+    check(selected.ids == std::vector<std::string>{"window-0", "window-4", "window-5", "window-7"});
+    check(f.select(1100ms, 3).ids == std::vector<std::string>{"window-0", "window-4", "window-7"});
+    check(f.select(1100ms, 2).ids == std::vector<std::string>{"window-0", "window-7"});
+    check(f.select(500ms).ids == std::vector<std::string>{"window-5", "window-6", "window-7"});
+    check(f.select(100ms).reason == "need_two_new_temporal_frames");
+    check(f.select(99ms).reason == "invalid_argument");
+    check(f.select(120001ms).reason == "invalid_argument");
+    check(f.select(1100ms, 1).reason == "invalid_argument");
+    check(f.select(1100ms, 5).reason == "invalid_argument");
+    check(f.select().ids == selected.ids); // offering alone never marks candidates read
+    auto offered = *f.ledger.offer(f.view, selected.ids, f.now);
+    check(f.ledger.consumed(offered, f.now));
+    auto remaining = f.select();
+    check(remaining.eligible == 4 &&
+          remaining.ids ==
+              std::vector<std::string>{"window-1", "window-2", "window-3", "window-6"});
+    check(f.ledger.consumed(*f.ledger.offer(f.view, remaining.ids, f.now), f.now));
+    check(f.select().reason == "no_new_temporal_frames");
+    // A failed ACK may retain an old preview past the 32-sample ledger window.
+    // Unknown history is never re-labelled as a novel temporal sample.
+    auto rolling = offered;
+    for (unsigned i = 0; i < 40; ++i) {
+        rolling.samples = {{"later-" + std::to_string(i), 100 + i, f.now - 40ms + i * 1ms}};
+        check(f.ledger.consumed(rolling, f.now));
+    }
+    check(f.select().reason == "no_new_temporal_frames");
+    // Equal-distance candidates choose the earlier observer time deterministically.
+    TemporalFixture tied;
+    for (unsigned i = 0; i < 8; ++i) {
+        tied.frames[i]->observed_at = tied.now - 800ms + i * 100ms;
+        tied.view.events[i].observed_at = tied.frames[i]->observed_at;
+    }
+    check(tied.select(1100ms, 3).ids ==
+          std::vector<std::string>{"window-0", "window-3", "window-7"});
+    const auto filtered = [](auto mutate) {
+        TemporalFixture local;
+        mutate(local);
+        const auto result = local.select(120000ms);
+        check(result.reason.empty() && result.eligible == 7);
+    };
+    filtered([](auto &x) { x.frames[0].reset(); });
+    filtered([](auto &x) { x.frames[0]->observed_at = x.now + 1ms; });
+    filtered([](auto &x) { x.frames[0]->observed_at = x.now - 120s; });
+    filtered([](auto &x) { x.view.events[0].source_epoch = 0; });
+    filtered([](auto &x) { x.view.events[0].frame_sequence = 0; });
+    filtered([](auto &x) { x.view.events[0].observed_at += 1ms; });
+    const auto rejected = [](auto mutate, const char *reason) {
+        TemporalFixture local;
+        mutate(local);
+        const auto result = local.select();
+        check(result.ids.empty() && result.reason == reason);
+    };
+    rejected([](auto &x) { x.view.previews.push_back(x.view.previews[0]); },
+             "source_capacity_exceeded");
+    rejected([](auto &x) { x.view.events.resize(257); }, "source_capacity_exceeded");
+    rejected([](auto &x) { x.frames[4]->image.width = 5; }, "source_geometry_changed");
+    rejected([](auto &x) { x.view.events[4].frame_sequence = 1; }, "ambiguous_temporal_order");
+    rejected([](auto &x) { x.view.previews[1] = x.view.previews[0]; }, "ambiguous_temporal_order");
+    rejected(
+        [](auto &x) {
+            x.frames[1]->observed_at = x.frames[0]->observed_at;
+            x.view.events[1].observed_at = x.frames[1]->observed_at;
+        },
+        "ambiguous_temporal_order");
+    rejected([](auto &x) { ++x.view.source_epoch; }, "source_unavailable");
+    rejected([](auto &x) { x.ledger.sync(x.view, false); }, "source_unavailable");
+    unsigned checks_until_cancel = 0;
+    const auto stopped = tied.select(
+        1100ms, 4, mirage::desktop::CancelToken{[&] { return ++checks_until_cancel > 3; }});
+    check(stopped.ids.empty() && stopped.reason == "cancelled");
+    // New source generation cannot treat the old segment's delivery as a current read.
+    ++f.view.dropped;
+    f.ledger.sync(f.view);
+    check(f.select().eligible == 8 && f.select().ids == selected.ids);
+    const auto board = detail::make_perception_storyboard(f.view, selected.ids, f.now, {});
+    check(board && board.value().image.width == 640 && board.value().image.height == 640);
+}
 void pixels_and_time() {
     Fixture f;
     auto board = f.make();
@@ -377,6 +493,7 @@ int main() {
     try {
         delivered_evidence_window_and_barriers();
         content_assessment_contract();
+        temporal_window_selection();
         pixels_and_time();
         boundaries();
         std::cout << checks << " checks passed\n";

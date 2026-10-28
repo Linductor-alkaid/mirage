@@ -14,6 +14,12 @@
 
 ### 功能
 
+- DEC-134：storyboard 1.1.0新增window_ms与可选max_frames，从现有缓存选择
+  2–4张未消费帧，按观察时间分散为一张拼图；原frame_ids模式保持。失败/预算
+  扣留可重试，完成供图后即使ACK失败也不重复选择。没有新增采集或模型请求。
+  [示例](docs/examples/observer-window-storyboard.md)与
+  [验收](docs/compatibility/observer-window-storyboard-20261028.md)说明稀疏性与语义门禁。
+
 - DEC-133：desktop.vision.content显式声明内容范围/声音要求，凭已完成供图引用评估；
   有效片段答案附固定稀疏说明，完整视频/声音证据不足、未评估或来源失效不能成功。
   [示例](docs/examples/grounded-content-assessment.md)与
