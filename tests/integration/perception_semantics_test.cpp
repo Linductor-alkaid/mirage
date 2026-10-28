@@ -166,9 +166,54 @@ void reset_gap_budget_and_expiry() {
     MIRAGE_CHECK(!journal.view().scene &&
                  journal.view().scene_error == "object_projection_budget_exceeded");
 }
+void deferred_evidence_never_renews_or_reactivates_labels() {
+    detail::PerceptionJournal journal("deferred");
+    detail::PerceptionSemantics semantics;
+    const auto recognized = Clock::now() - std::chrono::seconds(2);
+    journal.append(sample(1), {}, recognized);
+    semantics.sync(journal.view());
+    const auto current = ref(semantics.project());
+    semantics.consumed("recognized-request");
+    MIRAGE_CHECK(semantics.annotate(current, "搜索框").ok);
+    const auto revision = journal.view().scene->updated.front().object.content_revision;
+    auto deferred = sample(2);
+    deferred.recognition_deferred = true;
+    deferred.recognition_reason = "media_deferred_unknown";
+    deferred.objects[0].content_observed = false;
+    deferred.objects[0].invalidate_content = true;
+    journal.append(deferred, {}, Clock::now());
+    semantics.sync(journal.view());
+    auto projection = semantics.project();
+    MIRAGE_CHECK(projection.find("recognition_deferred")->as_boolean() == true);
+    MIRAGE_CHECK(projection.find("age_ms")->as_integer() >= 2000);
+    MIRAGE_CHECK(journal.view().scene_observed_at == recognized);
+    MIRAGE_CHECK(state(projection) == "suspended" && ref(projection).empty());
+    MIRAGE_CHECK(*first(projection).find("text")->as_string() == "Search");
+    MIRAGE_CHECK(!semantics.annotate(current, "stale result").ok);
+    const auto invalidated = journal.view().scene->updated.front().object.content_revision;
+    MIRAGE_CHECK(invalidated > revision);
+    deferred.frame_sequence = 3;
+    deferred.objects[0].invalidate_content = false;
+    journal.append(deferred, {}, Clock::now());
+    MIRAGE_CHECK(journal.view().scene->updated.front().object.content_revision == invalidated);
+    // Identical text after an unknown interval cannot prove ABA did not occur.
+    journal.append(sample(4), {}, Clock::now());
+    semantics.sync(journal.view());
+    projection = semantics.project();
+    MIRAGE_CHECK(projection.find("recognition_deferred")->as_boolean() == false);
+    MIRAGE_CHECK(state(projection) == "suspended" && !ref(projection).empty());
+    MIRAGE_CHECK(!semantics.annotate(current, "stale result").ok);
+    const auto fresh = ref(projection);
+    semantics.consumed("refreshed-request");
+    MIRAGE_CHECK(semantics.annotate(fresh, "重新确认的搜索框").ok);
+    MIRAGE_CHECK(state(semantics.project()) == "active");
+    journal.clear();
+    MIRAGE_CHECK(!journal.view().recognition_deferred && journal.view().recognition_reason.empty());
+}
 } // namespace
 int main() {
     inheritance_and_late_results();
     reset_gap_budget_and_expiry();
+    deferred_evidence_never_renews_or_reactivates_labels();
     return mirage::testing::finish("perception_semantics");
 }

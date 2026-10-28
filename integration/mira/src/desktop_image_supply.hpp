@@ -136,6 +136,8 @@ class DesktopImageTurn {
                                   const DesktopAtomToolset::Decorator &);
     void register_annotation_tool(mira::BuiltinToolRegistry &,
                                   const DesktopAtomToolset::Decorator &);
+    void register_storyboard_tool(mira::BuiltinToolRegistry &,
+                                  const DesktopAtomToolset::Decorator &);
     std::shared_ptr<DesktopPerceptionFeed> perception_;
     PerceptionSessionOptions perception_options(std::uint64_t authority) const;
     std::optional<desktop::ImageFrame> text_observation_frame_;

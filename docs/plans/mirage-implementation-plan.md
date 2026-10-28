@@ -10,9 +10,81 @@ native-release 与 DEB 交付完成；Release 120/120、真实推理与包校验
 > 版本：0.1
 > 负责人：Mirage 维护者
 > 依据：[《Mirage：Linux - Windows 桌面端设计方案》](../design/Mirage：Linux%20-%20Windows%20桌面端设计方案.md)（下称"设计文档"）
-> 更新日期：2026-10-26（工作分支集成与 CI 验收收口；既有里程碑状态保留）
+> 更新日期：2026-10-28（M9 Linux分层视觉生产配置；其他里程碑门禁保留）
 
 ## 当前状态
+
+2026-10-28（生产开放）：维护者授权[DEC-128](../decisions/DEC-128-layered-perception-production-profile.md)
+的Linux分层视觉默认及旧Host迁移；新增稳定配置和单命令legacy回退。基于冻结模型
+进行27例文本/框非退化、真实X11目标、5/10Hz资源和生命周期/sanitizer验收，
+原始失败保留于[生产记录](../compatibility/layered-perception-production-20261028.md)。
+Windows保持legacy默认，M9的语义/精确覆盖/视频/目标平台退出门禁继续开放。
+
+2026-10-27：维护者认可三层视觉方案并要求完整决策/计划及推进。
+[DEC-121](../decisions/DEC-121-three-tier-perception-delivery.md) 冻结职责、基线/覆盖、
+状态与时间证据、Executor/预算和上线门禁；
+[M9-25～33 专项计划](m9-layered-perception-delivery.md) 为明细唯一入口。首阶段
+M9-25 实施显式 CV-only sample_only，独立相邻采样/累计识别差分，不推进识别
+覆盖或语义状态；随后再接证据复用和自动识别分频，当前生产默认不变。
+
+2026-10-28：[M9-25 首阶段](../compatibility/layered-perception-phase1-20261027.md)
+Linux 参考契约验证通过：Debug 相关回归18/18，ASAN/UBSAN/TSAN 专项各6/6。
+相邻采样/累计识别差分、零识别调用、取消失败水位与 companion 隔离已验证；
+MSVC/真实平台与生产自动 OCR 分频尚未交付，相关项继续开放。
+
+
+2026-10-28：M9-26 按 [DEC-122](../decisions/DEC-122-deferred-recognition-unknown-evidence.md)
+接入默认关闭的媒体识别延后实验；CV-only 保留历史对象但标未知，识别年龄不续期，
+首个未知周期使旧标签失效，区外/来源/策略/期限触发真实识别。配置与测试见
+[第二阶段记录](../compatibility/layered-perception-phase2-20261028.md)。精确覆盖
+复用、跟踪生产接线、慢识别分离和线上视频内容验收仍开放，生产默认保持0。
+
+2026-10-28：M9-27 / M9-08 按
+[DEC-123](../decisions/DEC-123-bounded-background-object-tracking.md) 将ObjectTracker
+私有接入现有后台worker，提供有界外观验证、失踪/近邻重捕获、几何候选和同帧
+识别回退。默认关闭、跟踪只作advisory，精确文字reuse、运动补偿与慢识别分离
+仍开放；证据见 [第三阶段验证](../compatibility/layered-perception-phase3-20261028.md)。
+
+2026-10-28：M9-28 按 [DEC-124](../decisions/DEC-124-bounded-recognition-dispatch.md)
+交付私有有界慢识别派发器，原帧结果、消费背压、两像素代次预算和取消/迟到屏障
+在受控 capture host 测试中验证。产品采样/跟踪 owner 迁移及 ROI 调度尚未接入，
+本项继续 In Progress；[第四阶段证据](../compatibility/layered-perception-phase4-20261028.md)
+限定本机基础设施结论，生产默认不变。
+
+2026-10-28（M9-28第二批）：[DEC-125](../decisions/DEC-125-layered-capture-owner.md)
+接入默认关闭的异步source实验：采样owner持双签名/模板，慢识别经原Host串行执行，
+结果保留原时间/尺寸，后续帧未知时暂停当前语义场景。ROI/外围重验、历史对象
+投影与平台/资源/视频质量门禁继续开放；
+[第五阶段记录](../compatibility/layered-perception-phase5-20261028.md) 跟踪实际验证，
+不切生产默认、不将基础接线视为完整M9-28或视频理解验收。
+
+2026-10-28（M9-28第三批）：[DEC-126](../decisions/DEC-126-selective-regional-recognition.md)
+在默认关闭的async实验接入OCR/检测能力选择与有界raw ROI；完整识别执行可用
+YOLO，局部观察无全屏覆盖或身份承诺，原完整年龄/外围巡检保持。局部静态与同
+识别内容分别抑制识别/通知；[第六阶段记录](../compatibility/layered-perception-phase6-20261028.md)
+记录实际门禁：完整相关矩阵通过；缓存诊断修正后的5配置直接专项各7/7。
+M9-28/33继续In Progress，未切生产默认，实机质量和资源仍待验。
+
+2026-10-28（能力验证）：预训练PP-OCRv5/OmniParser受控重放由9/10定位边缘
+误路由，修正后10/10；文字4/4、独立X11两图/6目标坐标通过。常规5配置专项
+各7/7；TSAN大图CV预算退化保留独立压力入口，不宣称实时性或视频理解验收。
+范围与失败事实见[第六阶段记录](../compatibility/layered-perception-phase6-20261028.md)，
+M9-28/33继续In Progress，产品默认仍关闭。
+
+2026-10-28（分层分辨率）：[DEC-127](../decisions/DEC-127-layer-specific-image-resolution.md)
+将异步采样owner的CV/跟踪/几何输入降为最长边320灰度图，独立于识别图和模型
+预处理。比例相关context修正1600图的误路由/裁剪；保留不同OCR输入尺寸的失败
+对照。专项证据见[第七阶段记录](../compatibility/layered-perception-phase7-20261028.md)，
+M9-25/27/28/33及平台/资源/视频门禁保持开放，不切生产默认。
+
+2026-10-27：[M9-23/24 分层视觉与视频时间证据复盘](../research/2026-10-27-layered-perception-and-video-storyboards.md)
+核对最新 14:47 会话：22 次推理、12 次采集 timing、8 次显式截图、两次语义快照失败；
+相关修复提交晚于该会话，不能视为新版本在线回归。DEC-118 已有门控/焦点/渐进
+快照，识别分频与逐帧 tracking 仍未完成。本轮按
+[DEC-120](../decisions/DEC-120-temporal-storyboard-observation.md) 增加 2–4 张保留事件帧
+的按需时间拼图，明确稀疏覆盖/无音频和实际消费 ACK；测试边界见
+[验收记录](../compatibility/temporal-storyboard-20261027.md)。M9-23/24 保持 In Progress，
+不以工具接通替代真实视频理解、在线 token/资源与完成率 A/B。
 
 2026-10-27：[M9-22 最新会话门控与重复取帧调查](../research/2026-10-27-event-driven-observation-and-action-gates.md)
 完成：两次 arrival_target_changed 归属 Mirage 共享输入 Adapter；同按钮悬停配色
@@ -603,6 +675,7 @@ Executor 由 pinned `third_party/mira/third_party/executor` 提供，能力路�
 
 | 编号 | 主题 | 暂定默认值 | 负责人 | 最迟冻结 |
 | --- | --- | --- | --- | --- |
+| DEC-128 | Linux分层视觉生产配置 | [DEC-128](../decisions/DEC-128-layered-perception-production-profile.md)：Linux默认layered/5Hz/5s完整巡检/有界跟踪，稳定CLI和legacy回退；本机验收见生产记录，Windows/Portal/视频门禁保留 | Mirage维护者 | 本机配置已冻结；跨平台M9-33 |
 | DEC-110 | 连续输入与设备兼容性 | Proposed：M7-25 已有契约冻结稿；2026-10-20 补全量键鼠默认本地自然时序、无模型时间参数与完整执行后返回/验证要求，契约及兼容迁移待修订；M7-26 已交付 X11/Portal 完整动作默认自然时序与裸修饰键 tap；持键/IME/设备及真实平台验收未完成 | Mirage 维护者 | M7-25 修订/评审；设备原型前 M7-29/30，任务阈值执行前 M7-31 |
 | DEC-095 | 基础 Agent 工具集 | Proposed：四工具/alias、观察与提交点、预算、权限迁移和平台边界见提案 | Mirage 维护者 | M10-02 |
 | DEC-090 | 持续任务与有界资源 | 方向 Accepted；无进展判定、公开循环 API/准入及存量在实施前冻结 | Mira/Mirage 维护者 | M9-01～04 |

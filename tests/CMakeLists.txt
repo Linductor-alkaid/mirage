@@ -1090,11 +1090,39 @@ mirage_add_test(significance_gating_test
     TIMEOUT 60
     )
 
+mirage_add_test(visual_object_tracking_test
+    SOURCES integration/visual_object_tracking_test.cpp
+    LIBS Mirage::integration_mirador mirador::fusion Mirage::kairo_consumer
+    LABELS "integration;perception"
+    TIMEOUT 60
+    )
+
 mirage_add_test(perception_semantics_test
     SOURCES integration/perception_semantics_test.cpp
     LIBS Mirage::integration_mira Mira::core
     LABELS "integration;perception"
     TIMEOUT 30
+    )
+
+mirage_add_test(perception_storyboard_test
+    SOURCES integration/perception_storyboard_test.cpp
+    LIBS Mirage::integration_mira Mira::core
+    LABELS "integration;perception"
+    TIMEOUT 30
+    )
+
+mirage_add_test(layered_perception_test
+    SOURCES integration/layered_perception_test.cpp
+    LIBS Mirage::integration_mirador mirador::fusion Mirage::kairo_consumer
+    LABELS "integration;perception"
+    TIMEOUT 60
+    )
+
+mirage_add_test(continuous_recognition_test
+    SOURCES integration/continuous_recognition_test.cpp
+    LIBS Mirage::integration_mirador Mirage::kairo_consumer
+    LABELS "integration;perception"
+    TIMEOUT 60
     )
 
 mirage_add_test(continuous_capture_test
@@ -1795,6 +1823,19 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND MIRAGE_WITH_PPOCR)
     target_link_libraries(ppocr_budget_acceptance PRIVATE Mirage::platform
         Mirage::integration_mirador $<TARGET_FILE:kairo::kairo>)
     mirage_enable_warnings(ppocr_budget_acceptance)
+    # M9-28/33: explicit local real-weight replay; never runs in default CTest.
+    add_executable(layered_perception_acceptance EXCLUDE_FROM_ALL
+        manual/layered_perception_acceptance.cpp)
+    target_include_directories(layered_perception_acceptance SYSTEM PRIVATE
+        "${CMAKE_SOURCE_DIR}/third_party/mira/third_party/kairo/include")
+    target_link_libraries(layered_perception_acceptance PRIVATE Mirage::integration_mirador
+        mirador::fusion $<TARGET_FILE:kairo::kairo>)
+    mirage_enable_warnings(layered_perception_acceptance)
+    add_executable(layered_production_acceptance EXCLUDE_FROM_ALL
+        manual/layered_production_acceptance.cpp)
+    target_link_libraries(layered_production_acceptance PRIVATE Mirage::integration_mirador
+        mirador::fusion Mirage::kairo_consumer)
+    mirage_enable_warnings(layered_production_acceptance)
     # MIRADOR-20261016-001 evidence: no-model repro of the thin outline recall.
     add_executable(mirador_outline_repro EXCLUDE_FROM_ALL
         ../docs/dependency_feedback/repro/mirador-outlined-rectangle.cpp)

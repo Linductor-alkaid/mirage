@@ -2583,12 +2583,12 @@ void focus_tool_contract() {
         check(result && result.value().failed && feed->focus_calls.empty());
     }
     // Handler rejections: missing members and missing resident feed.
-    for (const char *args :
-         {"{}", R"({"x":1,"y":2,"width":3})", R"({"x":1,"y":2,"height":3})"}) {
+    for (const char *args : {"{}", R"({"x":1,"y":2,"width":3})", R"({"x":1,"y":2,"height":3})"}) {
         const auto [result, feed] = invoke(args);
         check(result && !result.value().failed &&
               *result.value().result.find("applied")->as_boolean() == false &&
-              *result.value().result.find("reason")->as_string() == std::string("invalid_argument") &&
+              *result.value().result.find("reason")->as_string() ==
+                  std::string("invalid_argument") &&
               feed->focus_calls.empty());
     }
     {
@@ -2608,13 +2608,13 @@ void focus_tool_contract() {
                                                 R"({"x":1,"y":2,"width":3,"height":4})");
         check(result && !result.value().failed &&
               *result.value().result.find("applied")->as_boolean() == false &&
-              *result.value().result.find("reason")->as_string() == std::string("no_resident_feed") &&
+              *result.value().result.find("reason")->as_string() ==
+                  std::string("no_resident_feed") &&
               feed->focus_calls.empty());
     }
     // Valid region: applied, not cleared, delivered to the feed unchanged.
     {
-        const auto [result, feed] =
-            invoke(R"({"x":10,"y":20,"width":300,"height":200})");
+        const auto [result, feed] = invoke(R"({"x":10,"y":20,"width":300,"height":200})");
         check(result && !result.value().failed &&
               *result.value().result.find("applied")->as_boolean() == true);
         const auto *focus = result.value().result.find("focus");
@@ -2636,6 +2636,143 @@ void focus_tool_contract() {
               feed->focus_calls.back().height == 0);
     }
 }
+class StoryboardFeed final : public TaskFeedFixture {
+  public:
+    std::vector<std::shared_ptr<integration::PerceptionPreview>> frames;
+    std::vector<std::string> read_ids;
+    StoryboardFeed() {
+        state.events.clear();
+        state.previews.clear();
+        state.source_epoch = 7;
+        for (int i = 0; i < 2; ++i) {
+            auto p = std::make_shared<integration::PerceptionPreview>(*preview);
+            p->id = "story-" + std::to_string(i);
+            p->observed_at = std::chrono::steady_clock::now() - std::chrono::seconds{3 - i};
+            state.previews.emplace_back(p->id, p);
+            integration::PerceptionEvent event;
+            event.sequence = std::uint64_t(i + 1);
+            event.source_epoch = state.source_epoch;
+            event.frame_sequence = std::uint64_t(i + 1);
+            event.frame_id = p->id;
+            event.kind = "visual_region_changed";
+            event.text = "keyframe";
+            event.observed_at = p->observed_at;
+            state.events.push_back(event);
+            frames.push_back(std::move(p));
+        }
+        state.newest = 2;
+    }
+    bool acknowledge_frame(const std::string &id) override {
+        read_ids.push_back(id);
+        std::erase_if(state.previews, [&](const auto &p) { return p.first == id; });
+        return true;
+    }
+};
+void storyboard_tool_contract() {
+    auto env = std::make_shared<NativeEnvironment>();
+    auto feed = std::make_shared<StoryboardFeed>();
+    feed->state.dispatch = integration::PerceptionDispatch{};
+    feed->state.dispatch->sampled = 12;
+    feed->state.dispatch->superseded = 3;
+    feed->state.dispatch->pending = true;
+    feed->state.tracking = integration::PerceptionTracking{};
+    feed->state.tracking->error.assign(64, 'x');
+    for (unsigned i = 0; i < 8; ++i) {
+        integration::PerceptionTrack track;
+        track.entity = i + 1;
+        track.state = "lost";
+        track.evidence = "placeholder";
+        track.reacquired = true;
+        feed->state.tracking->tracks.push_back(track);
+    }
+    auto tools = desktop();
+    tools.environment = env;
+    tools.resident_session = [env, feed](bool, auto) {
+        return integration::PerceptionConnection{env->create_desktop_capture_session(), feed};
+    };
+    tools.continuous_session = [feed](auto session, auto) {
+        return integration::PerceptionConnection{std::move(session), feed};
+    };
+    auto owner = context();
+    detail::DesktopImageTurn turn(std::make_shared<detail::DesktopImageSource>(), tools, owner, {});
+    mira::BuiltinToolRegistry registry;
+    turn.register_tool(registry, {}, false);
+    const auto call = [&](const std::string &args) {
+        return execute_native_tool(registry, owner, "desktop.vision.storyboard", args.c_str());
+    };
+    const auto duplicate = call(R"({"frame_ids":["story-0","story-0"]})");
+    check(!duplicate || duplicate.value().failed);
+    const auto missing = call(R"({"frame_ids":["story-0","evicted"]})");
+    check(missing && !missing.value().failed &&
+          !*missing.value().result.find("available")->as_boolean());
+    const auto board = call(R"({"frame_ids":["story-1","story-0"]})");
+    check(board && !board.value().failed &&
+          *board.value().result.find("source")->as_string() == "storyboard" &&
+          !*board.value().result.find("actionable")->as_boolean());
+    check(feed->read_ids.empty() && env->captures == 0 && env->inputs == 0);
+    mira::AgentLoopSpec spec;
+    spec.task_id = owner.task;
+    spec.session_id = owner.session;
+    spec.task_epoch = owner.task_epoch;
+    const auto supplied = turn.supply(spec);
+    check(static_cast<bool>(supplied));
+    mira::ModelRequest request;
+    request.task_id = owner.task;
+    request.task_epoch = owner.task_epoch;
+    request.input = supplied.value();
+    check(static_cast<bool>(turn.validate_request(request, owner)));
+    int images = 0;
+    for (const auto &item : request.input)
+        for (const auto &part : item.content) {
+            images += std::holds_alternative<mira::ImagePart>(part);
+            if (const auto *text = std::get_if<mira::TextPart>(&part);
+                text && text->text.find("Untrusted continuous desktop observations") == 0) {
+                check(text->text.size() <= 8192);
+                const auto parsed = mira::parse_json(text->text.substr(text->text.find('{')));
+                check(static_cast<bool>(parsed));
+                const auto *dispatch = parsed.value().find("dispatch");
+                check(dispatch && dispatch->find("cv_samples")->as_integer() == 12);
+                check(dispatch->find("superseded")->as_integer() == 3);
+                check(dispatch->find("pending")->as_boolean() == true);
+                const auto *tracking = parsed.value().find("tracking");
+                check(tracking && tracking->find("total_tracks")->as_integer() == 8);
+                check(tracking->find("tracks")->as_array()->size() <= 4);
+                check(tracking->find("input_actionable")->as_boolean() == false);
+                check(*tracking->find("content_freshness")->as_string() == "not_established");
+            }
+        }
+    check(images == 1 && feed->read_ids.empty());
+    auto text_only = request;
+    for (auto &item : text_only.input)
+        std::erase_if(item.content,
+                      [](const auto &p) { return std::holds_alternative<mira::ImagePart>(p); });
+    turn.perception_consumed(text_only, owner);
+    check(feed->read_ids.empty());
+    auto foreign = owner;
+    foreign.task = mira::TaskId::generate();
+    turn.perception_consumed(request, foreign);
+    check(feed->read_ids.empty());
+    ++feed->state.source_epoch;
+    check(!turn.validate_request(request, owner));
+    --feed->state.source_epoch;
+    turn.perception_consumed(request, owner);
+    check(feed->read_ids == std::vector<std::string>{"story-0", "story-1"});
+    const auto repeat = turn.supply(spec);
+    check(static_cast<bool>(repeat));
+    for (const auto &item : repeat.value())
+        for (const auto &part : item.content)
+            check(!std::holds_alternative<mira::ImagePart>(part));
+    check(env->captures == 0 && env->inputs == 0);
+    const auto consumed = call(R"({"frame_ids":["story-0","story-1"]})");
+    check(consumed && !*consumed.value().result.find("available")->as_boolean());
+    detail::DesktopImageTurn no_images(std::make_shared<detail::DesktopImageSource>(), tools, owner,
+                                       {}, false);
+    mira::BuiltinToolRegistry text_registry;
+    no_images.register_tool(text_registry, {}, false);
+    for (const auto &tool : text_registry.exposed_tools())
+        check(tool.wire_name != "desktop.vision.storyboard");
+}
+
 class TaskFeedScript final : public mira::IModelProvider {
   public:
     mira::ModelProfile profile_;
@@ -4945,6 +5082,7 @@ int main() {
         native_text_only_and_state_wiring();
         resident_wait_registry_without_capture();
         focus_tool_contract();
+        storyboard_tool_contract();
         native_session_poison_discipline();
         native_transient_recovery_contract();
         native_observation_efficiency();

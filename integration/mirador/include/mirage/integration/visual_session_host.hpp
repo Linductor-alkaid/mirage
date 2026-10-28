@@ -25,6 +25,7 @@
 #include <mirador/visual_index.hpp>
 
 #include <mirage/desktop/cancellation.hpp>
+#include <mirage/integration/desktop_perception.hpp>
 #include <mirage/integration/environment_visual_pipeline.hpp>
 #include <mirage/integration/visual_template_index.hpp>
 
@@ -125,6 +126,8 @@ struct VisualContinuousRequest {
     /// parameter identity for completed full-frame evidence. Requires at least
     /// one OCR/detector stage, all enabled stages kRefresh without ROI, and no
     /// budgeted OCR or geometry. Advance identity when that stack changes.
+    /// sample_only may retain this identity without running stages; it does
+    /// not call plan/accept and therefore makes no evidence adoption claim.
     std::uint64_t full_frame_evidence_digest = 0;
     /// Nonzero opts into pre-recognition ROI-only scheduling. Mutually exclusive
     /// with full_frame_evidence_digest; identity includes this execution scope.
@@ -245,6 +248,16 @@ struct VisualAnalysisRequest {
         mirador::CoordinateSpaceId priority_space = mirador::CoordinateSpaceId::kOriented;
     };
     std::optional<OcrBudget> ocr_budget;
+    /// DEC-121 / M9-25: explicit CV-only sample after full-frame bootstrap.
+    /// Same source/geometry/attention/importance/evidence and analysis policy;
+    /// analyze_change=true, all recognition/fusion/template stages disabled.
+    /// Each frame dimension is in [1,1600], bounding the synchronous CV work.
+    /// Returns kSampled, never current recognition evidence. No production
+    /// caller opts in until coverage/age projection is accepted in M9-26.
+    bool sample_only = false;
+    /// DEC-126: bounded raw ROI capabilities on the background companion.
+    /// No analysis/fusion/coordinator or full-frame baseline side effects.
+    bool regional_only = false;
 };
 
 /// Terminal state of one analysis request. Every admitted request settles
@@ -259,6 +272,7 @@ struct VisualAnalysisOutcome {
         kRejected,         ///< admission refused; the session never saw the request
         kSkippedUnchanged, ///< background screening skipped all expensive stages; no evidence
         kQueried,          ///< existing state queried without a new frame or observation
+        kSampled,          ///< CV comparison only; no fusion, coverage or semantic advance
     };
     Kind kind = Kind::kRejected;
     /// mirador error code for kFailed (diagnostic); kOk otherwise.
@@ -272,6 +286,13 @@ struct VisualAnalysisResult {
     std::optional<std::uint64_t> invalid_ocr_region;
     /// kQueried only: existing state, never a current observation/action reference.
     std::optional<VisualContinuousQueryView> queried;
+    struct SampledFrame {
+        std::uint64_t source_revision = 0, source_epoch = 0, frame_sequence = 0,
+                      analysis_policy_revision = 0;
+        std::chrono::steady_clock::time_point observed_at{};
+    };
+    /// kSampled only: source/time binding of the CV report, not recognition age.
+    std::optional<SampledFrame> sampled;
     /// Present only for completed opt-in continuous fusion; no payload on skip.
     std::optional<VisualContinuousResult> continuous;
     struct SpatialExecution {
@@ -283,11 +304,17 @@ struct VisualAnalysisResult {
     /// diagnostics. No partial result is adopted or published as a snapshot.
     std::optional<SpatialExecution> spatial;
     VisualAnalysisOutcome outcome;
+    std::optional<PerceptionTracking> tracking;
     /// Change decision of this frame (when `analyze_change` ran); the first
     /// submission of a session reports kGlobal / kFirstFrame.
     mirador::ChangeReport change;
+    /// kSampled: adjacent successful CV sample (first falls back to recognition).
+    /// `change` compares this baseline; no recognition age is refreshed.
+    std::uint64_t sampling_baseline_sequence = 0;
     /// Background admission compares against the last fully analyzed background
-    /// frame, never a skipped frame. Approximate, not current action evidence.
+    /// frame, never a skipped frame. kSampled also supplies this cumulative
+    /// comparison so sub-threshold adjacent drift cannot hide accumulated change.
+    /// Approximate, not current action evidence or a semantic-change guarantee.
     std::optional<mirador::ChangeReport> admission_change;
     std::uint64_t admission_baseline_sequence = 0;
     std::vector<mirador::TextRegion> text;
@@ -332,6 +359,8 @@ struct VisualAnalysisResult {
         std::size_t template_index_entries = 0;
         /// Additional background baseline, outside the session cache budgets; <=4096.
         std::int64_t background_signature_bytes = 0;
+        /// Optional CV baseline, allocated only after explicit sample_only; <=4096.
+        std::int64_t sampling_signature_bytes = 0;
         std::int64_t continuous_coordination_bytes = 0;
     };
     CacheStats cache_stats;
@@ -344,6 +373,8 @@ struct VisualSessionConfig {
     /// Native product consumer: isolated continuous image state on the same worker.
     bool enable_image_session = false;
     bool enable_background_session = false;
+    /// DEC-123: private bounded ObjectTracker on the continuous worker only.
+    bool enable_object_tracking = false;
     /// M9-05/07/18: consume Experimental relation/attention APIs on this same
     /// worker. A separate source host outputs image-space background observations;
     /// legacy hosts retain display-space behavior. No template or marks paths.

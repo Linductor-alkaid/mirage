@@ -18,10 +18,12 @@ class PerceptionSemantics {
     std::size_t rotation_ = 0;
     std::uint64_t source_frames_ = 0;
     Clock::time_point source_progress_at_{};
+    bool recognition_deferred_ = false;
 
   public:
     void sync(const PerceptionView &view, Clock::time_point now = Clock::now()) {
         error_ = view.scene_error;
+        recognition_deferred_ = view.recognition_deferred;
         if (view.frames != source_frames_) {
             source_frames_ = view.frames;
             source_progress_at_ = now;
@@ -155,6 +157,7 @@ class PerceptionSemantics {
                          {"total_objects", static_cast<std::int64_t>(count)},
                          {"error", error_},
                          {"dependency_scope", "recognized_text_and_category"},
+                         {"recognition_deferred", recognition_deferred_},
                          {"input_actionable", false},
                          {"coordinate_space", "shared_source_pixels"},
                          {"age_ms", scene_ ? std::chrono::duration_cast<std::chrono::milliseconds>(

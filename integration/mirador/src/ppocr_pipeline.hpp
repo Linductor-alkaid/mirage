@@ -16,9 +16,10 @@ namespace mirage::integration {
 class PpOcrPipeline final : public EnvironmentVisualPipeline {
   public:
     static bool supported();
-    static std::unique_ptr<PpOcrPipeline> create(kairo::Executor &, desktop::ScreenProvider &,
-                                                 const std::filesystem::path &manifest,
-                                                 std::string &error);
+    static std::unique_ptr<PpOcrPipeline>
+    create(kairo::Executor &, desktop::ScreenProvider &, const std::filesystem::path &manifest,
+           std::string &error, int experimental_recognition_refresh_ms = 0,
+           bool experimental_object_tracking = false, bool experimental_async_recognition = false);
     ~PpOcrPipeline() override;
     bool running() const override;
     desktop::VisualReferenceRegistry &registry() override;
@@ -44,10 +45,17 @@ class PpOcrPipeline final : public EnvironmentVisualPipeline {
     ImageContinuousState
     query_image_state(const std::string &source_key, const desktop::CancelToken &cancel,
                       const std::optional<std::chrono::steady_clock::time_point> &deadline);
-    PerceptionSample observe_image(const desktop::ImageFrame &, const std::string &,
-                                   const std::optional<desktop::WindowGeometry> &,
-                                   const desktop::CancelToken &,
-                                   const std::optional<std::chrono::steady_clock::time_point> &);
+    /// DEC-125: captured_at and sampling_generation are supplied together.
+    /// Nonzero generation selects real recognition on the original capture time;
+    /// worker tracking must be disabled (the capture owner owns templates).
+    /// DEC-126: work.roi selects raw unconfirmed capabilities, without fusion/coverage.
+    PerceptionSample
+    observe_image(const desktop::ImageFrame &, const std::string &,
+                  const std::optional<desktop::WindowGeometry> &, const desktop::CancelToken &,
+                  const std::optional<std::chrono::steady_clock::time_point> &,
+                  std::optional<std::chrono::steady_clock::time_point> captured_at = {},
+                  std::uint64_t sampling_generation = 0,
+                  const PerceptionRecognitionWork &work = {});
     void stop();
     const std::string &model_revision() const;
     std::uint64_t backend_calls() const;

@@ -469,8 +469,8 @@ void feed_focus_clear_semantics() {
     });
     PerceptionSessionOptions options;
     options.source_id = "focus-lease";
-    MIRAGE_CHECK(resident.adopt(std::make_unique<Raw>(std::make_shared<SessionState>()), options,
-                                true));
+    MIRAGE_CHECK(
+        resident.adopt(std::make_unique<Raw>(std::make_shared<SessionState>()), options, true));
     auto lease = resident.attach(true, {});
     MIRAGE_CHECK(lease.session && lease.feed);
     const auto has_kind = [&](const char *kind) {
@@ -563,6 +563,60 @@ void task_adapter() {
     MIRAGE_CHECK(rejected.feed->view().state == "failed");
     MIRAGE_CHECK(rejected.session->capture({}, {}).ok);
 }
+void retained_observation_token_does_not_retain_platform_session() {
+    Owner owner;
+    auto state = std::make_shared<SessionState>();
+    std::optional<d::CancelToken> retained;
+    std::atomic<bool> observed{false};
+    PerceptionSessionOptions options;
+    options.source_id = "retained-observation-token";
+    auto source = connect_continuous_desktop(
+        owner.executor, std::make_unique<Raw>(state), options,
+        [&](const auto &, const auto &, const auto &, const auto &cancel, const auto &) {
+            retained = cancel; // Models an analysis host retaining a settled request.
+            observed = true;
+            return event();
+        });
+    MIRAGE_CHECK(until([&] { return observed.load(); }));
+    source.session.reset();
+    MIRAGE_CHECK(retained && retained->cancelled());
+    MIRAGE_CHECK(state->closed == 1);
+    MIRAGE_CHECK(source.feed->view().state == "stopped");
+    retained.reset();
+}
+
+void deferred_samples_are_not_counted_as_recognition() {
+    Owner owner;
+    auto raw = std::make_shared<SessionState>();
+    std::atomic<unsigned> calls{0};
+    PerceptionSessionOptions options;
+    options.source_id = "deferred-counters";
+    options.sample_period = 100ms;
+    auto connection = connect_continuous_desktop(
+        owner.executor, std::make_unique<Raw>(raw), options,
+        [&](const auto &, const auto &, const auto &, const auto &, const auto &) {
+            auto s = event();
+            s.frame_sequence = ++calls;
+            s.objects_complete = true;
+            s.recognition_deferred = calls > 1;
+            s.recognition_reason =
+                s.recognition_deferred ? "media_deferred_unknown" : "recognition";
+            return s;
+        });
+    MIRAGE_CHECK(connection.feed && connection.session);
+    MIRAGE_CHECK(until([&] { return connection.feed->view().deferred_frames >= 2; }));
+    auto view = connection.feed->view();
+    MIRAGE_CHECK(view.analyzed == 1 && view.recognition_deferred);
+    MIRAGE_CHECK(view.frames == view.analyzed + view.deferred_frames);
+    MIRAGE_CHECK(view.scene_observed_at != Clock::time_point{});
+    const auto original = view.scene_observed_at;
+    const auto count = view.deferred_frames;
+    MIRAGE_CHECK(until([&] { return connection.feed->view().deferred_frames > count; }));
+    MIRAGE_CHECK(connection.feed->view().scene_observed_at == original);
+    connection.session.reset();
+    connection.feed.reset();
+    MIRAGE_CHECK(raw->closed == 1);
+}
 // DEC-118: the continuous sampling period is caller-configurable; the session
 // clamps out-of-range values into 100–1000ms and keeps sampling normally.
 void sample_period_configuration() {
@@ -654,6 +708,8 @@ int main() {
         production_stage_settings_and_large_frame();
         pipeline_events();
         task_adapter();
+        retained_observation_token_does_not_retain_platform_session();
+        deferred_samples_are_not_counted_as_recognition();
         sample_period_configuration();
         committed_event_survives_late_foreground_pause();
         cancellation_exception_and_shutdown();

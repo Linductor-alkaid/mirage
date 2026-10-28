@@ -32,6 +32,29 @@ struct PerceptionObject {
     desktop::VisualSceneObject object;
     bool content_observed = false, invalidate_content = false;
 };
+// DEC-123: advisory image-space tracks, never text freshness or input refs.
+struct PerceptionTrack {
+    std::uint64_t entity = 0, instance_generation = 0, verified_sequence = 0;
+    desktop::WindowGeometry bounds;
+    std::string state, evidence;
+    bool reacquired = false, discontinuous = false;
+};
+struct PerceptionTracking {
+    std::uint64_t source_epoch = 0, frame_sequence = 0;
+    std::uint32_t layout_generation = 0;
+    std::size_t verified = 0, reused = 0, excluded = 0, evicted = 0;
+    std::int64_t pool_bytes = 0;
+    bool requires_recognition = false;
+    std::string error;
+    std::vector<PerceptionTrack> tracks;
+    std::vector<desktop::WindowGeometry> candidates;
+};
+// DEC-126: scheduling hints in analysis-image coordinates. A regional result
+// is historical evidence only; it establishes neither identity nor coverage.
+struct PerceptionRecognitionWork {
+    bool ocr = true, detector = true;
+    std::optional<desktop::WindowGeometry> roi;
+};
 struct PerceptionSample {
     bool ok = false, skipped = false, cancelled = false, resync = false;
     desktop::ProviderError error;
@@ -40,17 +63,33 @@ struct PerceptionSample {
     PerceptionMediaActivity media;
     bool objects_complete = false;
     std::vector<PerceptionObject> objects;
+    bool recognition_deferred = false;
+    std::string recognition_reason;
+    std::optional<PerceptionTracking> tracking;
+    std::optional<PerceptionRecognitionWork> recognition;
 };
 struct PerceptionPreview {
     std::string id;
     desktop::ImageFrame image;
     std::chrono::steady_clock::time_point observed_at{};
 };
+struct PerceptionDispatch {
+    std::uint64_t sampled = 0, admitted = 0, superseded = 0, rejected = 0;
+    std::uint64_t cancelled = 0, timed_out = 0, discarded = 0;
+    std::size_t retained_pixel_bytes = 0;
+    bool pending = false;
+    std::uint64_t regional = 0, ocr_completed = 0, detector_completed = 0;
+};
 struct PerceptionView {
     std::string state = "starting", error;
     std::uint64_t newest = 0, oldest = 0, dropped = 0, filtered = 0, source_epoch = 0;
     bool resync = false;
     std::uint64_t frames = 0, analyzed = 0, skipped = 0, analysis_failed = 0;
+    std::uint64_t deferred_frames = 0;
+    std::optional<PerceptionDispatch> dispatch;
+    bool recognition_deferred = false;
+    std::string recognition_reason;
+    std::optional<PerceptionTracking> tracking;
     std::size_t journal_bytes = 0, preview_bytes = 0;
     std::uint64_t ack_rejected = 0, ack_depth = 0; // kairo CommStats projection
     PerceptionMediaActivity media;

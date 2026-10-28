@@ -5,7 +5,7 @@
 > 所属计划：[Mirage 实施总计划](mirage-implementation-plan.md)
 > 前置：M1 Runtime、M3 Mirador 集成、M6 owner/会话、M7 动作/观察能力；不要求关闭旧里程碑全部门禁
 > 建议发布点：持续任务与文本观察 Linux 预览；标签未定，Windows/原生 Wayland 单列验收
-> 更新日期：2026-10-24
+> 更新日期：2026-10-28
 
 ## 目标
 
@@ -144,7 +144,7 @@ MiniCPM-o 4.5 仅参考视觉 token 压缩与时分复用机制，不纳入模�
   2026-10-22：显式 ROI-only 选区在昂贵阶段前完成，4 个工作/4,194,304 源像素
   暂定预算，整批完整刷新成功后再采纳；对象/文本前置定位与静态零 forward 仍开放。
   契约及证据见[空间执行](../compatibility/continuous-spatial-execution-20261022.md)。
-- [ ] `M9-08` **Planned**（依赖 07）：在私有 Adapter 接入 Mirador ObjectTracker。
+- [ ] `M9-08` **In Progress**（依赖 07；DEC-123首批实验）：在私有 Adapter 接入 Mirador ObjectTracker。
   覆盖身份关联、运动补偿、丢失/重捕获与置信降级，隔离 Experimental 契约；
   无 tracker 时走新识别回退。验收：相似目标交换、滚动布局代际和漂移不会
   触发错误动作；不凭预测或复用旧 scope 放行，不强制额外权重。
@@ -152,6 +152,13 @@ MiniCPM-o 4.5 仅参考视觉 token 压缩与时分复用机制，不纳入模�
   使用，重捕获核对原语义依赖；位置更新不重算全部标定。
   优先变化门控与有界 NCC/PSR 搜索，仅跟踪任务相关对象；需要时评估已有 NanoTrack
   参考 backend 的真实权重。目标数/搜索窗/模板与推理内存共同计量，不另引跟踪库。
+  2026-10-28：DEC-123 私有后台 worker 接有界外观跟踪、失踪/近邻重捕获、
+  几何候选与识别回退；跟踪仅advisory，不更新文字年龄或动作引用。生产默认关闭，
+  运动补偿/远距离身份关联/结构联合验证及平台门禁仍开放；
+  [验证范围](../compatibility/layered-perception-phase3-20261028.md)。
+  DEC-125默认关闭的异步实验另将模板池和双签名交给采样owner，慢识别原帧回流；
+  当前语义场景保守未知，不把跟踪当文字reuse，见
+  [新接线范围](../compatibility/layered-perception-phase5-20261028.md)。
   先验证不依赖额外 VLM 的跨帧身份稳定和事件检测；会话/场景/实例代际变化、
   相似目标交换与迟到结果不得串 ID 或错误延续事件。
 - [ ] `M9-09` **In Progress**（依赖 05/06；基础闭环不等待 08）：提供 native 会话
@@ -282,7 +289,7 @@ M9-14/15/16 依据
 
 - [ ] `M9-23` **In Progress**：按 [DEC-118](../decisions/DEC-118-significance-gated-perception-and-scoped-snapshots.md)
   落实[分层视觉感知](../design/layered-visual-perception.md)。2026-10-27 14:47 会话
-  复盘（12 次显式 capture、22 次推理、2 次 semantic_snapshot 失败、媒体任务未真正
+  复盘（12 次采集 timing、8 次显式 capture、22 次推理、2 次 semantic_snapshot 失败、媒体任务未真正
   消费内容）驱动：连续管线显著性门控（媒体活动区状态机 + 实体无关微变化抑制 +
   kGlobal 不作确认证据 + 关键帧节流）、`desktop.vision.focus` 注意力工具与 media
   状态投影、`semantic_snapshot` 渐进下钻（max_depth/subtree）与窗口标题变化回退
@@ -295,7 +302,41 @@ M9-14/15/16 依据
   ObjectTracker 生产接入、平台 damage（XDamage/VideoDamage）与事件→推理唤醒为
   后续项，未验收不得宣称。
 
+  后续按以下可验证顺序收敛（负责人均为 Mirage 维护者）：先验证 Adapter 能否用
+  Mirador 公开 plan/accept/reuse 分离采样与覆盖基线，避免把当前准入限制直接判为
+  上游缺能力；再接 ObjectTracker 的有界外观/结构验证和失踪/遮挡/重捕获路径；
+  以新候选、文字 ROI 变化、低置信跟踪、布局屏障和最大证据年龄驱动识别，保留
+  低频外围覆盖，不能只依赖识别后才会产生的 appeared/disappeared。随后验证
+  实得 5/10Hz CV（分别记录 capture/CV/OCR 频率、drop 与延迟）、慢变化/首帧全屏/
+  短暂字幕/区外通知、任务相关选帧及 LLM 升级次数。全部受 M9-12 资源和漏检门禁
+  约束，代码配置能设 100ms 不等于已完成 10Hz 验收。
+
+- [ ] `M9-24` **In Progress**：按 [DEC-120](../decisions/DEC-120-temporal-storyboard-observation.md)
+  尝试有界时间拼图，在既有任务 feed 中复用 2–4 张事件帧，一次供给时间概览，
+  保留时间/源/缺失信息并在模型实际消费后 ACK。实现不额外采集/OCR/推理、不
+  增加后台调度器；细节继续单帧/ROI。日志版本、三层现状、原始项目比较与
+  [配对试验方案](../research/2026-10-27-layered-perception-and-video-storyboards.md)
+  已记录；本轮契约证据见[验证记录](../compatibility/temporal-storyboard-20261027.md)。
+  负责人 Mirage 维护者；真实视频内容质量、ROI 拼图、音频/播放器时间、在线
+  token/CPU/RSS 与完成率 A/B 尚未执行，待固定模型/可复位媒体任务后由 M9-12
+  收口。本轮不能关闭 M9-23 的 tracking、carryover 与覆盖选帧工作。
+
 ## 拆分与建议交付顺序
+
+2026-10-27 维护者确认完整三层方向。M9-23/24 后续按
+[DEC-121](../decisions/DEC-121-three-tier-perception-delivery.md) 和
+[专项交付计划](m9-layered-perception-delivery.md) 分解为 **M9-25～M9-33**，明细
+与勾选只在专项计划维护：独立采样基线 → 覆盖安全复用 → 跟踪/重捕获 → 识别
+分频/ROI → 任务语义注意 → 视频内容覆盖 → 平台 damage → 资源诊断 → 配对
+验收/生产切换。M9-25 的 Linux 参考契约、相关回归及 sanitizer 已通过，见
+[首阶段记录](../compatibility/layered-perception-phase1-20261027.md)；MSVC/真实
+平台门禁和后续识别分频仍开放，默认生产路径不因计划冻结而切换。
+
+
+2026-10-28：M9-26 依据 DEC-122 交付媒体区域识别延后实验，默认关闭；真实调用
+计数、未知对象保留、旧标签失效和识别时间不续期见
+[第二阶段验证](../compatibility/layered-perception-phase2-20261028.md)。该增量不
+等价于精确覆盖复用、5/10Hz 跟踪或真实视频任务完成，专项勾选保持开放。
 
 1. 先做 01/05，02 处理上游；04、06 与 M8-12 可独立推进，不等待依赖缺口关闭。
 2. 02 解除后接 03；06 后优先交付 09 的基础闭环，先减少重复取帧与 verify 往返。
@@ -710,3 +751,26 @@ Independent-Verification-Agent 独立验证：Debug 全量 CTest 114/114，ASAN/
 验证发现的 rejected() 误导性诊断后缀已修正并经同一代理增量复验 PASS（debug 全量
 114/114 复跑通过）。实机（真实 mutter/gnome-keyring）长任务验收单列，
 通过不替代该门禁。
+
+## 2026-10-27：M9-23/24 分层视觉复盘与时间拼图
+
+最新会话重新核对为 22 次推理、12 次采集 timing、8 次显式截图；两项修复提交
+晚于该会话，不能把旧日志当新版本回归。当前媒体门控在识别之后，ObjectTracker
+尚未接生产，采样周期配置不等于实得 CV 频率；更正与原始研究见
+[分层感知复盘](../research/2026-10-27-layered-perception-and-video-storyboards.md)。
+
+按 DEC-120 新增 `desktop.vision.storyboard`，只打包已有 2–4 张事件帧，携带时间/
+源/缺失信息，模型实际消费才 ACK，零额外采集/识别。视频任务提示要求复用自动
+OCR 文本、说明内容证据与观察区间，不据标题或播放状态宣称看完。Debug 相关
+回归 17/17、ASAN/UBSAN/TSAN 专项各 4/4（含隔离 setup/cleanup）通过；边界、
+开发失败与尚未通过的全仓格式检查见
+[验证记录](../compatibility/temporal-storyboard-20261027.md)。
+不关闭 M9-23/24：跟踪/识别分频、事件选帧、真实视频理解与在线资源/token A/B
+待上述门禁执行。负责人 Mirage 维护者，补跑环境及条件见验证记录。
+
+
+2026-10-28：M9-28第3步按[DEC-126](../decisions/DEC-126-selective-regional-recognition.md)
+接入async实验的OCR/YOLO选择和有界raw ROI，复用原Host串行worker及公开ROI接口。
+局部不推进融合/覆盖/时间实体，保持原完整年龄与全屏巡检；见
+[第六阶段范围与验证](../compatibility/layered-perception-phase6-20261028.md)。父项
+M9-23及M9-28保持In Progress，精确覆盖、身份、平台/质量/资源门禁继续开放。

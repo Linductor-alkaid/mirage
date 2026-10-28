@@ -1429,7 +1429,9 @@ DialogCompletion ModelLayer::complete_harness_turn(
     }
     if (native_ocr && turn_desktop.ocr_image_contextual)
         spec.goal +=
-            "\nFor native text-reading tasks prefer desktop.vision.ocr with text_only=true: "
+            "\nFor native text-reading tasks first reuse relevant recognized text already "
+            "supplied by the continuous semantic_scene. If its coverage or age is insufficient, "
+            "prefer desktop.vision.ocr with text_only=true: "
             "it supplies untrusted text without PNG or image tokens. Use an explicit capture for "
             "visual layout or to establish an input reference. Text-only reads preserve the "
             "existing input intent. desktop.vision.state reads the resident state and journal "
@@ -1455,16 +1457,33 @@ DialogCompletion ModelLayer::complete_harness_turn(
             "wait/capture/model cycles.\n";
     if (image_turn && turn_desktop.continuous_session)
         spec.goal +=
-            "\nSignificance gating (DEC-118): video playback, animations, cursors and caret "
-            "blinks are already suppressed at the observer — the media member of the observation "
+            "\nSignificance gating (DEC-118): the observer heuristically suppresses repeated "
+            "media-region and tiny pixel-change events; the media member of the observation "
             "summary tracks the active media region and media_playback/keyframe events carry "
             "scene changes at a bounded rate. For watch/media tasks: set desktop.vision.focus to "
             "the region of interest, then rely on desktop.vision.wait plus event text and "
             "event_frame keyframes instead of repeated captures; a capture only grounds a new "
-            "input target. Do not treat a opened-but-unwatched page as task progress: watching "
-            "means consuming the media events or keyframes over time. The semantic_scene already "
+            "input target. When desktop.vision.storyboard is exposed, batch 2-4 retained frame_ids "
+            "into one chronological image for a temporal overview; inspect individual frames "
+            "only for missing details. Pixel-change gating is heuristic, not a guarantee that "
+            "all meaningful content was retained. Do not treat an opened-but-unwatched page as "
+            "task completion: a title, description, playback status or elapsed time is not "
+            "content understanding. Describe what you actually observed over time and the "
+            "observation interval; disclose sparse/missing coverage and lack of audio. Never "
+            "claim to have watched the whole video without evidence of its content and coverage. "
+            "The semantic_scene already "
             "contains automatically recognized text for its objects; consult it before calling "
-            "desktop.vision.ocr. For very large windows, prefer "
+            "desktop.vision.ocr. If recognition_deferred is true, those objects contain historical "
+            "content with its original age and pending identity, not fresh recognition; use an "
+            "explicit text-only OCR read only when current content is required by the task. "
+            "Deferred CV samples cannot confirm text changes or absence. Regional text/detection "
+            "events are raw unconfirmed observations on their original frame; they carry no "
+            "entity identity or full-screen coverage. An empty regional result never proves "
+            "disappearance or absence of an unexecuted capability. The optional tracking "
+            "member only reports advisory appearance/position continuity, never current text or "
+            "actionable references. A lost track does not confirm disappearance; reacquired does "
+            "not restore an old task label. For very large windows, "
+            "prefer "
             "desktop.accessibility.semantic_snapshot with max_depth and subtree=@eN drill-down "
             "over screenshots.\n";
     // DEC-081: current registry facts outrank examples and prior tool history.

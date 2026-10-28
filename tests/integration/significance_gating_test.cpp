@@ -16,12 +16,13 @@
 #include "../../integration/mirador/src/perception_journal.hpp"
 #include "../support/fake_desktop_environment.hpp"
 #include "../support/test.hpp"
+#include <atomic>
+#include <cmath>
 #include <kairo/executor.hpp>
 #include <mirage/integration/fake_visual_backend.hpp>
 #include <mirage/integration/visual_observation_pipeline.hpp>
-#include <atomic>
-#include <cmath>
 #include <string>
+#include <thread>
 
 namespace {
 using namespace mirage::integration;
@@ -125,19 +126,36 @@ class CaptionOcr final : public mirador::OcrBackend {
     std::atomic<unsigned> calls{0};
     std::atomic<unsigned> revision{0};
     std::atomic<bool> change_caption{false};
+    std::atomic<bool> fail{false};
     mirador::BackendInfo info() const override { return identity.info(); }
     mirador::Result<std::vector<mirador::TextRegion>>
     recognize(const mirador::ImageView &, const mirador::OcrRequest &,
               const mirador::ExecutionContext &) override {
         ++calls;
+        if (fail)
+            return mirador::Status{mirador::ErrorCode::kBackendFailure,
+                                   "injected recognition failure"};
         if (change_caption.exchange(false))
             ++revision;
         mirador::TextRegion r;
-        r.utf8_text = revision.load() ? "live caption " + std::to_string(revision.load())
-                                      : "live caption";
+        r.utf8_text =
+            revision.load() ? "live caption " + std::to_string(revision.load()) : "live caption";
         r.confidence = .99F;
         r.bounds = {210.F, 10.F, 100.F, 20.F}; // inside the media region
         return std::vector<mirador::TextRegion>{r};
+    }
+};
+
+class CountedDetector final : public mirador::DetectorBackend {
+  public:
+    FakeDetectorBackend identity;
+    std::atomic<unsigned> calls{0};
+    mirador::BackendInfo info() const override { return identity.info(); }
+    mirador::Result<std::vector<mirador::DetectionRegion>>
+    detect(const mirador::ImageView &, const mirador::DetectionRequest &,
+           const mirador::ExecutionContext &) override {
+        ++calls;
+        return std::vector<mirador::DetectionRegion>{};
     }
 };
 
@@ -181,8 +199,8 @@ struct Rig {
 };
 
 std::size_t count_kind(const PerceptionSample &s, const char *kind) {
-    return static_cast<std::size_t>(std::count_if(
-        s.events.begin(), s.events.end(), [&](const auto &e) { return e.kind == kind; }));
+    return static_cast<std::size_t>(std::count_if(s.events.begin(), s.events.end(),
+                                                  [&](const auto &e) { return e.kind == kind; }));
 }
 bool near(double value, double expected) { return std::fabs(value - expected) < 0.02; }
 
@@ -262,9 +280,9 @@ void keyframes_are_throttled_scene_events() {
         const auto cut = rig.observe(*pipeline, keyframe(0));
         MIRAGE_CHECK(cut.ok);
         MIRAGE_CHECK(count_kind(cut, "visual_region_changed") == 1);
-        const auto kf =
-            std::find_if(cut.events.begin(), cut.events.end(),
-                         [](const auto &e) { return e.kind == "visual_region_changed"; });
+        const auto kf = std::find_if(cut.events.begin(), cut.events.end(), [](const auto &e) {
+            return e.kind == "visual_region_changed";
+        });
         MIRAGE_CHECK(kf != cut.events.end() && kf->text == "keyframe");
         MIRAGE_CHECK(count_kind(cut, "media_playback") == 0);
         MIRAGE_CHECK(cut.media.active); // the cut does not end playback
@@ -409,15 +427,15 @@ void fullscreen_barrier_keeps_active_region() {
 
     // Playback evidence resumes only through regular cycles: non-overlapping
     // kPartial misses end the region after media_miss_samples with one stop.
-    const auto miss1 = rig.observe(*pipeline, patched(uniform(230), 0, kFrameSide / 2,
-                                                      kFrameSide / 4, kFrameSide, 40));
+    const auto miss1 = rig.observe(
+        *pipeline, patched(uniform(230), 0, kFrameSide / 2, kFrameSide / 4, kFrameSide, 40));
     MIRAGE_CHECK(miss1.ok && miss1.media.active && count_kind(miss1, "media_playback") == 0);
     MIRAGE_CHECK(count_kind(miss1, "visual_region_changed") == 1);
-    const auto miss2 = rig.observe(*pipeline, patched(uniform(230), 0, kFrameSide / 2,
-                                                      kFrameSide / 4, kFrameSide, 60));
+    const auto miss2 = rig.observe(
+        *pipeline, patched(uniform(230), 0, kFrameSide / 2, kFrameSide / 4, kFrameSide, 60));
     MIRAGE_CHECK(miss2.ok && miss2.media.active);
-    const auto miss3 = rig.observe(*pipeline, patched(uniform(230), 0, kFrameSide / 2,
-                                                      kFrameSide / 4, kFrameSide, 90));
+    const auto miss3 = rig.observe(
+        *pipeline, patched(uniform(230), 0, kFrameSide / 2, kFrameSide / 4, kFrameSide, 90));
     MIRAGE_CHECK(miss3.ok && count_kind(miss3, "media_playback") == 1);
     const auto stopped = std::find_if(miss3.events.begin(), miss3.events.end(),
                                       [](const auto &e) { return e.kind == "media_playback"; });
@@ -470,6 +488,124 @@ void journal_carries_media_projection() {
     MIRAGE_CHECK(!journal.view().media.active);
 }
 
+// DEC-122: real backend call counts, rather than a synthetic "skipped" flag,
+// distinguish the experimental path from the default full-recognition gate.
+void experimental_media_defers_and_recovers() {
+    Rig rig;
+    CaptionOcr ocr;
+    CountedDetector detector;
+    auto config = gate_config("deferred-media", ocr, 0ms, 10);
+    config.run_ocr = true;
+    config.background_detector = true;
+    config.session.detector_backend = &detector;
+    config.experimental_recognition_refresh = 5000ms;
+    auto pipeline = rig.start(config);
+    detail::PerceptionJournal journal("deferred-media");
+    const auto accept = [&](const auto &frame) {
+        auto s = rig.observe(*pipeline, frame);
+        MIRAGE_CHECK(s.ok && !s.skipped);
+        journal.append(s, {}, Clock::now());
+        return s;
+    };
+    accept(uniform(10));
+    accept(media(100));
+    auto bootstrap = accept(media(140));
+    MIRAGE_CHECK(bootstrap.media.active && bootstrap.objects.size() == 1);
+    MIRAGE_CHECK(bootstrap.objects[0].object.identity_confirmed);
+    const auto count = ocr.calls.load();
+    MIRAGE_CHECK(detector.calls == count);
+    const auto original = journal.view();
+    const auto deferred = accept(media(180));
+    MIRAGE_CHECK(deferred.recognition_deferred && ocr.calls == count);
+    auto view = journal.view();
+    MIRAGE_CHECK(view.recognition_deferred && view.recognition_reason == "media_deferred_unknown");
+    MIRAGE_CHECK(view.scene_observed_at == original.scene_observed_at);
+    MIRAGE_CHECK(view.scene && view.scene->updated.size() == 1);
+    const auto &historical = view.scene->updated.front().object;
+    MIRAGE_CHECK(historical.text == "live caption" && historical.pending &&
+                 !historical.identity_confirmed);
+    MIRAGE_CHECK(historical.id == original.scene->updated.front().object.id);
+    MIRAGE_CHECK(historical.content_revision >
+                 original.scene->updated.front().object.content_revision);
+    const auto revision = historical.content_revision;
+    MIRAGE_CHECK(accept(media(220)).recognition_deferred && ocr.calls == count);
+    MIRAGE_CHECK(journal.view().scene->updated.front().object.content_revision == revision);
+    // A media scene cut still emits a bounded temporal keyframe without OCR.
+    const auto cut = accept(keyframe(0));
+    MIRAGE_CHECK(cut.recognition_deferred && count_kind(cut, "visual_region_changed") == 1);
+    MIRAGE_CHECK(ocr.calls == count);
+    MIRAGE_CHECK(detector.calls == count);
+    // Explicit precision reads are independent of the background deferral.
+    MIRAGE_CHECK(pipeline->read_image_ocr(media(220), {}, Clock::now() + 3s, "explicit").ok);
+    MIRAGE_CHECK(ocr.calls == count + 1);
+    ocr.change_caption = true;
+    const auto outside = accept(outside_change(240));
+    MIRAGE_CHECK(!outside.recognition_deferred && ocr.calls == count + 2);
+    MIRAGE_CHECK(outside.objects[0].content_observed &&
+                 outside.objects[0].object.text == "live caption 1");
+    // Mirador confirms changed content on its second real observation. CV
+    // samples do not count as those observations; outside changes remain visible.
+    const auto confirmed = accept(outside_change(200));
+    MIRAGE_CHECK(!confirmed.recognition_deferred && ocr.calls == count + 3);
+    MIRAGE_CHECK(count_kind(confirmed, "text_changed") == 1);
+    MIRAGE_CHECK(detector.calls == count + 2); // explicit OCR did not request detection
+    MIRAGE_CHECK(!journal.view().recognition_deferred &&
+                 journal.view().scene_observed_at > original.scene_observed_at);
+    // Focus and source changes each require fresh recognition, even on the
+    // same pixels. They must not inherit the previous bootstrap identity.
+    const auto focused = pipeline->observe_image(
+        outside_change(240), "gating", d::WindowGeometry{0, 0, 100, 100}, {}, Clock::now() + 3s);
+    MIRAGE_CHECK(focused.ok && !focused.recognition_deferred && ocr.calls == count + 4);
+    const auto reset =
+        pipeline->observe_image(media(140), "replacement", {}, {}, Clock::now() + 3s);
+    MIRAGE_CHECK(reset.ok && !reset.recognition_deferred && ocr.calls == count + 5);
+    MIRAGE_CHECK(reset.source_epoch != bootstrap.source_epoch);
+    pipeline->stop();
+}
+
+void deferred_age_refresh_and_failure() {
+    Rig rig;
+    CaptionOcr ocr;
+    auto config = gate_config("deferred-expiry", ocr, 1h, 10);
+    config.experimental_recognition_refresh = 500ms;
+    auto pipeline = rig.start(config);
+    MIRAGE_CHECK(rig.observe(*pipeline, uniform(10)).ok);
+    MIRAGE_CHECK(rig.observe(*pipeline, media(100)).ok);
+    MIRAGE_CHECK(rig.observe(*pipeline, media(140)).ok);
+    const auto count = ocr.calls.load();
+    MIRAGE_CHECK(rig.observe(*pipeline, media(180)).recognition_deferred);
+    // The next frame is static relative to the sample baseline. Expiry must
+    // still call the backend, and failure cannot renew its evidence age.
+    std::this_thread::sleep_for(550ms);
+    ocr.fail = true;
+    auto failed = rig.observe(*pipeline, media(180));
+    MIRAGE_CHECK(!failed.ok && !failed.error.code.empty() && ocr.calls == count + 1);
+    ocr.fail = false;
+    const auto refreshed = rig.observe(*pipeline, media(180));
+    MIRAGE_CHECK(refreshed.ok && !refreshed.recognition_deferred && !refreshed.skipped);
+    MIRAGE_CHECK(refreshed.recognition_reason == "age_refresh" && ocr.calls == count + 2);
+    // Cancellation is a failed sample, not a fresh recognition or a deferral.
+    d::CancelToken stop;
+    stop.request_cancel();
+    const auto cancelled =
+        pipeline->observe_image(media(220), "gating", {}, stop, Clock::now() + 3s);
+    MIRAGE_CHECK(!cancelled.ok && cancelled.cancelled && ocr.calls == count + 2);
+    pipeline->stop();
+}
+
+void invalid_deferral_interval_is_rejected() {
+    Rig rig;
+    SilentOcr ocr;
+    for (const auto value : {-1, 1, 99, 5001}) {
+        auto config = gate_config("invalid-deferred", ocr, 0ms, 10);
+        config.experimental_recognition_refresh = std::chrono::milliseconds{value};
+        VisualObservationPipeline pipeline(rig.owner.executor, *rig.env.screen(), rig.registry,
+                                           config);
+        std::string error;
+        MIRAGE_CHECK(!pipeline.start(error) && !error.empty());
+    }
+}
+
 } // namespace
 
 int main() {
@@ -482,6 +618,9 @@ int main() {
         fullscreen_barrier_keeps_active_region();
         gate_disabled_keeps_legacy_events();
         journal_carries_media_projection();
+        experimental_media_defers_and_recovers();
+        deferred_age_refresh_and_failure();
+        invalid_deferral_interval_is_rejected();
     } catch (const std::exception &e) {
         std::fprintf(stderr, "exception: %s\n", e.what());
         return 1;

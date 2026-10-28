@@ -3785,6 +3785,16 @@ RuntimeService::start(std::shared_ptr<mirage::integration::DesktopEnvironmentBin
         impl_->lifecycle.store(Impl::Lifecycle::Terminal, std::memory_order_release);
         return outcome;
     }
+    const auto refresh = impl_->config.perception_recognition_refresh_ms;
+    if (refresh < 0 || refresh > 5000 || (refresh > 0 && refresh < 100) ||
+        ((impl_->config.perception_object_tracking || impl_->config.perception_async_recognition) &&
+         refresh == 0)) {
+        outcome.error = {"invalid_argument",
+                         "recognition refresh expects 0 or "
+                         "100..5000 ms; tracking/async recognition requires nonzero"};
+        impl_->lifecycle.store(Impl::Lifecycle::Terminal, std::memory_order_release);
+        return outcome;
+    }
     if (!binding) {
         outcome.error = {"invalid_argument", "binding is null"};
         impl_->lifecycle.store(Impl::Lifecycle::Terminal, std::memory_order_release);
@@ -3890,9 +3900,12 @@ RuntimeService::start(std::shared_ptr<mirage::integration::DesktopEnvironmentBin
         std::string error;
         try {
             auto initialized_ocr = impl_->core->executor.submit_auto([&] {
-                return integration::PpOcrPipeline::create(impl_->core->executor,
-                                                          *impl_->core->environment->screen(),
-                                                          impl_->config.ocr_manifest, error);
+                return integration::PpOcrPipeline::create(
+                    impl_->core->executor, *impl_->core->environment->screen(),
+                    impl_->config.ocr_manifest, error,
+                    impl_->config.perception_recognition_refresh_ms,
+                    impl_->config.perception_object_tracking,
+                    impl_->config.perception_async_recognition);
             });
             impl_->core->ocr_pipeline = initialized_ocr.get();
         } catch (...) {
@@ -3906,8 +3919,21 @@ RuntimeService::start(std::shared_ptr<mirage::integration::DesktopEnvironmentBin
         }
         impl_->core->visual_registry = &impl_->core->ocr_pipeline->registry();
         impl_->resident_perception = std::make_shared<integration::ResidentDesktopPerception>(
-            [pipeline = impl_->core->ocr_pipeline.get(),
-             executor = &impl_->core->executor](auto session, auto options) {
+            [pipeline = impl_->core->ocr_pipeline.get(), executor = &impl_->core->executor,
+             async = impl_->config.perception_async_recognition,
+             tracking = impl_->config.perception_object_tracking,
+             refresh = std::chrono::milliseconds{impl_->config.perception_recognition_refresh_ms}](
+                auto session, auto options) {
+                if (async)
+                    return integration::connect_layered_desktop(
+                        *executor, std::move(session), std::move(options),
+                        [pipeline](const auto &image, const auto &key, const auto &focus,
+                                   const auto &cancel, auto deadline, auto captured_at,
+                                   auto generation, const auto &work) {
+                            return pipeline->observe_image(image, key, focus, cancel, deadline,
+                                                           captured_at, generation, work);
+                        },
+                        refresh, tracking);
                 return integration::connect_continuous_desktop(
                     *executor, std::move(session), std::move(options),
                     [pipeline](const auto &image, const auto &key, const auto &focus,

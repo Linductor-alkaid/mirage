@@ -1300,7 +1300,15 @@ DesktopImageTurn::supply(const mira::AgentLoopSpec &spec) {
         clear();
     }
     auto additions = supply_perception();
+    if (const auto *epoch = metadata_.find("storyboard_source_epoch");
+        epoch && epoch->as_integer() && perception_ &&
+        static_cast<std::uint64_t>(*epoch->as_integer()) != perception_->view().source_epoch)
+        clear();
     if (!supply_images_ || !image_ || withhold_image_)
+        return additions;
+    if (const auto *source = metadata_.find("source");
+        source && source->as_string() && *source->as_string() == "storyboard" &&
+        consumed_image_digest_ == image_->digest.to_string())
         return additions;
     // Only suppress a repeat after a completed provider response consumed it.
     // DEC-117: target intent remains scoped; continuous events carry subsequent observations.
@@ -1428,6 +1436,12 @@ mira::Result<void> DesktopImageTurn::validate_request(const mira::ModelRequest &
                 return error(ErrorCode::InvalidArgument, "foreign or retired desktop image");
     if (!expect_image_)
         return {};
+    if (const auto *epoch = metadata_.find("storyboard_source_epoch");
+        epoch && epoch->as_integer() &&
+        (!perception_ ||
+         static_cast<std::uint64_t>(*epoch->as_integer()) != perception_->view().source_epoch ||
+         (native_authority_ && desktop_.actions->authority_epoch() != native_authority_)))
+        return error(ErrorCode::Cancelled, "storyboard source or authority retired");
     if (!image_ || epoch_ != desktop_.actions->epoch() ||
         std::chrono::steady_clock::now() - captured_ >= planning_image_age())
         return error(ErrorCode::InvalidArgument, "desktop image invalidated before inference");

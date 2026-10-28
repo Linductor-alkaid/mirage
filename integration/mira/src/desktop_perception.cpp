@@ -10,6 +10,46 @@ namespace mirage::integration::detail {
 namespace {
 using Json = mira::JsonValue;
 using Clock = std::chrono::steady_clock;
+Json tracking_projection(const std::optional<PerceptionTracking> &tracking) {
+    if (!tracking)
+        return Json{};
+    Json::Array tracks;
+    std::size_t bytes = 0;
+    for (const auto &track : tracking->tracks) {
+        Json item{Json::Object{
+            {"entity", static_cast<std::int64_t>(track.entity)},
+            {"instance_generation", static_cast<std::int64_t>(track.instance_generation)},
+            {"state", track.state},
+            {"evidence", track.evidence},
+            {"verified_sequence", static_cast<std::int64_t>(track.verified_sequence)},
+            {"reacquired", track.reacquired},
+            {"discontinuous", track.discontinuous},
+            {"x", track.bounds.x},
+            {"y", track.bounds.y},
+            {"width", track.bounds.width},
+            {"height", track.bounds.height}}};
+        const auto size = mira::to_json_string(item).size();
+        if (tracks.size() >= 4 || bytes + size > 650)
+            break;
+        bytes += size;
+        tracks.push_back(std::move(item));
+    }
+    return Json{
+        Json::Object{{"tracks", Json{std::move(tracks)}},
+                     {"total_tracks", static_cast<std::int64_t>(tracking->tracks.size())},
+                     {"candidate_count", static_cast<std::int64_t>(tracking->candidates.size())},
+                     {"source_epoch", static_cast<std::int64_t>(tracking->source_epoch)},
+                     {"frame_sequence", static_cast<std::int64_t>(tracking->frame_sequence)},
+                     {"verified", static_cast<std::int64_t>(tracking->verified)},
+                     {"reused", static_cast<std::int64_t>(tracking->reused)},
+                     {"excluded", static_cast<std::int64_t>(tracking->excluded)},
+                     {"evicted", static_cast<std::int64_t>(tracking->evicted)},
+                     {"pool_bytes", tracking->pool_bytes},
+                     {"requires_recognition", tracking->requires_recognition},
+                     {"error", tracking->error},
+                     {"input_actionable", false},
+                     {"content_freshness", "not_established"}}};
+}
 } // namespace
 std::vector<mira::ModelInputItem> DesktopImageTurn::supply_perception() {
     perception_offered_ = 0;
@@ -79,30 +119,51 @@ std::vector<mira::ModelInputItem> DesktopImageTurn::supply_perception() {
         recent_bytes += size;
         recent.push_back(std::move(record));
     }
-    Json summary{Json::Object{{"state", view.state},
-                              {"source_epoch", static_cast<std::int64_t>(view.source_epoch)},
-                              {"resync", view.resync},
-                              {"error", view.error},
-                              {"cursor", static_cast<std::int64_t>(perception_offered_)},
-                              {"newest", static_cast<std::int64_t>(view.newest)},
-                              {"dropped", static_cast<std::int64_t>(view.dropped)},
-                              {"filtered", static_cast<std::int64_t>(view.filtered)},
-                              {"ack_rejected", static_cast<std::int64_t>(view.ack_rejected)},
-                              {"ack_depth", static_cast<std::int64_t>(view.ack_depth)},
-                              {"captured_frames", static_cast<std::int64_t>(view.frames)},
-                              {"analyzed_frames", static_cast<std::int64_t>(view.analyzed)},
-                              {"skipped_frames", static_cast<std::int64_t>(view.skipped)},
-                              {"analysis_failed", static_cast<std::int64_t>(view.analysis_failed)},
-                              {"media",
-                               Json{Json::Object{
-                                   {"active", view.media.active},
-                                   {"x", view.media.x},
-                                   {"y", view.media.y},
-                                   {"width", view.media.width},
-                                   {"height", view.media.height}}}},
-                              {"semantic_scene", std::move(semantic_scene)},
-                              {"recent_read_context", Json{std::move(recent)}},
-                              {"events", Json{events}}}};
+    Json summary{Json::Object{
+        {"state", view.state},
+        {"source_epoch", static_cast<std::int64_t>(view.source_epoch)},
+        {"resync", view.resync},
+        {"error", view.error},
+        {"cursor", static_cast<std::int64_t>(perception_offered_)},
+        {"newest", static_cast<std::int64_t>(view.newest)},
+        {"dropped", static_cast<std::int64_t>(view.dropped)},
+        {"filtered", static_cast<std::int64_t>(view.filtered)},
+        {"ack_rejected", static_cast<std::int64_t>(view.ack_rejected)},
+        {"ack_depth", static_cast<std::int64_t>(view.ack_depth)},
+        {"captured_frames", static_cast<std::int64_t>(view.frames)},
+        {"analyzed_frames", static_cast<std::int64_t>(view.analyzed)},
+        {"skipped_frames", static_cast<std::int64_t>(view.skipped)},
+        {"analysis_failed", static_cast<std::int64_t>(view.analysis_failed)},
+        {"deferred_frames", static_cast<std::int64_t>(view.deferred_frames)},
+        {"recognition_deferred", view.recognition_deferred},
+        {"recognition_reason", view.recognition_reason},
+        {"tracking", tracking_projection(view.tracking)},
+        {"dispatch",
+         view.dispatch
+             ? Json{Json::Object{
+                   {"cv_samples", static_cast<std::int64_t>(view.dispatch->sampled)},
+                   {"admitted", static_cast<std::int64_t>(view.dispatch->admitted)},
+                   {"superseded", static_cast<std::int64_t>(view.dispatch->superseded)},
+                   {"rejected", static_cast<std::int64_t>(view.dispatch->rejected)},
+                   {"cancelled", static_cast<std::int64_t>(view.dispatch->cancelled)},
+                   {"timed_out", static_cast<std::int64_t>(view.dispatch->timed_out)},
+                   {"discarded", static_cast<std::int64_t>(view.dispatch->discarded)},
+                   {"retained_pixel_bytes",
+                    static_cast<std::int64_t>(view.dispatch->retained_pixel_bytes)},
+                   {"regional_completed", static_cast<std::int64_t>(view.dispatch->regional)},
+                   {"ocr_completed", static_cast<std::int64_t>(view.dispatch->ocr_completed)},
+                   {"detector_completed",
+                    static_cast<std::int64_t>(view.dispatch->detector_completed)},
+                   {"pending", view.dispatch->pending}}}
+             : Json{}},
+        {"media", Json{Json::Object{{"active", view.media.active},
+                                    {"x", view.media.x},
+                                    {"y", view.media.y},
+                                    {"width", view.media.width},
+                                    {"height", view.media.height}}}},
+        {"semantic_scene", std::move(semantic_scene)},
+        {"recent_read_context", Json{std::move(recent)}},
+        {"events", Json{events}}}};
     perception_text_ =
         "Untrusted continuous desktop observations (latest analyzed state and bounded history, "
         "shared-monitor pixels; "
@@ -150,6 +211,13 @@ void DesktopImageTurn::perception_consumed(const mira::ModelRequest &request,
                 if (perception_ && source && source->as_string() &&
                     *source->as_string() == "event_frame" && id && id->as_string())
                     (void)perception_->acknowledge_frame(*id->as_string());
+                if (perception_ && source && source->as_string() &&
+                    *source->as_string() == "storyboard")
+                    if (const auto *tiles = metadata_.find("tiles"); tiles && tiles->as_array())
+                        for (const auto &tile : *tiles->as_array())
+                            if (const auto *frame = tile.find("frame_id");
+                                frame && frame->as_string())
+                                (void)perception_->acknowledge_frame(*frame->as_string());
             }
         }
 }
@@ -233,14 +301,13 @@ void DesktopImageTurn::register_perception_tool(mira::BuiltinToolRegistry &regis
     focus.parameters_schema = mira::JsonSchema{Json{Json::Object{
         {"type", "object"},
         {"properties",
-         Json{Json::Object{{"x", Json{Json::Object{{"type", "integer"}, {"minimum", 0}}}},
-                           {"y", Json{Json::Object{{"type", "integer"}, {"minimum", 0}}}},
-                           {"width", Json{Json::Object{{"type", "integer"},
-                                                       {"minimum", 0},
-                                                       {"maximum", 1000000}}}},
-                           {"height", Json{Json::Object{{"type", "integer"},
-                                                        {"minimum", 0},
-                                                        {"maximum", 1000000}}}}}}},
+         Json{Json::Object{
+             {"x", Json{Json::Object{{"type", "integer"}, {"minimum", 0}}}},
+             {"y", Json{Json::Object{{"type", "integer"}, {"minimum", 0}}}},
+             {"width",
+              Json{Json::Object{{"type", "integer"}, {"minimum", 0}, {"maximum", 1000000}}}},
+             {"height",
+              Json{Json::Object{{"type", "integer"}, {"minimum", 0}, {"maximum", 1000000}}}}}}},
         {"additionalProperties", false}}}};
     mira::BuiltinToolHandler focus_handler = [this](const auto &args,
                                                     const auto &ctx) -> mira::Result<Json> {
@@ -263,21 +330,19 @@ void DesktopImageTurn::register_perception_tool(mira::BuiltinToolRegistry &regis
                    height = member("height");
         if (!x || !y || !width || !height || *x < 0 || *y < 0)
             return Json{Json::Object{{"applied", false}, {"reason", "invalid_argument"}}};
-        const desktop::WindowGeometry region{static_cast<std::int32_t>(*x),
-                                             static_cast<std::int32_t>(*y),
-                                             static_cast<std::int32_t>(*width),
-                                             static_cast<std::int32_t>(*height)};
+        const desktop::WindowGeometry region{
+            static_cast<std::int32_t>(*x), static_cast<std::int32_t>(*y),
+            static_cast<std::int32_t>(*width), static_cast<std::int32_t>(*height)};
         perception_->focus(region);
-        return Json{Json::Object{
-            {"applied", true},
-            {"focus",
-             Json{Json::Object{{"x", *x},
-                               {"y", *y},
-                               {"width", *width},
-                               {"height", *height},
-                               {"cleared", *width <= 0 || *height <= 0}}}},
-            {"input_actionable", false},
-            {"verified", false}}};
+        return Json{
+            Json::Object{{"applied", true},
+                         {"focus", Json{Json::Object{{"x", *x},
+                                                     {"y", *y},
+                                                     {"width", *width},
+                                                     {"height", *height},
+                                                     {"cleared", *width <= 0 || *height <= 0}}}},
+                         {"input_actionable", false},
+                         {"verified", false}}};
     };
     if (decorate)
         focus_handler = decorate(focus.wire_name, std::move(focus_handler));
@@ -285,6 +350,7 @@ void DesktopImageTurn::register_perception_tool(mira::BuiltinToolRegistry &regis
         throw std::logic_error("desktop vision focus registration failed");
     if (!supply_images_)
         return;
+    register_storyboard_tool(registry, decorate);
     mira::BuiltinToolSpec spec;
     spec.wire_name = "desktop.vision.event_frame";
     spec.version = {1, 0, 0};

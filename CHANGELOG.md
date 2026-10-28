@@ -14,6 +14,15 @@
 
 ### 功能
 
+- DEC-128：Linux服务在配置OCR资源后默认使用分层视觉（5Hz采样、5秒完整巡检、
+  有界跟踪）；旧Host的准入/变化比较同样先用≤320灰度工作图，识别缓存保持原图
+  证据，坐标回映。新增`--perception-mode layered|legacy`、
+  `--recognition-refresh-ms`、`--object-tracking on|off`，旧实验参数仍可用；
+  legacy模式可回退同步策略。Windows保持legacy默认，目标平台门禁未关闭。
+  [生产验证](docs/compatibility/layered-perception-production-20261028.md)记录配对性能、
+  精度非退化和已知资源限制；640配置768MiB、高清配置1024MiB容量档，高清
+  原768MiB目标未达，不宣称完整视频理解或跨平台实时性。
+
 - DEC-118 分层视觉感知首增量（见
   [设计](docs/design/layered-visual-perception.md)）：连续感知管线显著性门控
   （媒体活动区状态机、实体无关微变化抑制、kGlobal 不作媒体确认证据、关键帧
