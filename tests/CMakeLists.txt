@@ -1457,10 +1457,15 @@ mirage_add_test(desktop_image_supply_test
     LABELS "integration;runtime"
     TIMEOUT 30
     )
+# DEC-135: separate the automatic-supply cases to keep bounded PNG suites focused.
+add_test(NAME content_visual_supply_test
+    COMMAND $<TARGET_FILE:desktop_image_supply_test> --automatic-content)
+set_tests_properties(content_visual_supply_test PROPERTIES
+    LABELS "integration;runtime;perception" TIMEOUT 30)
 if(CMAKE_CXX_FLAGS MATCHES "fsanitize=thread")
     # The full PNG/content matrix is much slower under instrumentation; this
     # only bounds the test process, never the production acquisition deadline.
-    set_tests_properties(desktop_image_supply_test PROPERTIES TIMEOUT 120)
+    set_tests_properties(desktop_image_supply_test content_visual_supply_test PROPERTIES TIMEOUT 120)
 endif()
 
     # DEC-088 capability 2/3: DesktopContextBuilder compaction mapping and its

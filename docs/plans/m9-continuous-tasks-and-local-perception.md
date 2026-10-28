@@ -5,7 +5,7 @@
 > 所属计划：[Mirage 实施总计划](mirage-implementation-plan.md)
 > 前置：M1 Runtime、M3 Mirador 集成、M6 owner/会话、M7 动作/观察能力；不要求关闭旧里程碑全部门禁
 > 建议发布点：持续任务与文本观察 Linux 预览；标签未定，Windows/原生 Wayland 单列验收
-> 更新日期：2026-10-28
+> 更新日期：2026-10-29
 
 2026-10-28：按[DEC-129](../decisions/DEC-129-versioned-task-attention.md)推进M9-29/18的
 对象版本注意区域，扩展既有focus与wait，保持任务间隔离；多目标重要性、
@@ -37,6 +37,11 @@
 接通按观察时间窗选2–4张未消费帧的拼图模式，减少模型枚举帧ID，不加固定采集/
 模型请求。协议与实际验证见[记录](../compatibility/observer-window-storyboard-20261028.md)；
 M9-30整体继续In Progress，真实语义/播放器/声音/成本门禁保持开放。
+
+2026-10-29：按[DEC-135](../decisions/DEC-135-content-automatic-visual-supply.md)减少
+内容取图往返，既有请求按需自动附低清拼图，后台采样与关键事件不降频。受控
+模型请求4→3、取图工具1→0；[验收](../compatibility/automatic-content-visual-supply-20261029.md)
+不代替真实模型/语义/播放器及性能精度门禁，M9-30/29保持In Progress。
 
 ## 目标
 

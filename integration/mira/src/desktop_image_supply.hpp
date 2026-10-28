@@ -1,5 +1,6 @@
 #pragma once
 #include "content_task_assessment.hpp"
+#include "content_visual_supply.hpp"
 #include "ime_text_input.hpp"
 #include "perception_content_evidence.hpp"
 #include "perception_semantics.hpp"
@@ -143,11 +144,18 @@ class DesktopImageTurn {
                                   const DesktopAtomToolset::Decorator &);
     void register_content_task_tool(mira::BuiltinToolRegistry &,
                                     const DesktopAtomToolset::Decorator &);
+    void maybe_supply_content_storyboard();
+    mira::Result<mira::JsonValue> publish_storyboard(const PerceptionView &,
+                                                     const std::vector<std::string> &,
+                                                     std::chrono::steady_clock::time_point,
+                                                     const desktop::CancelToken &,
+                                                     mira::JsonValue::Object extra = {});
     void bind_perception(std::shared_ptr<DesktopPerceptionFeed>);
     void sync_content_evidence(const PerceptionView &);
     std::shared_ptr<DesktopPerceptionFeed> perception_;
     PerceptionContentEvidence content_evidence_;
     ContentTaskAssessment content_task_;
+    ContentVisualSupply content_visual_;
     std::string content_scope_;
     std::optional<ContentEvidenceOffer> content_offer_;
     std::optional<mira::ModelRequestId> content_request_;

@@ -41,3 +41,7 @@ no_new_temporal_frames；只剩1张返回need_two_new_temporal_frames，不用�
 凭实际供图引用形成有界回答。时间分散、Completed供图和引用校验均不证明理解
 正确或看完整视频；[验收](../compatibility/observer-window-storyboard-20261028.md)
 保留真实视频/在线模型与播放器门禁。
+
+
+内容观看也可[声明自动供图](automatic-content-visual-supply.md)，在已有模型请求
+中按需使用该窗口策略，省去逐批调用本工具；仍不创建后台模型请求。

@@ -183,6 +183,7 @@ std::vector<mira::ModelInputItem> DesktopImageTurn::supply_perception() {
         {"semantic_scene", std::move(semantic_scene)},
         {"retained_visual_evidence", content_evidence_.project()},
         {"content_task", content_task_.project()},
+        {"content_visual_supply", content_task_.automatic() ? content_visual_.project() : Json{}},
         {"recent_read_context", Json{std::move(recent)}},
         {"events", Json{events}}}};
     perception_text_ =
@@ -241,6 +242,9 @@ void DesktopImageTurn::perception_consumed(const mira::ModelRequest &request,
                     if (!content_evidence_.consumed(*content_offer_))
                         continue;
                 }
+                if (const auto *automatic = metadata_.find("automatic_content_supply");
+                    automatic && automatic->as_boolean() == true)
+                    content_visual_.completed(Clock::now());
                 consumed_image_digest_ = image_->digest.to_string();
                 const auto *source = metadata_.find("source"), *id = metadata_.find("source_id");
                 if (perception_ && source && source->as_string() &&

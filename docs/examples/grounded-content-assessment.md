@@ -46,3 +46,7 @@
 
 也可使用[观察时间窗拼图](observer-window-storyboard.md)一次选择最近窗口内的
 未消费帧，免去手选frame_id；仍需实际完成供图后才能使用content_ref评估。
+
+
+[自动供图](automatic-content-visual-supply.md)可通过begin的auto_storyboard=true
+省去内容取图工具往返；5秒门禁、完成评估后停止，原默认手动流程保持。

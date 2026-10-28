@@ -1,4 +1,5 @@
 #include "../../integration/mira/src/content_task_assessment.hpp"
+#include "../../integration/mira/src/content_visual_supply.hpp"
 #include "../../integration/mira/src/perception_storyboard.hpp"
 #include "../../integration/mira/src/perception_temporal_selection.hpp"
 #include <algorithm>
@@ -288,6 +289,41 @@ void content_assessment_contract() {
     check(!escaped.references(owner).as_array()->empty());
     check(mira::to_json_string(escaped.references(owner)).size() <= 1024);
 }
+void automatic_supply_gate() {
+    using namespace std::chrono_literals;
+    detail::ContentVisualSupply gate;
+    const auto now = Clock::now();
+    check(gate.ready(now));
+    gate.attempted(now);
+    check(!gate.ready(now + 4999ms) && gate.ready(now + 5s));
+    gate.completed(now + 3s);
+    check(!gate.ready(now + 7999ms) && gate.ready(now + 8s));
+    check(gate.project(now + 4s).find("retry_after_ms")->as_integer() == 4000);
+    gate.completed(now + 1s); // completion cannot shorten a prior admission deadline
+    check(!gate.ready(now + 7s));
+    gate.reset();
+    check(gate.ready(now));
+    gate.failed(123);
+    check(gate.project().find("failure_code")->as_integer() == 123);
+    check(mira::to_json_string(gate.project()).size() <= 256);
+    gate.reason("cooldown");
+    check(!gate.project().find("failure_code")->as_integer());
+    Fixture f;
+    detail::PerceptionContentEvidence ledger;
+    ledger.sync(f.view);
+    detail::ContentTaskAssessment task;
+    check(task.begin("observed_samples", false, ledger, true) && task.wants_images());
+    check(!task.begin("observed_samples", false, ledger, false));
+    check(task.begin("observed_samples", false, ledger, true));
+    check(task.assess("insufficient", "", "sparse", {}, ledger, "owner").empty());
+    check(!task.wants_images());
+    ++f.view.dropped;
+    ledger.sync(f.view);
+    task.sync(ledger, "owner");
+    check(task.interrupted() && !task.wants_images());
+    check(task.begin("observed_samples", false, ledger, true) && task.wants_images());
+    check(mira::to_json_string(task.project()).size() <= 512);
+}
 void temporal_window_selection() {
     using namespace std::chrono_literals;
     struct TemporalFixture {
@@ -493,6 +529,7 @@ int main() {
     try {
         delivered_evidence_window_and_barriers();
         content_assessment_contract();
+        automatic_supply_gate();
         temporal_window_selection();
         pixels_and_time();
         boundaries();

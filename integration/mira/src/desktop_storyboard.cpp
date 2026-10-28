@@ -101,44 +101,112 @@ void DesktopImageTurn::register_storyboard_tool(mira::BuiltinToolRegistry &regis
                                  {"input_actionable", false}}};
             ids = selection.ids;
         }
-        const auto offer = content_evidence_.offer(view, ids, now);
-        auto board = make_perception_storyboard(view, ids, now, bounded);
-        if (!board)
-            return board.error();
-        if (board.value().image.pixels.empty())
-            return Json{std::move(board.value().metadata)};
-        if (!offer)
-            return Json{Json::Object{{"available", false},
-                                     {"reason", "source_time_or_event_unavailable"},
-                                     {"input_actionable", false}}};
+        Json::Object extra;
         if (window) {
-            auto &meta = board.value().metadata;
+            auto &meta = extra;
             meta.emplace_back("selection", "observer_window_maximin");
             meta.emplace_back("window_ms", interval.count());
             meta.emplace_back("eligible_frames", static_cast<std::int64_t>(selection.eligible));
             meta.emplace_back("selected_frames", static_cast<std::int64_t>(ids.size()));
         }
-        for (auto &[key, value] : board.value().metadata)
-            if (key == "tiles") {
-                auto tiles = *value.as_array();
-                for (auto &tile : tiles)
-                    for (const auto &sample : offer->samples)
-                        if (*tile.find("frame_id")->as_string() == sample.frame_id)
-                            tile.set("content_ref", PerceptionContentEvidence::reference(
-                                                        content_scope_, *offer, sample));
-                value = Json{std::move(tiles)};
-            }
-        auto published = publish_image(
-            board.value().image, {0, 0, board.value().image.width, board.value().image.height},
-            "storyboard", "retained_event_frames", desktop_.actions->epoch(), now, bounded,
-            std::move(board.value().metadata));
-        if (published)
-            content_offer_ = *offer;
-        return published;
+        return publish_storyboard(view, ids, now, bounded, std::move(extra));
     };
     if (decorate)
         handler = decorate(spec.wire_name, std::move(handler));
     if (!registry.register_tool(std::move(spec), std::move(handler)))
         throw std::logic_error("storyboard registration failed");
+}
+mira::Result<mira::JsonValue> DesktopImageTurn::publish_storyboard(
+    const PerceptionView &view, const std::vector<std::string> &ids,
+    std::chrono::steady_clock::time_point now, const desktop::CancelToken &bounded,
+    mira::JsonValue::Object extra) {
+    using Json = mira::JsonValue;
+    const auto offer = content_evidence_.offer(view, ids, now);
+    auto board = make_perception_storyboard(view, ids, now, bounded);
+    if (!board)
+        return board.error();
+    if (board.value().image.pixels.empty())
+        return Json{std::move(board.value().metadata)};
+    if (!offer)
+        return Json{Json::Object{{"available", false},
+                                 {"reason", "source_time_or_event_unavailable"},
+                                 {"input_actionable", false}}};
+    for (auto &field : extra)
+        board.value().metadata.push_back(std::move(field));
+    for (auto &[key, value] : board.value().metadata)
+        if (key == "tiles") {
+            auto tiles = *value.as_array();
+            for (auto &tile : tiles)
+                for (const auto &sample : offer->samples)
+                    if (*tile.find("frame_id")->as_string() == sample.frame_id)
+                        tile.set("content_ref", PerceptionContentEvidence::reference(
+                                                    content_scope_, *offer, sample));
+            value = Json{std::move(tiles)};
+        }
+    auto published = publish_image(board.value().image,
+                                   {0, 0, board.value().image.width, board.value().image.height},
+                                   "storyboard", "retained_event_frames", desktop_.actions->epoch(),
+                                   now, bounded, std::move(board.value().metadata));
+    if (published)
+        content_offer_ = *offer;
+    return published;
+}
+void DesktopImageTurn::maybe_supply_content_storyboard() {
+    using Json = mira::JsonValue;
+    using Clock = std::chrono::steady_clock;
+    const auto now = Clock::now();
+    if (!content_task_.automatic())
+        return;
+    if (!perception_) {
+        content_visual_.reason("no_resident_feed");
+        return;
+    }
+    const auto view = perception_->view();
+    sync_content_evidence(view);
+    if (!content_task_.wants_images()) {
+        content_visual_.reason("assessed_or_interrupted");
+        return;
+    }
+    if (!supply_images_ || withhold_image_) {
+        content_visual_.reason("images_disabled_or_text_step");
+        return;
+    }
+    if (image_ && consumed_image_digest_ != image_->digest.to_string()) {
+        content_visual_.reason("image_pending");
+        return; // retry the same PNG, explicit pictures first
+    }
+    const auto remaining = budget_remaining_ ? budget_remaining_() : std::nullopt;
+    if (remaining && *remaining <= 10000) {
+        content_visual_.reason("context_budget_low");
+        return;
+    }
+    if (!content_visual_.ready(now)) {
+        content_visual_.reason("cooldown");
+        return;
+    }
+    content_visual_.attempted(now);
+    const desktop::CancelToken bounded{
+        [this, now] { return cancel_.cancelled() || Clock::now() - now >= acquire_budget_; }};
+    const auto selected = select_temporal_frames(view, content_evidence_, content_scope_,
+                                                 std::chrono::seconds{30}, 4, now, bounded);
+    if (!selected.reason.empty()) {
+        content_visual_.reason(selected.reason.c_str());
+        return;
+    }
+    auto published = publish_storyboard(
+        view, selected.ids, now, bounded,
+        Json::Object{{"selection", "observer_window_maximin"},
+                     {"window_ms", 30000},
+                     {"eligible_frames", static_cast<std::int64_t>(selected.eligible)},
+                     {"selected_frames", static_cast<std::int64_t>(selected.ids.size())},
+                     {"automatic_content_supply", true},
+                     {"input_references_retired", true}});
+    if (!published) {
+        content_visual_.failed(static_cast<std::int64_t>(published.error().code));
+        return;
+    }
+    const auto *available = published.value().find("available");
+    content_visual_.reason(available && available->as_boolean() == true ? "offered"
+                                                                        : "preview_unavailable");
 }
 } // namespace mirage::integration::detail

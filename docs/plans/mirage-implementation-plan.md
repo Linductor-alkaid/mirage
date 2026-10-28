@@ -10,9 +10,14 @@ native-release 与 DEB 交付完成；Release 120/120、真实推理与包校验
 > 版本：0.1
 > 负责人：Mirage 维护者
 > 依据：[《Mirage：Linux - Windows 桌面端设计方案》](../design/Mirage：Linux%20-%20Windows%20桌面端设计方案.md)（下称"设计文档"）
-> 更新日期：2026-10-28（M9 Linux分层视觉生产配置；其他里程碑门禁保留）
+> 更新日期：2026-10-29（M9 Linux分层视觉生产配置；其他里程碑门禁保留）
 
 ## 当前状态
+
+2026-10-29：[DEC-135](../decisions/DEC-135-content-automatic-visual-supply.md)让已声明
+内容任务在既有模型请求中自动拿到低清拼图，减少显式取图工具往返；5秒门禁、
+消费去重及评估/预算/来源停止，原手动模式兼容。受控对照与最终矩阵见
+[验收](../compatibility/automatic-content-visual-supply-20261029.md)，真实模型/视频/成本门禁保留。
 
 2026-10-28（M9-30第三增量）：[DEC-134](../decisions/DEC-134-observer-window-storyboard-selection.md)
 新增观察时间窗拼图选帧，保留原显式ID模式；2–4张未消费帧按时间分散，不额外采集/
@@ -708,6 +713,7 @@ Executor 由 pinned `third_party/mira/third_party/executor` 提供，能力路�
 | 编号 | 主题 | 暂定默认值 | 负责人 | 最迟冻结 |
 | --- | --- | --- | --- | --- |
 | DEC-129 | 对象版本任务注意 | [DEC-129](../decisions/DEC-129-versioned-task-attention.md)：focus按已完成请求的对象版本跟随；失效恢复全局并返回原因；显式多目标由DEC-131承接，自动语义层仍开放 | Mirage维护者 | M9-29首增量；完整退出按专项计划 |
+| DEC-135 | 内容任务自动供图 | [DEC-135](../decisions/DEC-135-content-automatic-visual-supply.md)：显式开启，既有请求自动附缓存稀疏图，5秒门禁与评估停止；不增加采样/后台推理，真实收益待验 | Mirage维护者 | M9-30/29增量；播放器/真实内容门禁保留 |
 | DEC-134 | 观察时间窗拼图选帧 | [DEC-134](../decisions/DEC-134-observer-window-storyboard-selection.md)：现有缓存选2–4未消费帧，最早/最新加最远时刻；时间分散非语义覆盖，原ID模式兼容 | Mirage维护者 | M9-30第三增量；真实内容/播放器门禁保留 |
 | DEC-133 | 显式内容评估与完成门禁 | [DEC-133](../decisions/DEC-133-grounded-content-task-assessment.md)：不可降级范围、实际供图引用、片段评估收口；完整视频/声音不足失败，语义正确性未验证 | Mirage维护者 | M9-30第二增量；播放器/真实内容验收继续开放 |
 | DEC-132 | 已完成供图时间证据账 | [DEC-132](../decisions/DEC-132-delivered-visual-evidence-ledger.md)：32样本元数据，实际请求/工件/来源绑定，稀疏时间和中断，不作完整视频声明 | Mirage维护者 | M9-30证据首增量；内容/播放器验收继续开放 |

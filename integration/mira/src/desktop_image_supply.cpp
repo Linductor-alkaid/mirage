@@ -1304,7 +1304,13 @@ DesktopImageTurn::supply(const mira::AgentLoopSpec &spec) {
         native_failed_ = true;
         clear();
     }
+    if (perception_)
+        sync_content_evidence(perception_->view());
+    if (content_offer_ && !content_evidence_.current(*content_offer_))
+        clear();
+    maybe_supply_content_storyboard();
     auto additions = supply_perception();
+    // The source may change while a cached board is packaged or the summary is read.
     if (content_offer_ && !content_evidence_.current(*content_offer_))
         clear();
     if (const auto *epoch = metadata_.find("storyboard_source_epoch");

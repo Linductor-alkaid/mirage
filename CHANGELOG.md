@@ -14,6 +14,13 @@
 
 ### 功能
 
+- DEC-135：内容begin可用auto_storyboard=true，让既有模型请求按需携带缓存低清
+  拼图，省去取图工具往返；5秒门禁、完成评估/中断停止、低预算与显式待图优先。
+  原手动流程兼容，后台CV/识别不降频、不新增模型请求；自动供图会退役旧输入
+  引用。受控两帧模型请求4→3、取图工具1→0、图片数不变，见
+  [示例](docs/examples/automatic-content-visual-supply.md)与
+  [验收](docs/compatibility/automatic-content-visual-supply-20261029.md)。真实在线收益待验。
+
 - DEC-134：storyboard 1.1.0新增window_ms与可选max_frames，从现有缓存选择
   2–4张未消费帧，按观察时间分散为一张拼图；原frame_ids模式保持。失败/预算
   扣留可重试，完成供图后即使ACK失败也不重复选择。没有新增采集或模型请求。

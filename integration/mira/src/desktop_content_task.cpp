@@ -13,11 +13,16 @@ void DesktopImageTurn::register_content_task_tool(mira::BuiltinToolRegistry &reg
     using Json = mira::JsonValue;
     mira::BuiltinToolSpec spec;
     spec.wire_name = "desktop.vision.content";
-    spec.version = {1, 0, 0};
+    spec.version = {1, 1, 0};
     spec.description =
         "Declare and assess a content-watching task. begin requires scope observed_samples or "
         "entire_video and requires_audio boolean; declare the user's actual requirement, not a "
-        "weaker substitute. Scope cannot be downgraded this turn. After actual frame/storyboard "
+        "weaker substitute. Optional auto_storyboard=true supplies low-resolution temporal "
+        "images in existing model requests without capture/storyboard tool calls, at most once "
+        "per 5 seconds, stopping after assessment. Default false keeps manual supply. Automatic "
+        "publication retires earlier image/input references; later input needs fresh capture. "
+        "Pending explicit pictures take priority. Scope/audio/auto mode cannot change this turn. "
+        "After actual frame/storyboard "
         "input, assess with verdict answerable or insufficient, answer (<=1024 bytes), nonempty "
         "limitations (<=512 bytes) and evidence_refs (0-4 content_ref tokens). Only delivered "
         "current-segment references count. Full-video/audio evidence is currently unavailable: "
@@ -38,6 +43,7 @@ void DesktopImageTurn::register_content_task_tool(mira::BuiltinToolRegistry &reg
              {"action", string},
              {"scope", string},
              {"requires_audio", Json{Json::Object{{"type", "boolean"}}}},
+             {"auto_storyboard", Json{Json::Object{{"type", "boolean"}}}},
              {"verdict", string},
              {"answer", Json{Json::Object{{"type", "string"}, {"maxLength", 1024}}}},
              {"limitations",
@@ -61,6 +67,8 @@ void DesktopImageTurn::register_content_task_tool(mira::BuiltinToolRegistry &reg
                 Json::Object{{"applied", applied},
                              {"reason", reason},
                              {"content_task", content_task_.project()},
+                             {"automatic_supply",
+                              content_task_.automatic() ? content_visual_.project() : Json{}},
                              {"available_refs", content_evidence_.references(content_scope_)},
                              {"verified", false},
                              {"input_actionable", false}}};
@@ -75,12 +83,18 @@ void DesktopImageTurn::register_content_task_tool(mira::BuiltinToolRegistry &reg
             return result(args.as_object()->size() == 1,
                           args.as_object()->size() == 1 ? "status" : "invalid_argument");
         if (*action->as_string() == "begin") {
-            const auto *scope = args.find("scope"), *audio = args.find("requires_audio");
-            if (args.as_object()->size() != 3 || !scope || !scope->as_string() || !audio ||
-                !audio->as_boolean())
+            const auto *scope = args.find("scope"), *audio = args.find("requires_audio"),
+                       *automatic = args.find("auto_storyboard");
+            if (args.as_object()->size() != (automatic ? 4u : 3u) || !scope ||
+                !scope->as_string() || !audio || !audio->as_boolean() ||
+                (automatic && !automatic->as_boolean()))
                 return result(false, "invalid_argument");
+            const bool restart = !content_task_.active() || content_task_.interrupted();
             const bool applied =
-                content_task_.begin(*scope->as_string(), *audio->as_boolean(), content_evidence_);
+                content_task_.begin(*scope->as_string(), *audio->as_boolean(), content_evidence_,
+                                    automatic && *automatic->as_boolean());
+            if (applied && restart)
+                content_visual_.reset();
             return result(applied, applied ? "content_task_started" : "invalid_or_changed_goal");
         }
         if (*action->as_string() != "assess")
