@@ -206,7 +206,7 @@ struct AtspiBackend::Impl {
     std::map<std::string, AtspiAccessible *> registry;
 
     std::uint64_t snapshot_generation = 0;
-    std::string snapshot_scope;
+    std::string snapshot_scope, snapshot_window;
 
     void clear_registry() {
         for (auto &[ref, object] : registry) {
@@ -540,8 +540,25 @@ SnapshotOutcome AtspiBackend::semantic_snapshot(const std::string &window_id,
         outcome.error = error("invalid_argument", "window id must not be empty");
         return outcome;
     }
-    if (!limits.subtree_ref.empty() && limits.subtree_ref.rfind("@e", 0) != 0) {
-        outcome.error = error("invalid_argument", "subtree ref must be a snapshot @e handle");
+    const auto valid_ref = [](const std::string &ref) {
+        return ref.size() > 2 && ref.size() <= 32 && ref.starts_with("@e") &&
+               std::all_of(ref.begin() + 2, ref.end(),
+                           [](unsigned char c) { return c >= '0' && c <= '9'; });
+    };
+    if ((!limits.subtree_ref.empty() && !valid_ref(limits.subtree_ref)) ||
+        limits.subtree_refs.size() > 4 ||
+        (!limits.subtree_refs.empty() &&
+         (!limits.subtree_ref.empty() || limits.base_scope.empty())) ||
+        std::any_of(limits.subtree_refs.begin(), limits.subtree_refs.end(),
+                    [&](const auto &ref) { return !valid_ref(ref); })) {
+        outcome.error = error("invalid_argument", "invalid subtree roots or missing base_scope");
+        return outcome;
+    }
+    if ((!limits.base_scope.empty() && limits.base_scope != impl_->snapshot_scope) ||
+        ((!limits.subtree_ref.empty() || !limits.subtree_refs.empty()) &&
+         window_id != impl_->snapshot_window)) {
+        outcome.error =
+            error("stale_observation", "subtree scope/window changed; refresh snapshot");
         return outcome;
     }
     // Map the opaque window id to a title via the environment's window
@@ -602,21 +619,53 @@ SnapshotOutcome AtspiBackend::semantic_snapshot(const std::string &window_id,
         return outcome;
     }
     auto [application_name, window_object] = *found;
-    // A scoped snapshot (DEC-118) collects the subtree of a node from the
-    // most recent snapshot instead of the whole window. The registry owns
-    // its references, so the node stays alive under the backend mutex.
-    AtspiAccessible *root = window_object;
-    if (!limits.subtree_ref.empty()) {
-        const auto entry = impl_->registry.find(limits.subtree_ref);
-        if (entry == impl_->registry.end()) {
-            outcome.error = error("not_found", "subtree ref is from an older snapshot; "
-                                               "take a fresh semantic snapshot");
+    // Resolve all roots before replacing the one-generation action registry.
+    std::vector<std::string> roots = limits.subtree_refs;
+    if (!limits.subtree_ref.empty())
+        roots.push_back(limits.subtree_ref);
+    for (std::size_t i = 0; i < roots.size(); ++i) {
+        if (std::find(roots.begin(), roots.begin() + i, roots[i]) != roots.begin() + i) {
+            impl_->adopt(window_object);
+            outcome.error = error("invalid_argument", "duplicate subtree root");
             return outcome;
         }
-        root = entry->second;
+        if (!impl_->registry.contains(roots[i])) {
+            impl_->adopt(window_object);
+            outcome.error =
+                error("not_found",
+                      "subtree ref is from an older snapshot; take a fresh semantic snapshot");
+            return outcome;
+        }
     }
     std::vector<AtspiAccessible *> objects;
-    auto nodes = impl_->collect_tree(root, limits.max_nodes, limits.max_depth, objects, cancel);
+    std::optional<std::vector<SemanticNode>> nodes{std::in_place};
+    if (roots.empty()) {
+        nodes =
+            impl_->collect_tree(window_object, limits.max_nodes, limits.max_depth, objects, cancel);
+    } else {
+        impl_->adopt(window_object);
+        for (const auto &ref : roots) {
+            std::vector<AtspiAccessible *> local_objects;
+            // collect_tree takes ownership; the old registry retains its own ref
+            // until all subtrees have succeeded, including refusal/cancellation.
+            auto *root = static_cast<AtspiAccessible *>(g_object_ref(impl_->registry.at(ref)));
+            auto local = impl_->collect_tree(root, limits.max_nodes - nodes->size(),
+                                             limits.max_depth, local_objects, cancel);
+            if (!local) {
+                impl_->adopt_all(objects);
+                nodes.reset();
+                break;
+            }
+            const auto offset = nodes->size();
+            for (auto &node : *local) {
+                node.ref = "@e" + std::to_string(nodes->size() + 1);
+                if (node.parent != mirage::desktop::kNoParent)
+                    node.parent += offset;
+                nodes->push_back(std::move(node));
+            }
+            objects.insert(objects.end(), local_objects.begin(), local_objects.end());
+        }
+    }
     if (!nodes.has_value()) {
         if (cancel.cancelled()) {
             outcome.cancelled = true;
@@ -643,6 +692,7 @@ SnapshotOutcome AtspiBackend::semantic_snapshot(const std::string &window_id,
     }
     impl_->snapshot_scope =
         "atspi:" + window_id + ":" + std::to_string(++impl_->snapshot_generation);
+    impl_->snapshot_window = window_id;
     outcome.scope = impl_->snapshot_scope;
     outcome.ok = true;
     outcome.snapshot.application = std::move(application_name);

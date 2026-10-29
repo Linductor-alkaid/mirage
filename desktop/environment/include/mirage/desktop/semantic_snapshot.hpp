@@ -66,6 +66,12 @@ struct SemanticSnapshotLimits {
     /// was issued for by the provider's most recent snapshot (the ref must
     /// still resolve; otherwise "not_found").
     std::string subtree_ref;
+    /// DEC-137: 1..4 roots from the same snapshot, expanded atomically under
+    /// the shared node budget. Mutually exclusive with subtree_ref. Requires
+    /// base_scope; returned refs belong only to the new snapshot.
+    std::vector<std::string> subtree_refs = {};
+    /// Optional generation guard for single-root expansion; required for batch.
+    std::string base_scope = {};
 };
 
 /// Outcome of one SemanticSnapshot generation.

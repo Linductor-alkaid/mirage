@@ -179,6 +179,55 @@ int main() {
         MIRAGE_CHECK(backend->semantic_snapshot(window_id, whole_ref, {}).error.code ==
                      "not_found");
 
+        // DEC-137: expand siblings atomically from one explicit generation.
+        const auto baseline = backend->semantic_snapshot(window_id, depth_two, {});
+        MIRAGE_CHECK(baseline.ok);
+        SemanticSnapshotLimits batch;
+        batch.subtree_refs = {"@e2", "@e3"};
+        batch.base_scope = baseline.scope;
+        auto refused = batch;
+        refused.max_nodes = 6; // combined subtrees contain seven nodes
+        MIRAGE_CHECK(backend->semantic_snapshot(window_id, refused, {}).error.code ==
+                     "snapshot_too_large");
+        refused = batch;
+        refused.subtree_refs = {"@e2", "@e2"};
+        MIRAGE_CHECK(backend->semantic_snapshot(window_id, refused, {}).error.code ==
+                     "invalid_argument");
+        refused = batch;
+        refused.base_scope.clear();
+        MIRAGE_CHECK(backend->semantic_snapshot(window_id, refused, {}).error.code ==
+                     "invalid_argument");
+        refused = batch;
+        refused.base_scope += "-old";
+        MIRAGE_CHECK(backend->semantic_snapshot(window_id, refused, {}).error.code ==
+                     "stale_observation");
+        refused = batch;
+        refused.subtree_refs.push_back("@e9");
+        MIRAGE_CHECK(backend->semantic_snapshot(window_id, refused, {}).error.code == "not_found");
+        int probes = 0;
+        mirage::desktop::CancelToken during_walk{[&] { return ++probes >= 4; }};
+        const auto cancelled_batch = backend->semantic_snapshot(window_id, batch, during_walk);
+        MIRAGE_CHECK(cancelled_batch.cancelled && cancelled_batch.error.code == "cancelled");
+        // All refusals/cancellation above must leave the baseline registry live.
+        const auto combined = backend->semantic_snapshot(window_id, batch, {});
+        MIRAGE_CHECK(combined.ok && combined.snapshot.nodes.size() == 7);
+        MIRAGE_CHECK(combined.scope != baseline.scope);
+        for (std::size_t n = 0; n < combined.snapshot.nodes.size(); ++n)
+            MIRAGE_CHECK(combined.snapshot.nodes[n].ref == "@e" + std::to_string(n + 1));
+        MIRAGE_CHECK(combined.snapshot.nodes[0].name == "sidebar");
+        MIRAGE_CHECK(combined.snapshot.nodes[3].name == "main");
+        MIRAGE_CHECK(combined.snapshot.nodes[3].parent == mirage::desktop::kNoParent);
+        MIRAGE_CHECK(combined.snapshot.nodes[4].parent == 3);
+        MIRAGE_CHECK(combined.snapshot.nodes[6].parent == 5);
+        MIRAGE_CHECK(backend->semantic_snapshot(window_id, batch, {}).error.code ==
+                     "stale_observation");
+        mirage::desktop::ElementTarget expired;
+        expired.reference.id = "@e2";
+        expired.snapshot_scope = baseline.scope;
+        MIRAGE_CHECK(backend->activate_element(expired, {}).error.code == "stale_observation");
+        expired.snapshot_scope = combined.scope;
+        MIRAGE_CHECK(backend->activate_element(expired, {}).ok);
+
         // d. Window rename: the AT-SPI window renames (page navigation) and the
         // provider reports the new id; the stale id still resolves through the
         // application-segment fallback.

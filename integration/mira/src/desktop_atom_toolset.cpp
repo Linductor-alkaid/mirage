@@ -788,6 +788,7 @@ AtomRegistration accessibility_semantic_snapshot(
     const mirage::desktop::CancelToken &cancel = {}, bool scoped = false) {
     AtomRegistration registration;
     registration.spec.wire_name = "desktop.accessibility.semantic_snapshot";
+    registration.spec.version = {1, 1, 0};
     registration.spec.description =
         "Takes the semantic snapshot (interactable element tree) of one window and returns it in "
         "the deterministic rendered form. The capture is accepted only while the target window "
@@ -795,7 +796,10 @@ AtomRegistration accessibility_semantic_snapshot(
         "call fails with stale_observation. Budget: 4096 nodes. Very large trees fail with "
         "snapshot_too_large: instead of falling back to screenshots, pass max_depth to collect "
         "the top levels first — frontier nodes render '(+N children)' and are expanded by a "
-        "follow-up call with subtree=@eN. Window ids embed the window title; when a page "
+        "follow-up call with subtree=@eN. Every successful snapshot replaces ALL old refs. "
+        "Prefer subtrees=[@eN,...] (1-4 roots) plus base_scope=backend_scope to expand siblings "
+        "together from one generation. Never reuse old siblings after a refresh. Window ids embed "
+        "the window title; when a page "
         "renames the window the id may stop resolving: re-run desktop.window.list. Never "
         "invent @e refs.";
     registration.spec.parameters_schema = mira::JsonSchema{object_schema(
@@ -804,7 +808,14 @@ AtomRegistration accessibility_semantic_snapshot(
                                       "Collect at most this many levels (1 = window node only); "
                                       "frontier nodes report (+N children)")},
          {"subtree", string_schema("Expand the subtree of an @eN node from the most recent "
-                                   "snapshot of this window")}},
+                                   "snapshot of this window")},
+         {"subtrees",
+          JsonValue{JsonValue::Object{{"type", "array"},
+                                      {"minItems", 1},
+                                      {"maxItems", 4},
+                                      {"items", string_schema("Same-generation @eN root")}}}},
+         {"base_scope",
+          string_schema("backend_scope that issued the subtree roots; required for subtrees")}},
         {"window_id"})};
     registration.handler = [&accessibility, feed, scoped,
                             cancel](const JsonValue &arguments,
@@ -831,6 +842,22 @@ AtomRegistration accessibility_semantic_snapshot(
                 return atom_error(ErrorCode::InvalidArgument, "subtree must be a snapshot @e ref");
             limits.subtree_ref = subtree;
         }
+        limits.base_scope = string_member(arguments, "base_scope");
+        if (const auto *roots = arguments.find("subtrees")) {
+            if (!accessibility.scoped_snapshots_supported() || !roots->as_array() ||
+                roots->as_array()->empty() || roots->as_array()->size() > 4 || !subtree.empty() ||
+                limits.base_scope.empty())
+                return atom_error(ErrorCode::InvalidArgument,
+                                  "invalid batch subtrees or missing base_scope");
+            for (const auto &root : *roots->as_array()) {
+                if (!root.as_string() || root.as_string()->size() > 32 ||
+                    !root.as_string()->starts_with("@e"))
+                    return atom_error(ErrorCode::InvalidArgument, "invalid subtree ref");
+                limits.subtree_refs.push_back(*root.as_string());
+            }
+        }
+        if (!limits.base_scope.empty() && !accessibility.scoped_snapshots_supported())
+            return atom_error(ErrorCode::InvalidArgument, "scoped snapshots unsupported");
         const auto outcome =
             accessibility.semantic_snapshot(string_member(arguments, "window_id"), limits, cancel);
         if (!outcome.ok) {
@@ -849,7 +876,7 @@ AtomRegistration accessibility_semantic_snapshot(
             truncated = true;
         }
         JsonValue::Object result;
-        if (scoped)
+        if (scoped || !outcome.scope.empty())
             result.emplace_back("backend_scope", json_string(outcome.scope));
         result.emplace_back("application", json_string(outcome.snapshot.application));
         result.emplace_back("window_title", json_string(outcome.snapshot.window_title));

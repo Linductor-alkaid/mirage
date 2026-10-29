@@ -107,8 +107,10 @@ void scenario_catalog_reports_what_the_environment_delivers() {
     }
     MIRAGE_CHECK(sorted);
     for (const auto &atom : atoms) {
-        MIRAGE_CHECK(atom.version ==
-                     (atom.wire_name == "desktop.input.type_text" ? "4.0.0" : "1.0.0"));
+        MIRAGE_CHECK(atom.version == (atom.wire_name == "desktop.input.type_text" ? "4.0.0"
+                                      : atom.wire_name == "desktop.accessibility.semantic_snapshot"
+                                          ? "1.1.0"
+                                          : "1.0.0"));
         MIRAGE_CHECK(!atom.description.empty());
         const auto schema = mira::parse_json(atom.parameters_schema_json);
         MIRAGE_CHECK(schema.has_value());
@@ -344,6 +346,14 @@ void scenario_snapshot_atom_renders_the_semantic_tree() {
                          "platform backend does not support scoped semantic snapshots") !=
                      std::string::npos);
     }
+
+    const auto batch_unsupported =
+        dispatch(*toolset->registry(), "desktop.accessibility.semantic_snapshot",
+                 arguments({{"window_id", mira::JsonValue{"w1"}},
+                            {"subtrees", mira::JsonValue{mira::JsonValue::Array{"@e1", "@e2"}}},
+                            {"base_scope", mira::JsonValue{"old-generation"}}}),
+                 mira::make_control_context());
+    MIRAGE_CHECK(batch_unsupported.has_value() && batch_unsupported.value().failed);
 
     // A window without a tree surfaces the provider's stable refusal.
     const auto unsupported =
