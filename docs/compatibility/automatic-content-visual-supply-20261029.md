@@ -6,6 +6,12 @@
 > 决策：[DEC-135](../decisions/DEC-135-content-automatic-visual-supply.md)
 > 基线提交：0aa833b
 
+> 后续审计（2026-10-29夜间）：本记录的构建命令只覆盖独立mirage-service与
+> mirage-native，遗漏DEC-045中实际承载RuntimeService的mirage-tray。最新产品
+> 会话未调用新内容路径，托盘产物仍为10月27日旧版本；本轮已补构建，不能反推
+> 旧会话已使用新代码。组件测试结论保留，产品运行/真实收益需重新取证，见
+> [同类会话复盘](../analysis/m9-video-session-comparison-20261029.md)。
+
 ## 范围与受控对比
 
 content 1.1.0的begin可用auto_storyboard=true显式启用；省略/false保持原手动模式。
