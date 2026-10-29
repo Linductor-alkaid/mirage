@@ -171,6 +171,9 @@ struct DesktopToolContext {
     /// exec preview-only; when set, exec admits retention before spawn and
     /// read resolves output_ref arguments through it.
     BasicOutputRetention *output_retention = nullptr;
+    /// DEC-137: product requires explicit navigation/content purpose before
+    /// desktop observation/actions. Embeddings retain the legacy opt-in API.
+    bool require_task_purpose = false;
 };
 
 } // namespace mirage::integration

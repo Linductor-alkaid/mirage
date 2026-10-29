@@ -265,7 +265,6 @@ void DesktopImageTurn::register_perception_tool(mira::BuiltinToolRegistry &regis
                                                 const DesktopAtomToolset::Decorator &decorate) {
     if (!desktop_.continuous_session)
         return;
-    register_content_task_tool(registry, decorate);
     register_annotation_tool(registry, decorate);
     mira::BuiltinToolSpec wait;
     wait.wire_name = "desktop.vision.wait";

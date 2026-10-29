@@ -198,9 +198,13 @@ void DesktopImageTurn::clear() {
 void DesktopImageTurn::register_tool(mira::BuiltinToolRegistry &registry,
                                      const DesktopAtomToolset::Decorator &decorate,
                                      bool allow_mutations) {
+    if (desktop_.require_task_purpose)
+        register_content_task_tool(registry, decorate);
     if (!desktop_.environment || !desktop_.environment->screen() || !desktop_.actions ||
         (!desktop_.gate && !desktop_.authorize))
         return;
+    if (desktop_.continuous_session && !desktop_.require_task_purpose)
+        register_content_task_tool(registry, decorate);
     register_perception_tool(registry, decorate);
     const bool observation_only = desktop_.environment->screen()->desktop_observation_only();
     if (observation_only)

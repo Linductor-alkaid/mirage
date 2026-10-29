@@ -986,7 +986,8 @@ DialogCompletion ModelLayer::complete_harness_turn(
     const auto screen_capability = turn_desktop.environment
                                        ? turn_desktop.environment->screen_capability()
                                        : mirage::desktop::ScreenCapability::Unavailable;
-    bool tools_attempted = false;
+    bool tools_attempted = false, desktop_task_used = false;
+    std::unique_ptr<detail::DesktopImageTurn> image_turn;
     auto finish = [&] {
         const auto input_error = controlled_input.finish();
         if (!input_error.code.empty()) {
@@ -1013,16 +1014,41 @@ DialogCompletion ModelLayer::complete_harness_turn(
     const DesktopAtomToolset::Decorator decorate = [&capture, &verification, &controlled_input,
                                                     &tracker = impl_->failure_tracker, session_key,
                                                     screen_capability, &tools_attempted,
+                                                    &image_turn, &desktop_task_used,
                                                     &desktop_context = turn_desktop,
                                                     cancel](const std::string &name,
                                                             mira::BuiltinToolHandler handler) {
         return [name, handler = std::move(handler), &capture, &verification, &controlled_input,
-                &tracker, session_key, screen_capability, &tools_attempted, &desktop_context,
+                &tracker, session_key, screen_capability, &tools_attempted, &image_turn,
+                &desktop_task_used, &desktop_context,
                 cancel](const auto &arguments, const auto &ctx) -> mira::Result<mira::JsonValue> {
             tools_attempted = true;
+            const bool release = name == "desktop.input_session.release" ||
+                                 name == "desktop.window_switch.release" ||
+                                 name == "desktop.input_session.observe" ||
+                                 name == "desktop.window_switch.observe";
+            if (name.starts_with("desktop.") && !release)
+                desktop_task_used = true;
             bool refused = false;
             auto *part = capture.start_tool(name);
             auto result = [&]() -> mira::Result<mira::JsonValue> {
+                if (desktop_context.require_task_purpose && name.starts_with("desktop.") &&
+                    !release && name != "desktop.vision.content" &&
+                    name != "desktop.application.list" && name != "desktop.window.list" &&
+                    name != "desktop.window.front" &&
+                    (!image_turn || !image_turn->task_purpose_declared())) {
+                    refused = true; // A policy refusal is not a backend failure/retry signal.
+                    mira::Error error;
+                    error.code =
+                        cancel.cancelled() || ctx.cancelled_or_expired(mira::Timestamp::now())
+                            ? mira::ErrorCode::Cancelled
+                            : mira::ErrorCode::InvalidArgument;
+                    error.safe_message =
+                        "task_purpose_required: call desktop.vision.content with action=navigation "
+                        "for navigation only, or action=begin with actual content scope before "
+                        "observing/acting";
+                    return error;
+                }
                 if (auto blocked = (name == "desktop.input_session.release" ||
                                     name == "desktop.input_session.observe" ||
                                     name == "desktop.window_switch.release" ||
@@ -1090,7 +1116,6 @@ DialogCompletion ModelLayer::complete_harness_turn(
     }
     if (tools_allowed)
         verification.register_tool(*registry, decorate);
-    std::unique_ptr<detail::DesktopImageTurn> image_turn;
     const bool native_ocr = turn_desktop.ocr_image && turn_desktop.environment &&
                             turn_desktop.environment->screen() &&
                             turn_desktop.environment->screen()->desktop_observation_only();
@@ -1098,7 +1123,7 @@ DialogCompletion ModelLayer::complete_harness_turn(
     // capability at all, capture-dependent tools are not registered instead
     // of being exposed to fail at every call.
     const bool screen_usable = screen_capability != mirage::desktop::ScreenCapability::Unavailable;
-    if ((impl_->images && screen_usable) || native_ocr) {
+    if ((impl_->images && screen_usable) || native_ocr || turn_desktop.require_task_purpose) {
         auto source =
             impl_->images ? impl_->images : std::make_shared<detail::DesktopImageSource>();
         image_turn = std::make_unique<detail::DesktopImageTurn>(source, turn_desktop, turn_context,
@@ -1465,6 +1490,16 @@ DialogCompletion ModelLayer::complete_harness_turn(
             "moving the pointer does not mean a click was sent. Use desktop.vision.wait for "
             "a local event subscription when waiting for desktop progress, rather than repeated "
             "wait/capture/model cycles.\n";
+    if (turn_desktop.require_task_purpose && image_turn)
+        spec.goal +=
+            "\nBefore desktop observation/actions declare purpose using desktop.vision.content: "
+            "action=navigation for finding/opening/operating only; action=begin for watching, "
+            "summarizing or answering content questions, with actual scope/requires_audio. "
+            "Product content default auto_storyboard=true. Do not downgrade the user's goal. "
+            "Discovery lists can precede declaration. Navigation is never evidence of watching. "
+            "A missing declaration prevents successful completion. A content declaration requires "
+            "delivered images and assessment. Batch sibling semantic expansions using subtrees "
+            "and the source backend_scope as base_scope; every snapshot retires ALL old refs.\n";
     if (image_turn && turn_desktop.continuous_session)
         spec.goal +=
             "\nSignificance gating (DEC-118): the observer heuristically suppresses repeated "
@@ -1809,6 +1844,18 @@ DialogCompletion ModelLayer::complete_harness_turn(
             mira::ModelResponse response;
             response.usage = value.last_usage;
             capture_context_usage(completion, response, impl_->config, capture.last_input_estimate);
+        }
+    }
+    // DEC-137: required purpose is a product evidence contract, not intent inference.
+    if (!completion.cancelled && turn_desktop.require_task_purpose && desktop_task_used) {
+        if (!image_turn || !image_turn->task_purpose_declared()) {
+            completion.ok = false;
+            completion.failed = true;
+            completion.error = "桌面任务未完成：尚未声明导航或内容观察用途。";
+            completion.reply_text = completion.error;
+        } else if (completion.ok && image_turn->navigation_task()) {
+            completion.reply_text =
+                "已按仅导航/交互范围收口；这不证明观看或理解内容。模型说明：\n\n" + value.answer;
         }
     }
     // DEC-133: keep the Mira loop/lifecycle intact; apply the product's domain

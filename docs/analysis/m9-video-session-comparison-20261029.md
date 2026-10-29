@@ -194,3 +194,10 @@ click行不计入已证明的实际工具失败数。
 等待的实际采用，最后做相同模型/起点的调用数、质量与成本对照。M9-29/30/33仍
 In Progress。本次只读核对会话、进程和源码，未改生产代码、重启服务或重放任务。
 脱敏数据已追加到同一JSON；校验记录在out/m9-video-session-followup-20261029-2254。
+
+### 2026-10-30 修复跟进
+
+[DEC-137](../decisions/DEC-137-session-evidence-and-task-purpose.md)已将预算冻结条件
+转为回归，并实现统一预算收敛、同代多子树批量展开和生产用途声明/默认内容供图。
+[修复验收](../compatibility/session-evidence-and-task-purpose-20261030.md)记录实际结果。
+它不改变以上历史会话事实，也不能替代新产品进程的自然任务效果对照。

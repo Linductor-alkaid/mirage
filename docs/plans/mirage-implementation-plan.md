@@ -14,6 +14,11 @@ native-release 与 DEB 交付完成；Release 120/120、真实推理与包校验
 
 ## 当前状态
 
+2026-10-30：[DEC-137](../decisions/DEC-137-session-evidence-and-task-purpose.md)修复最新
+会话暴露的投影分类预算、同代子树展开与产品用途声明；复用完整产品构建目标。
+本机修复与完整产品构建完成；[验收](../compatibility/session-evidence-and-task-purpose-20261030.md)
+记录完整矩阵及顺序补验后的五配置专项各9/9。M9-29/30/33真实内容/收益门禁保持开放。
+
 2026-10-29（22:54复测）：[同类视频会话后续](../analysis/m9-video-session-comparison-20261029.md)
 已核对新托盘实际映像；宿主ok，但模型计时74次、capture计时41次。过程快照只保留
 早期片段，不能按可见工具行推断全程；优先复现投影预算/拒收，再验内容路径采用。
@@ -728,6 +733,7 @@ Executor 由 pinned `third_party/mira/third_party/executor` 提供，能力路�
 | 编号 | 主题 | 暂定默认值 | 负责人 | 最迟冻结 |
 | --- | --- | --- | --- | --- |
 | DEC-129 | 对象版本任务注意 | [DEC-129](../decisions/DEC-129-versioned-task-attention.md)：focus按已完成请求的对象版本跟随；失效恢复全局并返回原因；显式多目标由DEC-131承接，自动语义层仍开放 | Mirage维护者 | M9-29首增量；完整退出按专项计划 |
+| DEC-137 | 会话证据与用途声明 | [DEC-137](../decisions/DEC-137-session-evidence-and-task-purpose.md)：分类预算持续收敛、同代多子树、生产用途声明与内容默认自动供图 | Mirage维护者 | 本轮修复；真实意图/内容收益待验 |
 | DEC-136 | 内容可供图等待 | [DEC-136](../decisions/DEC-136-content-ready-wait.md)：同次有限工具调用合并明确媒体帧唤醒，冷却/2帧就绪、非媒体/失效优先；原ACK/event兼容 | Mirage维护者 | M9-30/29增量；真实内容/收益待验 |
 | DEC-135 | 内容任务自动供图 | [DEC-135](../decisions/DEC-135-content-automatic-visual-supply.md)：显式开启，既有请求自动附缓存稀疏图，5秒门禁与评估停止；不增加采样/后台推理，真实收益待验 | Mirage维护者 | M9-30/29增量；播放器/真实内容门禁保留 |
 | DEC-134 | 观察时间窗拼图选帧 | [DEC-134](../decisions/DEC-134-observer-window-storyboard-selection.md)：现有缓存选2–4未消费帧，最早/最新加最远时刻；时间分散非语义覆盖，原ID模式兼容 | Mirage维护者 | M9-30第三增量；真实内容/播放器门禁保留 |

@@ -85,6 +85,8 @@ class DesktopImageTurn {
     void perception_consumed(const mira::ModelRequest &, const mira::OperationContext &);
     bool supplied_image() const { return supplied_image_; }
     ContentTaskResult settle_content_task();
+    bool task_purpose_declared() const { return content_task_.declared(); }
+    bool navigation_task() const { return content_task_.navigation(); }
     // DEC-069: workflow-local fresh target resolution through the same numbered action path.
     mira::Result<mira::JsonValue> local_click(const mira::JsonValue &,
                                               const mira::OperationContext &);

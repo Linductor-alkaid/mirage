@@ -38,3 +38,7 @@ launcher/service/tray/native/pet；运行中的进程不会因构建自动更新
 供图与内容完成门禁。执行 Debug、ASAN、UBSAN、TSAN 相关测试及完整产品构建，
 同步示例、设计、计划、兼容证据和变更记录。真实视频收益和用户意图准确性未因
 可控测试通过而关闭。实际结果见后续兼容证据。
+
+[调用示例](../examples/session-evidence-and-task-purpose.md)与
+[验收证据](../compatibility/session-evidence-and-task-purpose-20261030.md)保存实际检查、
+失败修正与未执行门禁，不以单元测试替代真实会话收益。

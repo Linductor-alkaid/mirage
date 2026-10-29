@@ -762,6 +762,11 @@ struct RuntimeService::Impl {
         integration::DesktopToolContext desktop;
         desktop.environment = core->environment;
         desktop.reuse_recent_observation = true;
+        desktop.require_task_purpose =
+            desktop.environment &&
+            (desktop.environment->window() || desktop.environment->screen() ||
+             desktop.environment->accessibility() || desktop.environment->input() ||
+             desktop.environment->application());
         desktop.actions = core->actions;
         if (pet_process) {
             desktop.exclude_pet = [this](const desktop::CancelToken &cancel) {

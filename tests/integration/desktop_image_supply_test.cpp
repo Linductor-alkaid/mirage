@@ -3240,9 +3240,14 @@ void content_task_tool_contract() {
         return execute_native_tool(registry, owner, "desktop.vision.content", args.c_str());
     };
     check(!turn.settle_content_task().active);
+    check(!turn.task_purpose_declared());
+    check(call(R"({"action":"navigation"})").value().result.find("applied")->as_boolean() == true);
+    check(turn.task_purpose_declared() && turn.navigation_task());
     const auto begin =
         call(R"({"action":"begin","scope":"observed_samples","requires_audio":false})");
     check(begin && begin.value().result.find("applied")->as_boolean() == true);
+    check(!turn.navigation_task());
+    check(call(R"({"action":"navigation"})").value().result.find("applied")->as_boolean() == false);
     const auto changed =
         call(R"({"action":"begin","scope":"entire_video","requires_audio":false})");
     check(changed && changed.value().result.find("applied")->as_boolean() == false);
@@ -3539,6 +3544,7 @@ class ContentTaskScript final : public mira::IModelProvider {
     mirage::desktop::CancelToken cancel_;
 
   public:
+    bool product_ = false;
     unsigned calls = 0, visual_tool_calls = 0, images_seen = 0;
     ContentTaskScript(mira::ModelProfile profile, std::shared_ptr<StoryboardFeed> feed,
                       std::string mode, mirage::desktop::CancelToken cancel)
@@ -3597,7 +3603,7 @@ class ContentTaskScript final : public mira::IModelProvider {
                     {"action", "begin"},
                     {"scope", mode_.ends_with("full") ? "entire_video" : "observed_samples"},
                     {"requires_audio", mode_.ends_with("audio")}}};
-                if (mode_.starts_with("auto"))
+                if (mode_.starts_with("auto") && !product_)
                     call.arguments.set("auto_storyboard", true);
             } else if (calls == 1 && !mode_.starts_with("auto"))
                 call.arguments =
@@ -3630,7 +3636,8 @@ class ContentTaskScript final : public mira::IModelProvider {
         return response;
     }
 };
-void content_task_model_layer(kairo::Executor &executor, const std::string &mode) {
+void content_task_model_layer(kairo::Executor &executor, const std::string &mode,
+                              bool product = false) {
     auto tools = desktop();
     auto env = std::make_shared<NativeEnvironment>();
     auto feed = std::make_shared<StoryboardFeed>();
@@ -3645,11 +3652,13 @@ void content_task_model_layer(kairo::Executor &executor, const std::string &mode
     std::shared_ptr<ContentTaskScript> script;
     integration::ModelProviderOverride provider([&](const auto &profile) {
         script = std::make_shared<ContentTaskScript>(profile, feed, mode, cancel);
+        script->product_ = product;
         return script;
     });
     integration::ModelLayerConfig config;
     config.enabled = config.supports_images = true;
     config.model_selector = "content-fixture";
+    tools.require_task_purpose = product;
     integration::ModelLayer model(executor, config, &provider, tools);
     const auto result =
         executor
@@ -3683,6 +3692,86 @@ void content_task_model_layer(kairo::Executor &executor, const std::string &mode
     check(script->images_seen ==
           (mode.ends_with("unassessed") && !mode.starts_with("auto") ? 0u : 1u));
     check(env->captures == 0 && env->inputs == 0);
+    model.shutdown();
+}
+
+class PurposeScript final : public mira::IModelProvider {
+    mira::ModelProfile profile_;
+    bool navigation_;
+
+  public:
+    unsigned calls = 0;
+    bool refused = false;
+    PurposeScript(mira::ModelProfile p, bool nav) : profile_(std::move(p)), navigation_(nav) {}
+    const mira::ModelProfile &profile() const override { return profile_; }
+    mira::Result<mira::ModelResponse> infer(const mira::ModelRequest &request,
+                                            const mira::OperationContext &,
+                                            const mira::ProviderInferOptions &) override {
+        mira::ModelResponse response;
+        response.request_id = request.request_id;
+        response.operation_id = request.operation_id;
+        response.profile_id = profile_.id;
+        response.status = mira::ModelCompletionStatus::Completed;
+        for (const auto &item : request.input)
+            for (const auto &part : item.content)
+                if (const auto *r = std::get_if<mira::ToolResultPart>(&part))
+                    refused = refused ||
+                              (r->failed && r->safe_error_summary.find("task_purpose_required") !=
+                                                std::string::npos);
+        if (calls < (navigation_ ? 2u : 1u)) {
+            const auto name =
+                navigation_ && calls == 0 ? "desktop.vision.content" : "desktop.screen.capture";
+            const auto tool =
+                std::find_if(request.tools.begin(), request.tools.end(), [&](const auto &t) {
+                    return t.wire_name == mirage::testing::fixture_tool_name(name);
+                });
+            check(tool != request.tools.end());
+            mira::ToolCallOutput call;
+            call.tool_id = tool->tool_id;
+            call.provider_name = tool->wire_name;
+            call.provider_call_id.value = "purpose-" + std::to_string(calls);
+            call.arguments = navigation_ && calls == 0
+                                 ? JsonValue{JsonValue::Object{{"action", "navigation"}}}
+                                 : JsonValue{JsonValue::Object{{"source", "desktop"}}};
+            call.arguments_digest = mira::digest_string(mira::to_json_string(call.arguments));
+            response.output.emplace_back(std::move(call));
+        } else {
+            mira::MessageOutput message;
+            message.content.emplace_back(mira::OutputTextPart{"页面已打开。", {}});
+            response.output.emplace_back(std::move(message));
+        }
+        ++calls;
+        return response;
+    }
+};
+void purpose_model_layer(kairo::Executor &executor, bool navigation) {
+    auto tools = desktop();
+    auto env = std::make_shared<NativeEnvironment>();
+    tools.environment = env;
+    tools.require_task_purpose = true;
+    // Deliberately no continuous feed: navigation declaration must still work.
+    tools.continuous_session = {};
+    std::shared_ptr<PurposeScript> script;
+    integration::ModelProviderOverride provider([&](const auto &p) {
+        script = std::make_shared<PurposeScript>(p, navigation);
+        return script;
+    });
+    integration::ModelLayerConfig config;
+    config.enabled = config.supports_images = true;
+    config.model_selector = "purpose-fixture";
+    integration::ModelLayer model(executor, config, &provider, tools);
+    const auto result =
+        executor
+            .submit_auto([&] {
+                return model.complete_harness_turn("", "打开页面", context(), "", true, {}, {}, {});
+            })
+            .get();
+    check(result.ok == navigation && result.failed != navigation);
+    check(script->refused != navigation);
+    check(env->captures == (navigation ? 1 : 0));
+    check(result.reply_text.find(navigation ? "仅导航/交互" : "尚未声明") != std::string::npos);
+    check(mirage::conversation::valid_parts(result.parts));
+    check(result.parts.back().id == mirage::conversation::terminal_reply_id);
     model.shutdown();
 }
 
@@ -6139,6 +6228,11 @@ int main(int argc, char **argv) {
             for (const auto *mode :
                  {"normal", "budget", "pending", "missing", "pack_failure", "text_only", "cancel"})
                 automatic_content_supply(mode);
+            purpose_model_layer(executor, false);
+            purpose_model_layer(executor, true);
+            for (const auto *mode : {"auto", "auto_full", "auto_audio", "auto_unassessed",
+                                     "auto_retired", "auto_cancel"})
+                content_task_model_layer(executor, mode, true);
             content_task_model_layer(executor, "sample");
             for (const auto *mode : {"auto", "auto_full", "auto_audio", "auto_unassessed",
                                      "auto_retired", "auto_cancel"})
@@ -6260,6 +6354,9 @@ int main(int argc, char **argv) {
         const auto decoded = mirage::runtime::persistence::decode_settings(
             mirage::runtime::persistence::encode_settings(settings));
         check(decoded.ok && decoded.settings.model->supports_images);
+        purpose_model_layer(executor, false);
+        purpose_model_layer(executor, true);
+        content_task_model_layer(executor, "auto", true);
         auto rejected_tools = desktop();
         auto rejected_env = std::static_pointer_cast<mirage::testing::FakeDesktopEnvironment>(
             rejected_tools.environment);

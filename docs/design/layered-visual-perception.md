@@ -385,3 +385,19 @@ PerceptionEvent新增默认false的temporal_keyframe，仅现有两条媒体关�
 [示例](../examples/content-ready-wait.md)与[验收](../compatibility/content-ready-wait-20261029.md)
 界定新增返回状态、公开字段重编译与兼容性。自动语义重要性、播放器/完整视频、
 声音、在线模型实际收益及Windows/Portal门禁保持开放。
+
+## 最新会话的证据与用途边界（DEC-137）
+
+按 [DEC-137](../decisions/DEC-137-session-evidence-and-task-purpose.md) 修复验证回填突破
+展示分类预算的问题。过程发布和终态均按原40/16/8KiB限额收敛，旧工具详情优先
+省略，最新结果与终态正文可见；保留真实行状态，不把展示摘要用作执行凭据。
+
+生产首次桌面观察/动作前必须通过 content 1.2.0 声明 navigation 或内容 begin；
+发现/紧急释放可先执行。普通聊天免声明，旧嵌入默认兼容；内容默认自动缓存拼图，
+仍须实际供图和 assess。导航可升级，内容不可降级。导航收口明确披露不证明观看，
+该声明并不独立证明模型正确解释了用户意图。没有 feed 时不伪造内容证据。
+
+AT-SPI 通过 semantic_snapshot 1.1.0 的 subtrees/base_scope 在一个原子快照中展开
+1–4处同代子树，共享节点预算，避免逐个展开导致兄弟旧引用失效。成功后仍全面
+退役旧引用；Windows 不支持 scoped 能力时拒绝，未声称完成 Windows 验证。
+[调用与构建示例](../examples/session-evidence-and-task-purpose.md)和兼容证据说明边界。

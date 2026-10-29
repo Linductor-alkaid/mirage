@@ -13,13 +13,17 @@ void DesktopImageTurn::register_content_task_tool(mira::BuiltinToolRegistry &reg
     using Json = mira::JsonValue;
     mira::BuiltinToolSpec spec;
     spec.wire_name = "desktop.vision.content";
-    spec.version = {1, 1, 0};
+    spec.version = {1, 2, 0};
     spec.description =
-        "Declare and assess a content-watching task. begin requires scope observed_samples or "
+        "Declare desktop task purpose before observing or acting: action=navigation is only "
+        "navigation/interaction and cannot verify content understanding. Use begin for watching; "
+        "navigation may upgrade to content, never the reverse. begin requires scope "
+        "observed_samples or "
         "entire_video and requires_audio boolean; declare the user's actual requirement, not a "
         "weaker substitute. Optional auto_storyboard=true supplies low-resolution temporal "
         "images in existing model requests without capture/storyboard tool calls, at most once "
-        "per 5 seconds, stopping after assessment. Default false keeps manual supply. Automatic "
+        "per 5 seconds, stopping after assessment. Product default true; legacy embeddings default "
+        "false. Explicit false keeps manual supply. Automatic "
         "publication retires earlier image/input references; later input needs fresh capture. "
         "Pending explicit pictures take priority. Scope/audio/auto mode cannot change this turn. "
         "After actual frame/storyboard "
@@ -76,9 +80,14 @@ void DesktopImageTurn::register_content_task_tool(mira::BuiltinToolRegistry &reg
         const auto *action = args.find("action");
         if (!args.as_object() || !action || !action->as_string())
             return result(false, "invalid_argument");
-        if (!perception_)
-            return result(false, "no_resident_feed");
-        sync_content_evidence(perception_->view());
+        if (*action->as_string() == "navigation") {
+            if (args.as_object()->size() != 1)
+                return result(false, "invalid_argument");
+            const auto applied = content_task_.declare_navigation();
+            return result(applied, applied ? "navigation_declared" : "content_cannot_downgrade");
+        }
+        if (perception_)
+            sync_content_evidence(perception_->view());
         if (*action->as_string() == "status")
             return result(args.as_object()->size() == 1,
                           args.as_object()->size() == 1 ? "status" : "invalid_argument");
@@ -90,9 +99,9 @@ void DesktopImageTurn::register_content_task_tool(mira::BuiltinToolRegistry &reg
                 (automatic && !automatic->as_boolean()))
                 return result(false, "invalid_argument");
             const bool restart = !content_task_.active() || content_task_.interrupted();
-            const bool applied =
-                content_task_.begin(*scope->as_string(), *audio->as_boolean(), content_evidence_,
-                                    automatic && *automatic->as_boolean());
+            const bool applied = content_task_.begin(
+                *scope->as_string(), *audio->as_boolean(), content_evidence_,
+                automatic ? *automatic->as_boolean() : desktop_.require_task_purpose);
             if (applied && restart)
                 content_visual_.reset();
             return result(applied, applied ? "content_task_started" : "invalid_or_changed_goal");

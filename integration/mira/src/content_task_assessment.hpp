@@ -8,13 +8,21 @@ struct ContentTaskResult {
 };
 // DEC-133: product evidence policy, not a second Mira task/runtime state machine.
 class ContentTaskAssessment {
-    bool active_ = false, audio_ = false, automatic_ = false;
+    bool active_ = false, audio_ = false, automatic_ = false, navigation_ = false;
     std::string state_ = "idle", scope_, reason_, answer_, limitations_;
     std::vector<std::string> refs_;
     std::uint64_t generation_ = 0;
     std::uint64_t assessed_revision_ = 0;
 
   public:
+    bool declare_navigation() {
+        if (active_)
+            return false;
+        navigation_ = true;
+        return true;
+    }
+    bool declared() const { return active_ || navigation_; }
+    bool navigation() const { return navigation_ && !active_; }
     bool active() const { return active_; }
     bool automatic() const { return automatic_; }
     bool interrupted() const { return state_ == "interrupted"; }
@@ -104,6 +112,9 @@ class ContentTaskAssessment {
     mira::JsonValue project() const {
         using Json = mira::JsonValue;
         return Json{Json::Object{{"active", active_},
+                                 {"purpose", active_       ? "content"
+                                             : navigation_ ? "navigation"
+                                                           : "undeclared"},
                                  {"state", state_},
                                  {"scope", scope_},
                                  {"requires_audio", audio_},
