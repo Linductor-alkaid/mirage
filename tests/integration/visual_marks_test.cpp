@@ -939,7 +939,7 @@ void model_loop(kairo::Executor &executor) {
         check(completed.supply_degradations == 0 && completed.supplied_input_dropped == 0);
         check(f.env->injector.calls == ((failure == 0 || failure == 1) ? 1 : 0));
         if (failure == 0 || failure == 1)
-            check(script->saw_verified && script->images == 1 && completed.parts.size() == 2);
+            check(script->saw_verified && script->images == 1 && completed.parts.size() == 3);
         model.shutdown();
     }
 }

@@ -5288,7 +5288,11 @@ void layer(kairo::Executor &executor, const std::string &dialect, bool enabled, 
                         !value->failed && value->provider_call_id.value == "capture-1";
             }
         check(image && canonical_result);
-        check(result.parts.size() == 1 && result.parts.front().status == "complete");
+        check(result.parts.front().kind == "tool" && result.parts.front().status == "complete");
+        check(std::count_if(result.parts.begin(), result.parts.end(),
+                            [](const auto &p) { return p.kind == "tool"; }) == 1);
+        if (!result.reply_text.empty())
+            check(result.parts.back().id == mirage::conversation::terminal_reply_id);
         check(result.parts.front().output.find("artifact_id") != std::string::npos);
     }
     model.shutdown();

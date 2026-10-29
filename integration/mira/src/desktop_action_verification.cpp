@@ -1234,9 +1234,6 @@ bool DesktopActionVerification::settle() {
            });
 }
 void DesktopActionVerification::project(std::vector<conversation::Part> &parts) const {
-    std::size_t total = 0;
-    for (const auto &part : parts)
-        total += part.text.size() + part.input.size() + part.output.size();
     for (auto &part : parts) {
         if (!mutation(part.name) || part.output.empty())
             continue;
@@ -1262,15 +1259,20 @@ void DesktopActionVerification::project(std::vector<conversation::Part> &parts) 
             if (key == "verified")
                 value = JsonValue{record->status == "verified"};
         }
-        total -= part.output.size();
         part.output = mira::to_json_string(JsonValue{std::move(object)});
-        const auto available =
-            total < conversation::max_content_bytes ? conversation::max_content_bytes - total : 0;
-        part.truncated = conversation::truncate_text(
-                             part.output, std::min(available, conversation::max_part_text)) ||
-                         part.truncated;
-        total += part.output.size();
+        if (part.output.size() > conversation::max_part_text) {
+            // Keep the receipt parseable: cutting JSON would hide the owned
+            // verification precisely when a large tool output fills its row.
+            part.output = mira::to_json_string(
+                JsonValue{JsonValue::Object{{"action_id", record->id},
+                                            {"window_id", record->window},
+                                            {"verification", summary(*record)},
+                                            {"verified", record->status == "verified"},
+                                            {"omitted_for_display_budget", true}}});
+            part.truncated = part.omitted_for_display_budget = true;
+        }
     }
+    conversation::bound_parts(parts);
 }
 mira::Result<void> DesktopActionVerification::validate_request(const mira::ModelRequest &request,
                                                                const mira::OperationContext &ctx) {

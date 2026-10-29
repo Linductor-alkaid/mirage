@@ -222,16 +222,18 @@ void settle_dialog_turn(const std::shared_ptr<detail::ServiceCore> &core,
                 if (record.status != "pending")
                     return; // terminal settlement is idempotent
                 event.timings = completion.timings.empty() ? record.timings : completion.timings;
-                const bool invalid_parts = !conversation::valid_parts(completion.parts);
+                event.parts = completion.parts;
+                conversation::bound_parts(event.parts);
+                const bool invalid_parts = !conversation::valid_parts(event.parts);
                 if (invalid_parts)
                     std::cerr << "mirage-service: invalid terminal process projection; retaining "
                                  "last valid snapshot\n";
-                event.parts =
-                    completion.parts.empty() || invalid_parts ? record.parts : completion.parts;
+                if (event.parts.empty() || invalid_parts)
+                    event.parts = record.parts;
                 for (auto &part : event.parts)
                     if (part.status == "pending" || part.status == "running")
                         part.status = completion.cancelled ? "cancelled" : "failed";
-                if (!completion.ok && !completion.cancelled && !completion.reply_text.empty())
+                if (!completion.cancelled && !completion.reply_text.empty())
                     conversation::retain_terminal_reply(event.parts, completion.reply_text);
                 record.parts = event.parts;
                 record.timings = event.timings;
@@ -329,48 +331,54 @@ void run_dialog_turn(const std::shared_ptr<detail::ServiceCore> &core, std::stri
             pet_feed->publish(false, request, thinking_text, truncated);
             refresh_pet();
         };
-    integration::DialogProcessSink process = [core, session_id, turn_id, stop,
-                                              refresh_pet](const auto &parts, const auto &timings) {
-        if (stop.stop_requested() || !conversation::valid_parts(parts))
-            return;
-        ipc::ChatTurnUpdatedEvent event;
-        bool phase_changed = false;
-        {
-            std::lock_guard lock(core->dialogs.mutex);
-            const auto found = core->dialogs.sessions.find(session_id);
-            if (found == core->dialogs.sessions.end())
+    integration::DialogProcessSink process =
+        [core, session_id, turn_id, stop, refresh_pet](const auto &raw_parts, const auto &timings) {
+            if (stop.stop_requested())
                 return;
-            auto &log = found->second;
-            const auto record =
-                std::find_if(log.turns.begin(), log.turns.end(),
-                             [&](const auto &turn) { return turn.turn_id == turn_id; });
-            if (record == log.turns.end() || record->status != "pending")
+            auto parts = raw_parts;
+            conversation::bound_parts(parts);
+            if (!conversation::valid_parts(parts)) {
+                std::cerr << "mirage-service: invalid live process projection rejected\n";
                 return;
-            record->parts = parts;
-            record->timings = timings;
-            const auto previous_phase = record->pet_tool_phase;
-            record->pet_tool_phase.clear();
-            for (const auto &part : parts) {
-                if (part.kind == "tool" && part.status == "running") {
-                    record->pet_tool_phase = pet::running_tool_phase(part.name);
-                    break;
-                }
             }
-            phase_changed = previous_phase != record->pet_tool_phase;
-            event.session_id = session_id;
-            event.turn_id = turn_id;
-            event.status = "pending";
-            event.user_text = record->user_text;
-            event.sequence = record->sequence;
-            event.replaces_turn_id = record->replaces_turn_id;
-            event.parts = parts;
-            event.timings = timings;
-            event.process_sequence = ++record->process_sequence;
-        }
-        core->events.publish_chat_turn(std::move(event));
-        if (phase_changed)
-            refresh_pet();
-    };
+            ipc::ChatTurnUpdatedEvent event;
+            bool phase_changed = false;
+            {
+                std::lock_guard lock(core->dialogs.mutex);
+                const auto found = core->dialogs.sessions.find(session_id);
+                if (found == core->dialogs.sessions.end())
+                    return;
+                auto &log = found->second;
+                const auto record =
+                    std::find_if(log.turns.begin(), log.turns.end(),
+                                 [&](const auto &turn) { return turn.turn_id == turn_id; });
+                if (record == log.turns.end() || record->status != "pending")
+                    return;
+                record->parts = parts;
+                record->timings = timings;
+                const auto previous_phase = record->pet_tool_phase;
+                record->pet_tool_phase.clear();
+                for (const auto &part : parts) {
+                    if (part.kind == "tool" && part.status == "running") {
+                        record->pet_tool_phase = pet::running_tool_phase(part.name);
+                        break;
+                    }
+                }
+                phase_changed = previous_phase != record->pet_tool_phase;
+                event.session_id = session_id;
+                event.turn_id = turn_id;
+                event.status = "pending";
+                event.user_text = record->user_text;
+                event.sequence = record->sequence;
+                event.replaces_turn_id = record->replaces_turn_id;
+                event.parts = parts;
+                event.timings = timings;
+                event.process_sequence = ++record->process_sequence;
+            }
+            core->events.publish_chat_turn(std::move(event));
+            if (phase_changed)
+                refresh_pet();
+        };
     integration::DialogModelActivitySink activity = [core, session_id, turn_id, stop,
                                                      refresh_pet](bool active) {
         bool phase_changed = false;

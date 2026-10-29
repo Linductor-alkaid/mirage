@@ -54,6 +54,10 @@ struct DesktopEvidence {
 std::optional<DesktopEvidence> desktop_evidence(const Part &);
 // Includes strict JSON/UTF-8 validity, as well as structural and display budgets.
 bool valid_parts(const std::vector<Part> &parts);
+// DEC-137: enforce display category budgets after metadata projection. Preserves
+// row identity/status; older tool details become explicitly non-authoritative
+// summaries. Does not repair invalid structure or UTF-8. Never erases rows.
+void bound_parts(std::vector<Part> &parts);
 // DEC-104: retain a generated answer even when task verification failed. Call
 // after settling parts; bounded final text takes priority over earlier text.
 void retain_terminal_reply(std::vector<Part> &parts, std::string_view reply);

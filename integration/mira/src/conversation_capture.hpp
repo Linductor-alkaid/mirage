@@ -25,7 +25,8 @@ class ConversationCapture {
     std::vector<conversation::Part> parts;
     conversation::Timings timings;
     std::optional<std::uint64_t> last_input_estimate;
-    void publish() const {
+    void publish() {
+        conversation::bound_parts(parts);
         if (sink_)
             sink_(parts, timings);
     }
@@ -48,33 +49,8 @@ class ConversationCapture {
         return usage;
     }
     void bound(std::string &value, conversation::Part &part) {
-        // Calculate current usage including the part being bounded if it's already in parts.
-        CategoryUsage usage = categorize_budget();
-        // If this part is already in parts (e.g., when updating output after input was added),
-        // we need to account for its current content in the budget calculation.
-        // The categorize_budget() already includes it, so we're good.
-
-        std::size_t budget = conversation::max_part_text;
-        // DEC-093: apply per-category budget limits.
-        if (part.kind == "tool") {
-            // For tool parts, input and output share the tool budget.
-            // When bounding output, the input is already counted in usage.tool.
-            const auto remaining = usage.tool < conversation::max_tool_budget
-                                       ? conversation::max_tool_budget - usage.tool
-                                       : 0;
-            budget = std::min(budget, remaining);
-        } else if (part.kind == "text") {
-            const auto remaining = usage.text < conversation::max_text_budget
-                                       ? conversation::max_text_budget - usage.text
-                                       : 0;
-            budget = std::min(budget, remaining);
-        } else if (part.kind == "thinking") {
-            const auto remaining = usage.thinking < conversation::max_thinking_budget
-                                       ? conversation::max_thinking_budget - usage.thinking
-                                       : 0;
-            budget = std::min(budget, remaining);
-        }
-        part.truncated = conversation::truncate_text(value, budget) || part.truncated;
+        part.truncated =
+            conversation::truncate_text(value, conversation::max_part_text) || part.truncated;
     }
     void add(conversation::Part part) {
         constexpr std::string_view omitted = "（展示预算省略）";
@@ -119,6 +95,7 @@ class ConversationCapture {
         bound(part.text, part);
         bound(part.input, part);
         parts.push_back(std::move(part));
+        conversation::bound_parts(parts);
     }
     void response(const mira::ModelRequest &request, const mira::ModelResponse &response) {
         const auto prefix = request.request_id.to_string() + ".";
@@ -253,7 +230,8 @@ class ConversationCapture {
                     summary.emplace_back(key, *v);
             output = mira::to_json_string(mira::JsonValue{std::move(summary)});
         }
-        bound(output, *part);
+        // DEC-137: project owned verification while the receipt is still
+        // valid JSON. publish() applies generic field/category limits after it.
         part->output = std::move(output);
         if (project)
             project(parts);
