@@ -593,15 +593,133 @@
       ],
       "terminal_text_present": true,
       "persisted_model": null
+    },
+    {
+      "source_file": "3747c5ec7dfe4ac3b8f06625083e4745.json",
+      "source_sha256": "d2adcae422a6a40e52a35bf5528035a511c135b3afb302bc425c060ef80457ed",
+      "session_created_at": "2026-10-29T22:54:07.609000+08:00",
+      "turn_sequence": 1,
+      "recorded_at": "2026-10-29T23:00:04.350000+08:00",
+      "status": "ok",
+      "timings": {
+        "inference": {
+          "calls": 74,
+          "duration_ms": 302956
+        },
+        "capture": {
+          "calls": 41,
+          "duration_ms": 245
+        },
+        "ocr": {
+          "calls": 1,
+          "duration_ms": 1488
+        },
+        "settlement": {
+          "calls": 1,
+          "duration_ms": 0
+        }
+      },
+      "tool_count": 30,
+      "tool_counts": {
+        "desktop.window.list": 3,
+        "desktop.application.list": 1,
+        "desktop.application.open_uri": 1,
+        "desktop.window.front": 3,
+        "wait": 1,
+        "desktop.screen.capture": 9,
+        "desktop.session.click": 2,
+        "desktop.accessibility.semantic_snapshot": 8,
+        "desktop.session.scroll": 1,
+        "desktop.input.click": 1
+      },
+      "tool_counts_complete": false,
+      "tool_count_scope": "retained projection only; terminal reply differs from retained last action",
+      "process_sequence": 88,
+      "retained_parts": 61,
+      "retained_request_id_prefixes": 28,
+      "truncated_tool_rows": 0,
+      "tool_detail_utf8_bytes": 40615,
+      "failed_rows": [
+        {
+          "part_index": 37,
+          "tool": "desktop.accessibility.semantic_snapshot",
+          "message": "not_found: subtree ref is from an older snapshot; take a fresh semantic snapshot",
+          "may_be_terminal_rewrite": false
+        },
+        {
+          "part_index": 49,
+          "tool": "desktop.accessibility.semantic_snapshot",
+          "message": "not_found: subtree ref is from an older snapshot; take a fresh semantic snapshot",
+          "may_be_terminal_rewrite": false
+        },
+        {
+          "part_index": 60,
+          "tool": "desktop.input.click",
+          "message": null,
+          "may_be_terminal_rewrite": true
+        }
+      ],
+      "successful_snapshot_metadata": [
+        {
+          "part_index": 33,
+          "node_count": 77,
+          "depth_limited": true,
+          "snapshot_truncated": false,
+          "captured_at_ms": 1793285725113
+        },
+        {
+          "part_index": 35,
+          "node_count": 16,
+          "depth_limited": true,
+          "snapshot_truncated": false,
+          "captured_at_ms": 1793285727438
+        },
+        {
+          "part_index": 45,
+          "node_count": 58,
+          "depth_limited": true,
+          "snapshot_truncated": false,
+          "captured_at_ms": 1793285740662
+        },
+        {
+          "part_index": 47,
+          "node_count": 5,
+          "depth_limited": true,
+          "snapshot_truncated": false,
+          "captured_at_ms": 1793285743491
+        },
+        {
+          "part_index": 55,
+          "node_count": 58,
+          "depth_limited": true,
+          "snapshot_truncated": false,
+          "captured_at_ms": 1793285761423
+        },
+        {
+          "part_index": 57,
+          "node_count": 243,
+          "depth_limited": true,
+          "snapshot_truncated": false,
+          "captured_at_ms": 1793285763845
+        }
+      ],
+      "final_context_usage": {
+        "input_tokens": 88971,
+        "window_tokens": 0,
+        "model": "deepseek-flash"
+      },
+      "last_retained_observation_ms": 1793285763845,
+      "running_product_evidence": {
+        "pid": 3036262,
+        "process_started_at": "2026-10-29T22:53:36.350000+08:00",
+        "loaded_executable_sha256": "8d6349ae5594c2988c42ce3ab94ee90e7f542b6f20be3d123de63a1f6f609ec9",
+        "loaded_inode": 12354546,
+        "observation_stage": "initial read; timestamp not separately recorded",
+        "process_alive_at_export": false,
+        "exported_at": "2026-10-29T23:16:22.433001+08:00"
+      }
     }
   ],
-  "latest_vs_20261027": {
-    "inference": 50.0,
-    "capture": 8.33,
-    "ocr": -50.0,
-    "inference_duration_percent": 97.18,
-    "creation_to_record_percent": 81.6
-  },
   "product_entry_audit": {
     "before": {
       "date": "2026-10-29",
@@ -673,5 +791,12 @@
       "runtime_launched": false
     },
     "historical_loaded_image_proven": false
+  },
+  "session_db310eb8_vs_20261027": {
+    "inference": 50.0,
+    "capture": 8.33,
+    "ocr": -50.0,
+    "inference_duration_percent": 97.18,
+    "creation_to_record_percent": 81.6
   }
 }
