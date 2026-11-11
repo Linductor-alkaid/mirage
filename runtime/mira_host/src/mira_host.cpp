@@ -291,7 +291,14 @@ TaskSubmissionResult MiraHost::submit_task(const SessionIdentity &session,
             false, {}, host_error("invalid_argument", "malformed session identity")};
     }
 
-    const auto submission = impl_->runtime.submit_task(session_id.value(), mira::TaskSpec{goal});
+    // M28/DEC-068 §4.5: TaskSpec carries optional user_constraints; default
+    // construction keeps this site stable as the pinned struct grows and
+    // satisfies -Wmissing-field-initializers for every added member. Mirage
+    // does not populate constraints yet — later user bounds reach the loop
+    // via its input seam, not by rewriting the goal.
+    mira::TaskSpec task_spec;
+    task_spec.goal = goal;
+    const auto submission = impl_->runtime.submit_task(session_id.value(), task_spec);
     if (!submission) {
         return TaskSubmissionResult{false, {}, pinned_error(submission.error())};
     }
