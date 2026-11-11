@@ -1,8 +1,8 @@
 #ifndef MIRAGE_INTEGRATION_DESKTOP_STABILITY_GUARD_HPP
 #define MIRAGE_INTEGRATION_DESKTOP_STABILITY_GUARD_HPP
 
-// Internal to integration/mira: target-region stability assessment shared by
-// the Wayland shared-input guard and the X11 numbered-pointer guard.
+// Historical DEC-083 diagnostic only. DEC-117 removed this heuristic from all
+// ordinary input paths. Research fixtures retain it to reproduce the old policy.
 //
 // M7-16 / DEC-082 replaces the zero-tolerance byte comparison inside the
 // target rectangle with layered mirador change detection: animation confined

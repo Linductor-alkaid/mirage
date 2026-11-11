@@ -5,6 +5,8 @@
 #include <mutex>
 #include <optional>
 #include <string>
+#include <utility>
+#include <vector>
 
 #include <mirage/desktop/cancellation.hpp>
 #include <mirage/desktop/screen_provider.hpp>
@@ -54,6 +56,34 @@ struct VisualObservationPipelineConfig {
     /// DEC-063: capture explicit mark crops before analysis. Default preserves
     /// whole-display analysis and subsequent crop numbering.
     bool roi_capture = false;
+    /// DEC-118: significance gating for the continuous background feed.
+    /// Entity-free changes inside a confirmed media-activity region and tiny
+    /// transient regions (cursor, caret) no longer surface as events; media
+    /// entry/exit and throttled keyframes still do. appeared/disappeared/
+    /// source_reset are never gated.
+    bool significance_gate = true;
+    /// Fraction of the frame area a changed region must cover to become a
+    /// media-activity candidate (video player, canvas, animation).
+    float media_region_min_area_ratio = 0.04F;
+    /// Consecutive overlapping large-region samples that confirm a
+    /// media-activity region; earlier samples are still ordinary changes.
+    int media_confirm_samples = 2;
+    /// Consecutive non-overlapping samples before a confirmed media region
+    /// deactivates and a stopped event is published.
+    int media_miss_samples = 3;
+    /// Fingerprint similarity below which a change inside an active media
+    /// region counts as a keyframe candidate (scene cut / major content step).
+    float media_keyframe_similarity = 0.92F;
+    /// Minimum interval between keyframe / media-state events, so playback
+    /// produces bounded model-visible traffic instead of per-sample floods.
+    std::chrono::milliseconds media_event_min_interval{2000};
+    /// Fraction of the frame area below which an entity-free change region
+    /// is suppressed as transient (cursor, caret, hover feedback).
+    float tiny_region_area_ratio = 0.0008F;
+    /// DEC-122: opt-in media recognition deferral. 0 disables; 100..5000ms
+    /// forces recognition at this interval (plus actual analysis latency).
+    /// Deferred objects remain historical/pending, never validated reuse.
+    std::chrono::milliseconds experimental_recognition_refresh{0};
 };
 
 /// Concrete EnvironmentVisualPipeline over one ScreenProvider and one
@@ -116,10 +146,17 @@ class VisualObservationPipeline final : public EnvironmentVisualPipeline {
     ImageContinuousState
     query_image_state(const std::string &source_key, const desktop::CancelToken &,
                       const std::optional<std::chrono::steady_clock::time_point> &);
-    PerceptionSample observe_image(const desktop::ImageFrame &, const std::string &,
-                                   const std::optional<desktop::WindowGeometry> &,
-                                   const desktop::CancelToken &,
-                                   const std::optional<std::chrono::steady_clock::time_point> &);
+    /// DEC-125: captured_at and sampling_generation are supplied together.
+    /// Nonzero generation selects real recognition on the original capture time;
+    /// worker tracking must be disabled (the capture owner owns templates).
+    /// DEC-126: work.roi selects raw unconfirmed capabilities, without fusion/coverage.
+    PerceptionSample
+    observe_image(const desktop::ImageFrame &, const std::string &,
+                  const std::optional<desktop::WindowGeometry> &, const desktop::CancelToken &,
+                  const std::optional<std::chrono::steady_clock::time_point> &,
+                  std::optional<std::chrono::steady_clock::time_point> captured_at = {},
+                  std::uint64_t sampling_generation = 0,
+                  const PerceptionRecognitionWork &work = {});
 
     EnvironmentVisualRefresh
     refresh_marked(const std::optional<desktop::WindowGeometry> &crop,
@@ -151,9 +188,26 @@ class VisualObservationPipeline final : public EnvironmentVisualPipeline {
     std::uint64_t image_source_revision_ = 0;
     std::string background_key_;
     std::int32_t background_width_ = 0, background_height_ = 0;
-    std::uint64_t background_revision_ = 0, background_policy_ = 1;
+    std::uint64_t background_revision_ = 0, background_policy_ = 1, sampling_generation_ = 0;
     std::optional<desktop::WindowGeometry> background_focus_;
     bool background_followup_ = true;
+    /// DEC-118 media-activity tracking for the continuous feed. Coordinates
+    /// are normalized to the frame so a resize does not break the state.
+    struct MediaActivityState {
+        bool active = false;
+        double x = 0, y = 0, width = 0, height = 0;
+        double pending_x = 0, pending_y = 0, pending_width = 0, pending_height = 0;
+        int hits = 0, misses = 0;
+        std::chrono::steady_clock::time_point last_event{};
+    };
+    MediaActivityState media_;
+    struct BackgroundRecognition {
+        std::chrono::steady_clock::time_point observed_at{};
+        std::uint64_t epoch = 0, dropped = 0;
+        bool ready = false, deferred = false;
+        // IDs only: no duplicate pixels or recognized strings (<=256 pairs).
+        std::vector<std::pair<std::uint64_t, std::uint64_t>> identities;
+    } background_recognition_;
 };
 
 } // namespace mirage::integration

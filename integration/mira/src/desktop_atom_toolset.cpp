@@ -788,12 +788,35 @@ AtomRegistration accessibility_semantic_snapshot(
     const mirage::desktop::CancelToken &cancel = {}, bool scoped = false) {
     AtomRegistration registration;
     registration.spec.wire_name = "desktop.accessibility.semantic_snapshot";
+    registration.spec.version = {1, 1, 0};
     registration.spec.description =
         "Takes the semantic snapshot (interactable element tree) of one window and returns it in "
-        "the deterministic rendered form. Budget: 4096 nodes. If unavailable or too large, "
-        "use desktop.vision.ocr/mark with a bounded ROI. Never invent @e refs.";
+        "the deterministic rendered form. The capture is accepted only while the target window "
+        "is the foreground window — focus it first (e.g. one click into the window), or the "
+        "call fails with stale_observation. Budget: 4096 nodes. Very large trees fail with "
+        "snapshot_too_large: instead of falling back to screenshots, pass max_depth to collect "
+        "the top levels first — frontier nodes render '(+N children)' and are expanded by a "
+        "follow-up call with subtree=@eN. Every successful snapshot replaces ALL old refs. "
+        "Prefer subtrees=[@eN,...] (1-4 roots) plus base_scope=backend_scope to expand siblings "
+        "together from one generation. Never reuse old siblings after a refresh. Window ids embed "
+        "the window title; when a page "
+        "renames the window the id may stop resolving: re-run desktop.window.list. Never "
+        "invent @e refs.";
     registration.spec.parameters_schema = mira::JsonSchema{object_schema(
-        {{"window_id", string_schema("Window id from desktop.window.list")}}, {"window_id"})};
+        {{"window_id", string_schema("Window id from desktop.window.list")},
+         {"max_depth", integer_schema(1, 64,
+                                      "Collect at most this many levels (1 = window node only); "
+                                      "frontier nodes report (+N children)")},
+         {"subtree", string_schema("Expand the subtree of an @eN node from the most recent "
+                                   "snapshot of this window")},
+         {"subtrees",
+          JsonValue{JsonValue::Object{{"type", "array"},
+                                      {"minItems", 1},
+                                      {"maxItems", 4},
+                                      {"items", string_schema("Same-generation @eN root")}}}},
+         {"base_scope",
+          string_schema("backend_scope that issued the subtree roots; required for subtrees")}},
+        {"window_id"})};
     registration.handler = [&accessibility, feed, scoped,
                             cancel](const JsonValue &arguments,
                                     const mira::OperationContext &context) -> Result<JsonValue> {
@@ -802,6 +825,39 @@ AtomRegistration accessibility_semantic_snapshot(
         }
         mirage::desktop::SemanticSnapshotLimits limits;
         limits.max_nodes = kAtomSnapshotNodes;
+        if (const auto depth = int_member(arguments, "max_depth")) {
+            if (!accessibility.scoped_snapshots_supported())
+                return atom_error(ErrorCode::InvalidArgument,
+                                  "platform backend does not support scoped semantic snapshots");
+            if (*depth < 1 || *depth > 64)
+                return atom_error(ErrorCode::InvalidArgument, "max_depth must be 1..64");
+            limits.max_depth = static_cast<std::size_t>(*depth);
+        }
+        const auto subtree = string_member(arguments, "subtree");
+        if (!subtree.empty()) {
+            if (!accessibility.scoped_snapshots_supported())
+                return atom_error(ErrorCode::InvalidArgument,
+                                  "platform backend does not support scoped semantic snapshots");
+            if (subtree.rfind("@e", 0) != 0)
+                return atom_error(ErrorCode::InvalidArgument, "subtree must be a snapshot @e ref");
+            limits.subtree_ref = subtree;
+        }
+        limits.base_scope = string_member(arguments, "base_scope");
+        if (const auto *roots = arguments.find("subtrees")) {
+            if (!accessibility.scoped_snapshots_supported() || !roots->as_array() ||
+                roots->as_array()->empty() || roots->as_array()->size() > 4 || !subtree.empty() ||
+                limits.base_scope.empty())
+                return atom_error(ErrorCode::InvalidArgument,
+                                  "invalid batch subtrees or missing base_scope");
+            for (const auto &root : *roots->as_array()) {
+                if (!root.as_string() || root.as_string()->size() > 32 ||
+                    !root.as_string()->starts_with("@e"))
+                    return atom_error(ErrorCode::InvalidArgument, "invalid subtree ref");
+                limits.subtree_refs.push_back(*root.as_string());
+            }
+        }
+        if (!limits.base_scope.empty() && !accessibility.scoped_snapshots_supported())
+            return atom_error(ErrorCode::InvalidArgument, "scoped snapshots unsupported");
         const auto outcome =
             accessibility.semantic_snapshot(string_member(arguments, "window_id"), limits, cancel);
         if (!outcome.ok) {
@@ -820,7 +876,7 @@ AtomRegistration accessibility_semantic_snapshot(
             truncated = true;
         }
         JsonValue::Object result;
-        if (scoped)
+        if (scoped || !outcome.scope.empty())
             result.emplace_back("backend_scope", json_string(outcome.scope));
         result.emplace_back("application", json_string(outcome.snapshot.application));
         result.emplace_back("window_title", json_string(outcome.snapshot.window_title));
@@ -828,6 +884,7 @@ AtomRegistration accessibility_semantic_snapshot(
         result.emplace_back("node_count",
                             json_int(static_cast<std::int64_t>(outcome.snapshot.nodes.size())));
         result.emplace_back("snapshot_truncated", json_bool(truncated));
+        result.emplace_back("depth_limited", json_bool(limits.max_depth != 0));
         return JsonValue{std::move(result)};
     };
     return registration;
@@ -1230,7 +1287,8 @@ AtomRegistration knowledge_activate(const DesktopToolContext &desktop) {
                 return action_failure(front.error);
             if (!front.found || front.window.title != string_member(args, "window_title"))
                 return failure("knowledge_page_mismatch");
-            const auto read = accessibility->semantic_snapshot(front.window.id, {512}, cancel);
+            const auto read =
+                accessibility->semantic_snapshot(front.window.id, {512, 0, {}}, cancel);
             if (read.cancelled)
                 return failure("cancelled");
             if (!read.ok)
@@ -1455,10 +1513,18 @@ void DesktopAtomToolset::register_harness_tools(mira::BuiltinToolRegistry &regis
                                               : string_member(args, "window_id");
                     const bool no_front = name == "desktop.window.front" && expected.empty() &&
                                           front.ok && !front.found;
-                    if (!front.ok || (!no_front && (!front.found || front.window.id != expected)) ||
-                        epoch != desktop.actions->epoch())
+                    if (!front.ok || epoch != desktop.actions->epoch() ||
+                        (!no_front && !front.found))
                         return action_failure(
                             {"stale_observation", "focused window changed during capture"});
+                    // A still-present front window carrying another id means
+                    // the target was never foreground — say so, or the caller
+                    // retries a capture that cannot succeed.
+                    if (!no_front && front.window.id != expected)
+                        return action_failure(
+                            {"stale_observation",
+                             "target window is not the foreground window; focus it first, "
+                             "then re-observe"});
                     if (front.found) {
                         observation->window = front.window.id;
                         observation->geometry = front.window.geometry;

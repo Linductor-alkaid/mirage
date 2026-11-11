@@ -20,7 +20,11 @@ parser.add_argument("--font", type=Path, required=True)
 parser.add_argument("--output", type=Path, required=True)
 parser.add_argument("--position-tolerance", type=int, default=3,
                     help="how many pixels a region border may fall short of the text box")
+parser.add_argument("--input-max-side", type=int, default=0,
+                    help="controlled pre-downsampling experiment; 0 keeps the reference corpus")
 args = parser.parse_args()
+if args.input_max_side < 0 or args.input_max_side > 1600:
+    parser.error('--input-max-side must be 0..1600')
 args.output.mkdir(parents=True, exist_ok=True)
 results = []
 for name, text, size, scale in [("english", "Submit task", 32, 1),
@@ -34,6 +38,13 @@ for name, text, size, scale in [("english", "Submit task", 32, 1),
     if scale != 1:
         image = image.resize((480 * scale, 180 * scale), Image.Resampling.LANCZOS)
         text_box = tuple(value * scale for value in text_box)
+    reference_pixels = list(image.size)
+    if args.input_max_side and max(image.size) > args.input_max_side:
+        ratio = args.input_max_side / max(image.size)
+        width, height = max(1, int(image.width * ratio)), max(1, int(image.height * ratio))
+        sx, sy = width / image.width, height / image.height
+        text_box = (text_box[0] * sx, text_box[1] * sy, text_box[2] * sx, text_box[3] * sy)
+        image = image.resize((width, height), Image.Resampling.BOX)
     sample = args.output / (name + ".ppm")
     image.save(sample)
     proc = subprocess.run([str(args.binary.resolve()), str(args.manifest.resolve()), str(sample.resolve()), text],
@@ -61,8 +72,11 @@ for name, text, size, scale in [("english", "Submit task", 32, 1),
                     "exact_match": proc.returncode == 0 and observed == text,
                     "position_match": contains,
                     "exit_code": proc.returncode, "pixels": list(image.size),
+                    "reference_pixels": reference_pixels,
                     "sample_sha256": hashlib.sha256(sample.read_bytes()).hexdigest()})
 report = {"manifest_sha256": hashlib.sha256(args.manifest.read_bytes()).hexdigest(),
+          "input_max_side": args.input_max_side,
+          "scope": "controlled BOX-resampled corpus; not automatic product resolution selection",
           "font_sha256": hashlib.sha256(args.font.read_bytes()).hexdigest(),
           "passed": sum(item["exact_match"] and item["position_match"] for item in results),
           "total": len(results), "samples": results}

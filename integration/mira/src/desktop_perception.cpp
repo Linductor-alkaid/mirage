@@ -1,6 +1,10 @@
+#include "content_ready_wait.hpp"
 #include "desktop_image_supply.hpp"
+#include "perception_event_batch.hpp"
 #include <algorithm>
+#include <cstdint>
 #include <mirage/conversation.hpp>
+#include <optional>
 #include <set>
 #include <stdexcept>
 
@@ -8,46 +12,89 @@ namespace mirage::integration::detail {
 namespace {
 using Json = mira::JsonValue;
 using Clock = std::chrono::steady_clock;
+Json tracking_projection(const std::optional<PerceptionTracking> &tracking) {
+    if (!tracking)
+        return Json{};
+    Json::Array tracks;
+    std::size_t bytes = 0;
+    for (const auto &track : tracking->tracks) {
+        Json item{Json::Object{
+            {"entity", static_cast<std::int64_t>(track.entity)},
+            {"instance_generation", static_cast<std::int64_t>(track.instance_generation)},
+            {"state", track.state},
+            {"evidence", track.evidence},
+            {"verified_sequence", static_cast<std::int64_t>(track.verified_sequence)},
+            {"reacquired", track.reacquired},
+            {"discontinuous", track.discontinuous},
+            {"x", track.bounds.x},
+            {"y", track.bounds.y},
+            {"width", track.bounds.width},
+            {"height", track.bounds.height}}};
+        const auto size = mira::to_json_string(item).size();
+        if (tracks.size() >= 4 || bytes + size > 650)
+            break;
+        bytes += size;
+        tracks.push_back(std::move(item));
+    }
+    return Json{
+        Json::Object{{"tracks", Json{std::move(tracks)}},
+                     {"total_tracks", static_cast<std::int64_t>(tracking->tracks.size())},
+                     {"candidate_count", static_cast<std::int64_t>(tracking->candidates.size())},
+                     {"source_epoch", static_cast<std::int64_t>(tracking->source_epoch)},
+                     {"frame_sequence", static_cast<std::int64_t>(tracking->frame_sequence)},
+                     {"verified", static_cast<std::int64_t>(tracking->verified)},
+                     {"reused", static_cast<std::int64_t>(tracking->reused)},
+                     {"excluded", static_cast<std::int64_t>(tracking->excluded)},
+                     {"evicted", static_cast<std::int64_t>(tracking->evicted)},
+                     {"pool_bytes", tracking->pool_bytes},
+                     {"requires_recognition", tracking->requires_recognition},
+                     {"error", tracking->error},
+                     {"input_actionable", false},
+                     {"content_freshness", "not_established"}}};
+}
 } // namespace
+void DesktopImageTurn::sync_content_evidence(const PerceptionView &view) {
+    content_evidence_.sync(
+        view, desktop_.actions &&
+                  (!native_authority_ || desktop_.actions->authority_epoch() == native_authority_));
+    content_task_.sync(content_evidence_, content_scope_);
+}
+void DesktopImageTurn::bind_perception(std::shared_ptr<DesktopPerceptionFeed> feed) {
+    if (perception_ != feed) {
+        if (perception_)
+            content_evidence_.replace_source();
+        content_offer_.reset();
+        content_request_.reset();
+    }
+    perception_ = std::move(feed);
+}
 std::vector<mira::ModelInputItem> DesktopImageTurn::supply_perception() {
     perception_offered_ = 0;
     perception_text_.clear();
     if (!perception_)
         return {};
     const auto view = perception_->view();
-    Json::Array events;
-    std::size_t bytes = 0;
-    for (const auto &e : view.events) {
-        if (e.sequence <= perception_cursor_)
-            continue;
-        const bool preview_available =
-            std::any_of(view.previews.begin(), view.previews.end(), [&](const auto &p) {
-                return p.first == e.frame_id && !p.second.expired();
-            });
-        Json event{Json::Object{
-            {"cursor", static_cast<std::int64_t>(e.sequence)},
-            {"kind", e.kind},
-            {"text", e.text},
-            {"confirmed", e.confirmed},
-            {"entity", static_cast<std::int64_t>(e.entity)},
-            {"instance_generation", static_cast<std::int64_t>(e.instance_generation)},
-            {"source_epoch", static_cast<std::int64_t>(e.source_epoch)},
-            {"frame_id", preview_available ? e.frame_id : std::string{}},
-            {"preview_available", preview_available},
-            {"age_ms",
-             std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - e.observed_at)
-                 .count()},
-            {"x", e.x},
-            {"y", e.y},
-            {"width", e.width},
-            {"height", e.height}}};
-        const auto size = mira::to_json_string(event).size();
-        if (events.size() >= 16 || bytes + size > 7000)
-            break;
-        bytes += size;
-        events.push_back(std::move(event));
-        perception_offered_ = e.sequence;
-    }
+    sync_content_evidence(view);
+    perception_semantics_.sync(view);
+    auto semantic_scene = perception_semantics_.project();
+    Json::Array attention_targets;
+    if (view.attention)
+        for (const auto &target : view.attention->targets) {
+            if (attention_targets.size() >= 4)
+                break;
+            attention_targets.emplace_back(Json::Object{
+                {"entity", static_cast<std::int64_t>(target.entity)},
+                {"instance_generation", static_cast<std::int64_t>(target.instance_generation)},
+                {"content_revision", static_cast<std::int64_t>(target.content_revision)},
+                {"priority", target.wake ? "wake" : "observe"},
+                {"x", target.region.x},
+                {"y", target.region.y},
+                {"width", target.region.width},
+                {"height", target.region.height}});
+        }
+    auto batch = perception_event_batch(view, perception_cursor_, Clock::now());
+    auto events = std::move(batch.rows);
+    perception_offered_ = batch.cursor;
     // Supplier input is ephemeral in Mira. Keep a small projection of consumed
     // observations so the next request can still relate a disappearance/update
     // to what was just seen, without replaying the full read journal.
@@ -75,24 +122,74 @@ std::vector<mira::ModelInputItem> DesktopImageTurn::supply_perception() {
         recent_bytes += size;
         recent.push_back(std::move(record));
     }
-    Json summary{Json::Object{{"state", view.state},
-                              {"source_epoch", static_cast<std::int64_t>(view.source_epoch)},
-                              {"resync", view.resync},
-                              {"error", view.error},
-                              {"cursor", static_cast<std::int64_t>(perception_offered_)},
-                              {"newest", static_cast<std::int64_t>(view.newest)},
-                              {"dropped", static_cast<std::int64_t>(view.dropped)},
-                              {"filtered", static_cast<std::int64_t>(view.filtered)},
-                              {"ack_rejected", static_cast<std::int64_t>(view.ack_rejected)},
-                              {"ack_depth", static_cast<std::int64_t>(view.ack_depth)},
-                              {"captured_frames", static_cast<std::int64_t>(view.frames)},
-                              {"analyzed_frames", static_cast<std::int64_t>(view.analyzed)},
-                              {"skipped_frames", static_cast<std::int64_t>(view.skipped)},
-                              {"analysis_failed", static_cast<std::int64_t>(view.analysis_failed)},
-                              {"recent_read_context", Json{std::move(recent)}},
-                              {"events", Json{events}}}};
+    Json summary{Json::Object{
+        {"state", view.state},
+        {"source_epoch", static_cast<std::int64_t>(view.source_epoch)},
+        {"resync", view.resync},
+        {"error", view.error},
+        {"cursor", static_cast<std::int64_t>(perception_offered_)},
+        {"newest", static_cast<std::int64_t>(view.newest)},
+        {"dropped", static_cast<std::int64_t>(view.dropped)},
+        {"filtered", static_cast<std::int64_t>(view.filtered)},
+        {"ack_rejected", static_cast<std::int64_t>(view.ack_rejected)},
+        {"ack_depth", static_cast<std::int64_t>(view.ack_depth)},
+        {"captured_frames", static_cast<std::int64_t>(view.frames)},
+        {"analyzed_frames", static_cast<std::int64_t>(view.analyzed)},
+        {"skipped_frames", static_cast<std::int64_t>(view.skipped)},
+        {"analysis_failed", static_cast<std::int64_t>(view.analysis_failed)},
+        {"deferred_frames", static_cast<std::int64_t>(view.deferred_frames)},
+        {"recognition_deferred", view.recognition_deferred},
+        {"recognition_reason", view.recognition_reason},
+        {"tracking", tracking_projection(view.tracking)},
+        {"attention",
+         view.attention
+             ? Json{Json::Object{{"mode", view.attention->mode},
+                                 {"targets", Json{std::move(attention_targets)}},
+                                 {"active", view.attention->active},
+                                 {"reason", view.attention->invalidation_reason},
+                                 {"entity", static_cast<std::int64_t>(view.attention->entity)},
+                                 {"instance_generation",
+                                  static_cast<std::int64_t>(view.attention->instance_generation)},
+                                 {"content_revision",
+                                  static_cast<std::int64_t>(view.attention->content_revision)},
+                                 {"x", view.attention->region.x},
+                                 {"y", view.attention->region.y},
+                                 {"width", view.attention->region.width},
+                                 {"height", view.attention->region.height},
+                                 {"input_actionable", false}}}
+             : Json{}},
+        {"dispatch",
+         view.dispatch
+             ? Json{Json::Object{
+                   {"cv_samples", static_cast<std::int64_t>(view.dispatch->sampled)},
+                   {"admitted", static_cast<std::int64_t>(view.dispatch->admitted)},
+                   {"superseded", static_cast<std::int64_t>(view.dispatch->superseded)},
+                   {"rejected", static_cast<std::int64_t>(view.dispatch->rejected)},
+                   {"cancelled", static_cast<std::int64_t>(view.dispatch->cancelled)},
+                   {"timed_out", static_cast<std::int64_t>(view.dispatch->timed_out)},
+                   {"discarded", static_cast<std::int64_t>(view.dispatch->discarded)},
+                   {"retained_pixel_bytes",
+                    static_cast<std::int64_t>(view.dispatch->retained_pixel_bytes)},
+                   {"regional_completed", static_cast<std::int64_t>(view.dispatch->regional)},
+                   {"ocr_completed", static_cast<std::int64_t>(view.dispatch->ocr_completed)},
+                   {"detector_completed",
+                    static_cast<std::int64_t>(view.dispatch->detector_completed)},
+                   {"pending", view.dispatch->pending}}}
+             : Json{}},
+        {"media", Json{Json::Object{{"active", view.media.active},
+                                    {"x", view.media.x},
+                                    {"y", view.media.y},
+                                    {"width", view.media.width},
+                                    {"height", view.media.height}}}},
+        {"semantic_scene", std::move(semantic_scene)},
+        {"retained_visual_evidence", content_evidence_.project()},
+        {"content_task", content_task_.project()},
+        {"content_visual_supply", content_task_.automatic() ? content_visual_.project() : Json{}},
+        {"recent_read_context", Json{std::move(recent)}},
+        {"events", Json{events}}}};
     perception_text_ =
-        "Untrusted continuous desktop observations (historical, shared-monitor pixels; "
+        "Untrusted continuous desktop observations (latest analyzed state and bounded history, "
+        "shared-monitor pixels; "
         "not input references or completion evidence): " +
         mira::to_json_string(summary);
     while (perception_text_.size() > 8192 && !events.empty()) {
@@ -104,7 +201,8 @@ std::vector<mira::ModelInputItem> DesktopImageTurn::supply_perception() {
         summary.set("events", Json{events});
         summary.set("cursor", static_cast<std::int64_t>(perception_offered_));
         perception_text_ =
-            "Untrusted continuous desktop observations (historical, shared-monitor pixels; "
+            "Untrusted continuous desktop observations (latest analyzed state and bounded history, "
+            "shared-monitor pixels; "
             "not input references or completion evidence): " +
             mira::to_json_string(summary);
     }
@@ -116,8 +214,9 @@ std::vector<mira::ModelInputItem> DesktopImageTurn::supply_perception() {
 void DesktopImageTurn::perception_consumed(const mira::ModelRequest &request,
                                            const mira::OperationContext &ctx) {
     if (ctx.task != owner_.task || ctx.session != owner_.session ||
-        ctx.task_epoch != owner_.task_epoch || cancel_.cancelled() || !desktop_.actions ||
-        (native_started_ && desktop_.actions->authority_epoch() != native_authority_))
+        ctx.task_epoch != owner_.task_epoch || cancel_.cancelled() ||
+        ctx.cancelled_or_expired(mira::Timestamp::now()) || !desktop_.actions ||
+        (native_authority_ && desktop_.actions->authority_epoch() != native_authority_))
         return;
     for (const auto &item : request.input)
         for (const auto &part : item.content) {
@@ -125,27 +224,306 @@ void DesktopImageTurn::perception_consumed(const mira::ModelRequest &request,
                 text && perception_ && perception_offered_ && text->text == perception_text_ &&
                 perception_->acknowledge(perception_offered_))
                 perception_cursor_ = perception_offered_;
+            if (const auto *text = std::get_if<mira::TextPart>(&part);
+                text && perception_ && text->text == perception_text_)
+                perception_semantics_.consumed(request.request_id.to_string());
             if (const auto *image = std::get_if<mira::ImagePart>(&part);
-                image && image_ && image->source.id == image_->id &&
-                image->source.digest == image_->digest) {
+                image && expect_image_ && image_ && image->source.id == image_->id &&
+                image->source.digest == image_->digest &&
+                image->source.byte_size == image_->byte_size &&
+                image->source.sensitivity == mira::Sensitivity::Sensitive &&
+                image->source.media_type == "image/png" && image->media_type == "image/png" &&
+                image->detail == mira::ImageDetail::Auto) {
+                if (content_offer_) {
+                    if (!content_request_ || *content_request_ != request.request_id)
+                        continue;
+                    if (!perception_)
+                        continue;
+                    sync_content_evidence(perception_->view());
+                    if (!content_evidence_.consumed(*content_offer_))
+                        continue;
+                }
+                if (const auto *automatic = metadata_.find("automatic_content_supply");
+                    automatic && automatic->as_boolean() == true)
+                    content_visual_.completed(Clock::now());
                 consumed_image_digest_ = image_->digest.to_string();
                 const auto *source = metadata_.find("source"), *id = metadata_.find("source_id");
                 if (perception_ && source && source->as_string() &&
                     *source->as_string() == "event_frame" && id && id->as_string())
                     (void)perception_->acknowledge_frame(*id->as_string());
+                if (perception_ && source && source->as_string() &&
+                    *source->as_string() == "storyboard")
+                    if (const auto *tiles = metadata_.find("tiles"); tiles && tiles->as_array())
+                        for (const auto &tile : *tiles->as_array())
+                            if (const auto *frame = tile.find("frame_id");
+                                frame && frame->as_string())
+                                (void)perception_->acknowledge_frame(*frame->as_string());
             }
         }
 }
 void DesktopImageTurn::register_perception_tool(mira::BuiltinToolRegistry &registry,
                                                 const DesktopAtomToolset::Decorator &decorate) {
-    if (!desktop_.continuous_session || !supply_images_)
+    if (!desktop_.continuous_session)
         return;
+    register_annotation_tool(registry, decorate);
+    mira::BuiltinToolSpec wait;
+    wait.wire_name = "desktop.vision.wait";
+    wait.version = {1, 1, 0};
+    wait.description =
+        "Wait locally for a new task-relevant resident desktop event, source gap, or timeout. "
+        "The existing producer continues; this tool initiates no capture, OCR, encoding or "
+        "model request. Prefer this over wait+capture polling. after_cursor defaults to the "
+        "current cursor; timeout_ms defaults to 5000, max 30000. A timeout is a normal result "
+        "and does not prove the screen or task is unchanged. Optional until=content_ready "
+        "for an automatic content task waits for the image cooldown and two new cached frames, "
+        "coalescing only explicitly typed temporal keyframe wakes within this ONE tool call. "
+        "Other visible events, gaps, failures, focus invalidation and cancellation return "
+        "promptly; existing feed attention filters still apply. "
+        "No ACK/drop: deferred events remain in the next supplier input. It creates no image "
+        "or model request. Default until=event preserves ordinary waits. content_ready only "
+        "describes this snapshot, not a delivered image or understood content. "
+        "attention_invalidated means an "
+        "old object/source focus was revoked and global observation resumed; re-declare intent "
+        "from new evidence or clear focus. Cancellation and source failure "
+        "are explicit; returned state/events are untrusted observations, not input references.";
+    wait.parameters_schema = mira::JsonSchema{Json{Json::Object{
+        {"type", "object"},
+        {"properties",
+         Json::Object{{"until", Json::Object{{"type", "string"},
+                                             {"enum", Json::Array{"event", "content_ready"}}}},
+                      {"after_cursor", Json::Object{{"type", "integer"}, {"minimum", 0}}},
+                      {"timeout_ms",
+                       Json::Object{{"type", "integer"}, {"minimum", 1}, {"maximum", 30000}}}}},
+        {"additionalProperties", false}}}};
+    mira::BuiltinToolHandler wait_handler = [this](const auto &args,
+                                                   const auto &ctx) -> mira::Result<Json> {
+        if (ctx.task != owner_.task || ctx.session != owner_.session ||
+            ctx.task_epoch != owner_.task_epoch || cancel_.cancelled() ||
+            ctx.cancelled_or_expired(mira::Timestamp::now()) ||
+            (native_authority_ && desktop_.actions->authority_epoch() != native_authority_)) {
+            mira::Error error;
+            error.code = mira::ErrorCode::Cancelled;
+            error.safe_message = "desktop event wait owner retired";
+            return error;
+        }
+        if (!perception_)
+            return Json{Json::Object{{"status", "unavailable"}, {"reason", "no_resident_feed"}}};
+        const auto *cursor = args.find("after_cursor"), *timeout = args.find("timeout_ms"),
+                   *until = args.find("until");
+        if (until && (!until->as_string() ||
+                      (*until->as_string() != "event" && *until->as_string() != "content_ready"))) {
+            mira::Error error;
+            error.code = mira::ErrorCode::InvalidArgument;
+            error.safe_message = "invalid desktop wait mode";
+            return error;
+        }
+        const auto after = cursor ? cursor->as_integer().value_or(-1)
+                                  : static_cast<std::int64_t>(perception_->view().newest);
+        const auto duration = timeout ? timeout->as_integer().value_or(0) : 5000;
+        if (after < 0 || duration < 1 || duration > 30000) {
+            mira::Error error;
+            error.code = mira::ErrorCode::InvalidArgument;
+            error.safe_message = "invalid desktop event wait cursor or timeout";
+            return error;
+        }
+        const desktop::CancelToken bounded{[this, parent = cancel_, ctx] {
+            return parent.cancelled() || ctx.cancelled_or_expired(mira::Timestamp::now()) ||
+                   (native_authority_ && desktop_.actions->authority_epoch() != native_authority_);
+        }};
+        const auto status =
+            until && *until->as_string() == "content_ready"
+                ? wait_for_content(
+                      [this] {
+                          auto view = perception_->view();
+                          sync_content_evidence(view);
+                          return view;
+                      },
+                      [this](auto cursor_after, auto budget, const auto &token) {
+                          return perception_->wait(cursor_after, budget, token);
+                      },
+                      [] { return Clock::now(); }, content_task_, content_evidence_,
+                      content_visual_, content_scope_, static_cast<std::uint64_t>(after),
+                      std::chrono::milliseconds{duration}, bounded)
+                : perception_->wait(static_cast<std::uint64_t>(after),
+                                    std::chrono::milliseconds{duration}, bounded);
+        (void)supply_perception();
+        Json observation;
+        const auto begin = perception_text_.find('{');
+        if (begin != std::string::npos) {
+            const auto parsed = mira::parse_json(perception_text_.substr(begin));
+            if (parsed)
+                observation = parsed.value();
+        }
+        return Json{Json::Object{{"status", status},
+                                 {"observation", std::move(observation)},
+                                 {"input_actionable", false},
+                                 {"verified", false}}};
+    };
+    if (decorate)
+        wait_handler = decorate(wait.wire_name, std::move(wait_handler));
+    if (!registry.register_tool(std::move(wait), std::move(wait_handler)))
+        throw std::logic_error("desktop event wait registration failed");
+    mira::BuiltinToolSpec focus;
+    focus.wire_name = "desktop.vision.focus";
+    focus.version = {1, 0, 0};
+    focus.description =
+        "Declare this task's attention region in continuous-feed pixels (the same coordinates "
+        "events carry). Ordinary events outside it stop reaching your feed; appeared, "
+        "disappeared and source resets always arrive, and media_playback/keyframe events inside "
+        "it are kept. Use it before desktop.vision.wait when a media or long-running task only "
+        "depends on one region, and clear it with width=height=0 when the task moves on. "
+        "Alternatively pass only object_ref from the completed request's semantic_scene to "
+        "follow the same confirmed object/version. Source/content/instance/unknown evidence "
+        "invalidates this binding and restores global events; it never revives automatically. "
+        "Or pass only targets: 1-4 objects with object_ref and priority wake or observe, at "
+        "least one wake. In this mode all events stay in your feed; only confirmed "
+        "position/appearance events of observe identities defer wait wakeup, unless they "
+        "overlap a wake target. Content/lifecycle/unknown/other events still wake. Any target "
+        "invalidates the whole group on stale/unknown evidence. A timeout can include deferred "
+        "changes; it is not evidence nothing changed. "
+        "Use a rectangle for persistent spatial watching across unknown frames. Consumer-local: "
+        "it never changes sampling, other tasks or permissions. No capture, no input.";
+    const Json reference_schema{
+        Json::Object{{"type", "string"}, {"minLength", 1}, {"maxLength", 64}}};
+    const Json target_schema{Json::Object{
+        {"type", "object"},
+        {"properties",
+         Json{Json::Object{
+             {"object_ref", reference_schema},
+             {"priority", Json{Json::Object{{"type", "string"},
+                                            {"enum", Json{Json::Array{"wake", "observe"}}}}}}}}},
+        {"required", Json{Json::Array{"object_ref", "priority"}}},
+        {"additionalProperties", false}}};
+    focus.parameters_schema = mira::JsonSchema{Json{Json::Object{
+        {"type", "object"},
+        {"properties",
+         Json{Json::Object{
+             {"x", Json{Json::Object{{"type", "integer"}, {"minimum", 0}}}},
+             {"y", Json{Json::Object{{"type", "integer"}, {"minimum", 0}}}},
+             {"width",
+              Json{Json::Object{{"type", "integer"}, {"minimum", 0}, {"maximum", 1000000}}}},
+             {"height",
+              Json{Json::Object{{"type", "integer"}, {"minimum", 0}, {"maximum", 1000000}}}},
+             {"object_ref", reference_schema},
+             {"targets", Json{Json::Object{{"type", "array"},
+                                           {"minItems", 1},
+                                           {"maxItems", 4},
+                                           {"items", target_schema}}}}}}},
+        {"additionalProperties", false}}}};
+    mira::BuiltinToolHandler focus_handler = [this](const auto &args,
+                                                    const auto &ctx) -> mira::Result<Json> {
+        if (ctx.task != owner_.task || ctx.session != owner_.session ||
+            ctx.task_epoch != owner_.task_epoch || cancel_.cancelled() ||
+            ctx.cancelled_or_expired(mira::Timestamp::now())) {
+            mira::Error error;
+            error.code = mira::ErrorCode::Cancelled;
+            error.safe_message = "desktop focus owner retired";
+            return error;
+        }
+        if (!perception_)
+            return Json{Json::Object{{"applied", false}, {"reason", "no_resident_feed"}}};
+        if (const auto *targets = args.find("targets")) {
+            const auto *list = targets->as_array();
+            if (!args.as_object() || args.as_object()->size() != 1 || !list || list->empty() ||
+                list->size() > 4)
+                return Json{Json::Object{{"applied", false}, {"reason", "invalid_argument"}}};
+            std::vector<std::pair<std::string, bool>> requested;
+            bool any_wake = false;
+            for (const auto &target : *list) {
+                const auto *ref = target.find("object_ref"), *priority = target.find("priority");
+                if (!target.as_object() || target.as_object()->size() != 2 || !ref ||
+                    !ref->as_string() || ref->as_string()->empty() ||
+                    ref->as_string()->size() > 64 || !priority || !priority->as_string() ||
+                    (*priority->as_string() != "wake" && *priority->as_string() != "observe") ||
+                    std::any_of(requested.begin(), requested.end(), [&](const auto &entry) {
+                        return entry.first == *ref->as_string();
+                    }))
+                    return Json{Json::Object{{"applied", false}, {"reason", "invalid_argument"}}};
+                const bool wake = *priority->as_string() == "wake";
+                requested.emplace_back(*ref->as_string(), wake);
+                any_wake = any_wake || wake;
+            }
+            if (!any_wake)
+                return Json{Json::Object{{"applied", false}, {"reason", "invalid_argument"}}};
+            if (!desktop_.actions || desktop_.actions->authority_epoch() != native_authority_)
+                return Json{Json::Object{{"applied", false}, {"reason", "authority_changed"}}};
+            perception_semantics_.sync(perception_->view());
+            std::vector<PerceptionFocusTarget> bindings;
+            for (const auto &[ref, wake] : requested) {
+                const auto binding = perception_semantics_.attention_binding(ref);
+                if (!binding)
+                    return Json{Json::Object{{"applied", false},
+                                             {"reason", "object_reference_stale_or_unsupported"}}};
+                bindings.push_back({*binding, wake});
+            }
+            const bool applied = perception_->focus_objects(bindings);
+            return Json{Json::Object{
+                {"applied", applied},
+                {"reason", applied ? "objects_attention" : "object_reference_stale_or_unsupported"},
+                {"input_actionable", false},
+                {"verified", false}}};
+        }
+        if (const auto *ref = args.find("object_ref")) {
+            if (!args.as_object() || args.as_object()->size() != 1 || !ref->as_string() ||
+                ref->as_string()->empty() || ref->as_string()->size() > 64)
+                return Json{Json::Object{{"applied", false}, {"reason", "invalid_argument"}}};
+            if (!desktop_.actions || desktop_.actions->authority_epoch() != native_authority_)
+                return Json{Json::Object{{"applied", false}, {"reason", "authority_changed"}}};
+            perception_semantics_.sync(perception_->view());
+            const auto binding = perception_semantics_.attention_binding(*ref->as_string());
+            const bool applied = binding && perception_->focus_object(*binding);
+            return Json{Json::Object{
+                {"applied", applied},
+                {"reason", applied ? "object_attention" : "object_reference_stale_or_unsupported"},
+                {"input_actionable", false},
+                {"verified", false}}};
+        }
+        const auto member = [&args](const char *name) -> std::optional<std::int64_t> {
+            const auto *value = args.find(name);
+            return value && value->is_integer() ? std::optional{*value->as_integer()}
+                                                : std::nullopt;
+        };
+        const auto x = member("x"), y = member("y"), width = member("width"),
+                   height = member("height");
+        if (!args.as_object() || args.as_object()->size() != 4 || !x || !y || !width || !height ||
+            *x < 0 || *y < 0 || *width < 0 || *height < 0 || *x > 1000000 || *y > 1000000 ||
+            *width > 1000000 || *height > 1000000 || *x + *width > 1000000 ||
+            *y + *height > 1000000)
+            return Json{Json::Object{{"applied", false}, {"reason", "invalid_argument"}}};
+        const desktop::WindowGeometry region{
+            static_cast<std::int32_t>(*x), static_cast<std::int32_t>(*y),
+            static_cast<std::int32_t>(*width), static_cast<std::int32_t>(*height)};
+        perception_->focus(region);
+        const auto attention = perception_->view().attention;
+        const bool clearing = *width == 0 || *height == 0;
+        const bool applied =
+            !attention || (clearing ? attention->mode == "global"
+                                    : attention->active && attention->mode == "region");
+        return Json{
+            Json::Object{{"applied", applied},
+                         {"reason", applied ? "region_attention" : "attention_unavailable"},
+                         {"focus", Json{Json::Object{{"x", *x},
+                                                     {"y", *y},
+                                                     {"width", *width},
+                                                     {"height", *height},
+                                                     {"cleared", *width <= 0 || *height <= 0}}}},
+                         {"input_actionable", false},
+                         {"verified", false}}};
+    };
+    if (decorate)
+        focus_handler = decorate(focus.wire_name, std::move(focus_handler));
+    if (!registry.register_tool(std::move(focus), std::move(focus_handler)))
+        throw std::logic_error("desktop vision focus registration failed");
+    if (!supply_images_)
+        return;
+    register_storyboard_tool(registry, decorate);
     mira::BuiltinToolSpec spec;
     spec.wire_name = "desktop.vision.event_frame";
     spec.version = {1, 0, 0};
     spec.description =
         "Read one retained historical event-frame preview by frame_id from the "
-        "automatic continuous feed. It is a bounded 640-side preview, never actionable and never "
+        "automatic continuous feed. It is a bounded 640-side preview, never actionable and "
+        "never "
         "current verification evidence. Expired or consumed previews are unavailable. No new "
         "capture.";
     Json property{Json::Object{{"type", "string"}, {"maxLength", std::int64_t{64}}}};
@@ -167,12 +545,21 @@ void DesktopImageTurn::register_perception_tool(mira::BuiltinToolRegistry &regis
         };
         if (ctx.task != owner_.task || ctx.session != owner_.session ||
             ctx.task_epoch != owner_.task_epoch || cancel_.cancelled() ||
-            ctx.cancelled_or_expired(mira::Timestamp::now()))
+            ctx.cancelled_or_expired(mira::Timestamp::now()) ||
+            (native_authority_ && desktop_.actions->authority_epoch() != native_authority_))
             return fail(mira::ErrorCode::Cancelled, "event frame owner retired");
         if (!perception_ || !id || !id->as_string() || id->as_string()->size() > 64 ||
             !args.as_object() || args.as_object()->size() != 1)
             return fail(mira::ErrorCode::InvalidArgument, "frame_id from continuous feed required");
         const auto view = perception_->view();
+        sync_content_evidence(view);
+        const std::vector<std::string> ids{*id->as_string()};
+        const auto offer = content_evidence_.offer(view, ids);
+        if (!offer)
+            return Json{Json::Object{{"available", false},
+                                     {"historical", true},
+                                     {"input_actionable", false},
+                                     {"reason", "source_time_or_event_unavailable"}}};
         for (const auto &[name, weak] : view.previews) {
             if (name != *id->as_string())
                 continue;
@@ -190,9 +577,16 @@ void DesktopImageTurn::register_perception_tool(mira::BuiltinToolRegistry &regis
                 {{"available", true},
                  {"historical", true},
                  {"input_actionable", false},
+                 {"content_ref", PerceptionContentEvidence::reference(content_scope_, *offer,
+                                                                      offer->samples.front())},
+                 {"event_source_epoch", static_cast<std::int64_t>(offer->source_epoch)},
+                 {"event_frame_sequence",
+                  static_cast<std::int64_t>(offer->samples.front().frame_sequence)},
                  {"observation_age_ms",
                   std::chrono::duration_cast<std::chrono::milliseconds>(now - preview->observed_at)
                       .count()}});
+            if (published)
+                content_offer_ = *offer;
             return published;
         }
         return Json{
@@ -206,5 +600,62 @@ void DesktopImageTurn::register_perception_tool(mira::BuiltinToolRegistry &regis
         read = decorate(spec.wire_name, std::move(read));
     if (!registry.register_tool(std::move(spec), std::move(read)))
         throw std::logic_error("event frame registration failed");
+}
+void DesktopImageTurn::register_annotation_tool(mira::BuiltinToolRegistry &registry,
+                                                const DesktopAtomToolset::Decorator &decorate) {
+    mira::BuiltinToolSpec spec;
+    spec.wire_name = "desktop.vision.annotate";
+    spec.version = {1, 0, 0};
+    spec.description =
+        "Assign one task-meaning label to an object_ref actually supplied in this request's "
+        "continuous semantic_scene. Ground meaning in its recognized text/category only; "
+        "appearance/relationship dependencies are not supported. A confirmed same-instance "
+        "move retains the label; content change suspends it. Annotate only useful missing or "
+        "changed meanings, not every frame. Labels are untrusted model inferences, never "
+        "accessibility roles, input references, permissions or task-success evidence. "
+        "No capture, input, external model call or permanent memory.";
+    spec.parameters_schema = mira::JsonSchema{Json{Json::Object{
+        {"type", "object"},
+        {"properties",
+         Json{Json::Object{
+             {"object_ref",
+              Json{Json::Object{{"type", "string"}, {"minLength", 1}, {"maxLength", 64}}}},
+             {"label",
+              Json{Json::Object{{"type", "string"}, {"minLength", 1}, {"maxLength", 1024}}}}}}},
+        {"required", Json{Json::Array{Json{"object_ref"}, Json{"label"}}}},
+        {"additionalProperties", false}}}};
+    mira::BuiltinToolHandler annotate = [this](const auto &args,
+                                               const auto &ctx) -> mira::Result<Json> {
+        auto fail = [](mira::ErrorCode code, const char *message) -> mira::Result<Json> {
+            mira::Error e;
+            e.code = code;
+            e.domain = "mirage.desktop.perception";
+            e.safe_message = message;
+            return e;
+        };
+        if (ctx.task != owner_.task || ctx.session != owner_.session ||
+            ctx.task_epoch != owner_.task_epoch || cancel_.cancelled() ||
+            ctx.cancelled_or_expired(mira::Timestamp::now()) || !desktop_.actions ||
+            desktop_.actions->authority_epoch() != native_authority_)
+            return fail(mira::ErrorCode::Cancelled, "semantic annotation owner retired or expired");
+        const auto *ref = args.find("object_ref"), *label = args.find("label");
+        if (!ref || !ref->as_string() || ref->as_string()->empty() ||
+            ref->as_string()->size() > 64 || !label || !label->as_string() || !args.as_object() ||
+            args.as_object()->size() != 2)
+            return fail(mira::ErrorCode::InvalidArgument, "object_ref and label required");
+        if (!perception_)
+            return fail(mira::ErrorCode::InvalidArgument, "continuous observation is unavailable");
+        perception_semantics_.sync(perception_->view());
+        const auto result = perception_semantics_.annotate(*ref->as_string(), *label->as_string());
+        return Json{Json::Object{{"applied", result.ok},
+                                 {"reason", result.ok ? "annotated" : result.error.code},
+                                 {"annotation_source", "llm_annotation"},
+                                 {"input_actionable", false},
+                                 {"dependency_scope", "recognized_text_and_category"}}};
+    };
+    if (decorate)
+        annotate = decorate(spec.wire_name, std::move(annotate));
+    if (!registry.register_tool(std::move(spec), std::move(annotate)))
+        throw std::logic_error("semantic annotation registration failed");
 }
 } // namespace mirage::integration::detail

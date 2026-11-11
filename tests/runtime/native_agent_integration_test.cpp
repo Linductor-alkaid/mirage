@@ -710,8 +710,9 @@ int main(int argc, char **argv) {
     MIRAGE_CHECK(turn && turn->status == "ok");
     if (turn) {
         MIRAGE_CHECK(turn->reply_text == "Mira 已完成通用工具调用。");
-        MIRAGE_CHECK(turn->parts.size() == 3 && turn->parts[0].kind == "thinking" &&
+        MIRAGE_CHECK(turn->parts.size() == 4 && turn->parts[0].kind == "thinking" &&
                      turn->parts[1].kind == "tool" && turn->parts[2].kind == "thinking");
+        MIRAGE_CHECK(turn->parts.back().id == mirage::conversation::terminal_reply_id);
         MIRAGE_CHECK(turn->parts[1].name == "wait" && turn->parts[1].status == "complete" &&
                      turn->parts[1].input.find("duration_ms") != std::string::npos &&
                      !turn->parts[1].output.empty() && turn->process_sequence >= 4);
@@ -1720,17 +1721,20 @@ int main(int argc, char **argv) {
                             std::cerr << "capacity turn " << i + 1 << ": "
                                       << (result ? result->status : "terminal wait expired")
                                       << '\n';
-                        MIRAGE_CHECK(result && result->status == "ok" && result->parts.size() == 4);
-                        if (result && result->parts.size() == 4) {
+                        MIRAGE_CHECK(result && result->status == "ok" && result->parts.size() == 5);
+                        if (result && result->parts.size() == 5) {
                             MIRAGE_CHECK(mirage::conversation::valid_parts(result->parts));
                             // DEC-098: latest thinking stays readable within the same 8 KiB.
-                            MIRAGE_CHECK(result->parts.back().truncated &&
-                                         result->parts.back().text.size() <= 4096 &&
-                                         !result->parts.back().text.empty());
-                            MIRAGE_CHECK(std::all_of(
-                                result->parts.begin(), result->parts.end(), [](const auto &part) {
-                                    return part.omitted_for_display_budget && !part.text.empty();
-                                }));
+                            const auto &latest = result->parts[3];
+                            MIRAGE_CHECK(latest.kind == "thinking" && latest.truncated &&
+                                         latest.text.size() <= 4096 && !latest.text.empty());
+                            MIRAGE_CHECK(result->parts.back().id ==
+                                         mirage::conversation::terminal_reply_id);
+                            MIRAGE_CHECK(std::all_of(result->parts.begin(), result->parts.end() - 1,
+                                                     [](const auto &part) {
+                                                         return part.omitted_for_display_budget &&
+                                                                !part.text.empty();
+                                                     }));
                             MIRAGE_CHECK(result->timings.inference.calls == 1 &&
                                          result->timings.settlement.calls == 1);
                         }
@@ -1776,8 +1780,10 @@ int main(int argc, char **argv) {
                 const auto *history = std::get_if<ipc::DialogHistory>(&response.payload);
                 MIRAGE_CHECK(response.ok && history && !history->truncated &&
                              history->turns.size() == 24 && history->turns.back().sequence == 24 &&
-                             history->turns.back().parts.size() == 4 &&
-                             history->turns.back().parts.back().text.size() <= 4096 &&
+                             history->turns.back().parts.size() == 5 &&
+                             history->turns.back().parts[3].text.size() <= 4096 &&
+                             history->turns.back().parts.back().id ==
+                                 mirage::conversation::terminal_reply_id &&
                              history->turns.back().timings.inference.calls == 1);
                 MIRAGE_CHECK(budget_client.call(ipc::DeleteSessionRequest{budget_session}, 8s).ok);
                 restored_budget.request_shutdown();

@@ -1,6 +1,9 @@
 #include "../../integration/mira/src/conversation_capture.hpp"
 #include "../../integration/mira/src/desktop_action_verification.hpp"
 #include "../../integration/mira/src/desktop_image_supply.hpp"
+#include "../../integration/mira/src/perception_event_batch.hpp"
+#include "../../integration/mirador/src/perception_journal.hpp"
+#include "../../integration/mirador/src/task_attention.hpp"
 #include "../support/fake_desktop_environment.hpp"
 #include "../support/provider_tool_name.hpp"
 #include <array>
@@ -122,6 +125,12 @@ class NativeEnvironment final : public mirage::desktop::DesktopEnvironment,
     bool interactive = false, pixels_changed = false, release_failed = false,
          uncertain_input = false;
     bool fail = false, revoke = false, throw_capture = false, repeated_source_after_input = false;
+    // DEC-116: one-shot transient classification fixtures. `fail_times` fails
+    // the next N captures with `fail_code` and then clears itself, so a test
+    // can inject exactly one cancelled/timeout/stream/session error and prove
+    // recovery on the same provider session.
+    int fail_times = 0;
+    std::string fail_code = "fixture_failed";
     // Automatic approach refuses when same-stream cursor metadata is unavailable.
     bool glide_origin_unknown = false, arrival_changed = false;
     std::string cursor_fault;
@@ -301,6 +310,10 @@ class NativeEnvironment final : public mirage::desktop::DesktopEnvironment,
                          : env.revoke       ? "portal_session_closed"
                                             : "fixture_failed",
                          "fixture"}};
+            if (env.fail_times > 0) {
+                --env.fail_times;
+                return {false, false, {}, {env.fail_code, "fixture"}};
+            }
             live = true;
             const auto width = env.frame_width, height = env.frame_height;
             auto pixels =
@@ -381,9 +394,16 @@ void native_session(const std::string &mode) {
         check(first && first.value().failed == env->fail);
         check(env->created == 1 && env->captures == 1);
         if (env->fail) {
-            check(env->closed == 1);
+            // DEC-116: a transient capture failure reports its real cause and
+            // keeps the provider session; the next capture retries the same
+            // session and succeeds once the condition clears.
+            check(env->closed == 0);
             check(rejected(ctx));
-            check(env->captures == 1 && env->created == 1);
+            check(env->captures == 2 && env->created == 1 && env->closed == 0);
+            env->fail = false;
+            const auto recovered = invoke(ctx);
+            check(recovered && !recovered.value().failed);
+            check(env->captures == 3 && env->created == 1 && env->closed == 0);
             return;
         }
         check(env->closed == 0);
@@ -428,7 +448,11 @@ void native_session(const std::string &mode) {
                 spec_owner.session_id = ctx.session;
                 spec_owner.task_epoch = ctx.task_epoch;
                 (void)turn.supply(spec_owner);
-                check(env->closed == 1);
+                // DEC-116: a platform-side session loss ("revoke" here) keeps
+                // the provider session for the platform layer's remembered-
+                // grant recovery and re-reports its real error; the other
+                // modes are authorization-class supply states that close it.
+                check(env->closed == (mode == "revoke" ? 0 : 1));
                 check(rejected(ctx));
                 check(env->created == 1);
             }
@@ -708,7 +732,8 @@ void shared_contracts(const std::string &mode) {
             check(result && result.value().failed);
             check(result.value().safe_error_summary.find("input_lag") != std::string::npos);
             check(env->closed == 0 && !verification.settle());
-            check(!verification.admit_effect(ctx));
+            if (mode != "approach_lag")
+                check(!verification.admit_effect(ctx));
             const auto receipt = mira::parse_json(result.value().safe_error_summary);
             check(bool(receipt));
             const auto action_id = *receipt.value().find("action_id")->as_string();
@@ -737,8 +762,8 @@ void shared_contracts(const std::string &mode) {
             verification.note_observation();
             check(verification.settle());
             const auto original = verification.recheck(action_id, ctx);
-            check(original &&
-                  *original.value().find("execution_status")->as_string() == "uncertain");
+            check(original && *original.value().find("execution_status")->as_string() ==
+                                  (mode == "approach_lag" ? "rejected" : "uncertain"));
             check(*original.value().find("input_diagnostic")->as_string() ==
                   (mode == "lag" ? "phase=click sample=0 late_ms=300"
                                  : "phase=travel sample=3 late_ms=300"));
@@ -750,17 +775,6 @@ void shared_contracts(const std::string &mode) {
                       std::string::npos);
             check(env->captures == 1); // no pre-capture and no provider input
         }
-        if (mode == "pretimeout")
-            check(result && result.value().failed &&
-                  result.value().safe_error_summary.find("input_pre_capture_timeout") !=
-                      std::string::npos);
-        if (mode.ends_with("arrival_changed")) {
-            check(result && result.value().failed && env->moves == 1 && env->inputs == 0);
-            check(result.value().safe_error_summary.find("arrival_target_changed") !=
-                  std::string::npos);
-            check(!verification.settle());
-            return;
-        }
         if (mode == "wheel_origin_unknown" || mode == "drag_origin_unknown") {
             check(result && result.value().failed && env->moves == 0 && env->inputs == 0);
             check(tools.actions->epoch() == epoch_before_input);
@@ -768,7 +782,8 @@ void shared_contracts(const std::string &mode) {
                   std::string::npos);
             return;
         }
-        if (mode == "glide_origin_unknown" || mode.starts_with("pointer_")) {
+        if (mode == "glide_origin_unknown" ||
+            (mode.starts_with("pointer_") && mode != "pointer_sequence_mismatch")) {
             check(result && result.value().failed && env->moves == 0 && env->inputs == 0);
             check(tools.actions->epoch() == epoch_before_input);
             check(result.value().safe_error_summary.find(mode == "pointer_query_throws"
@@ -782,86 +797,41 @@ void shared_contracts(const std::string &mode) {
             check(fallback && !fallback.value().failed && env->inputs == 1);
             return;
         }
-        if (mode == "uncertain")
-            // Only pointer_origin_unknown carries the recovery hint; every
-            // other error code's receipt stays hint-free (top level and any
-            // embedded message alike).
+        if (mode == "uncertain") {
+            // DEC-116: an uncertain side effect blocks only the input route,
+            // so the receipt now carries the recovery hint. The observation
+            // channel stays alive on the same provider session: the next
+            // capture succeeds, reports input_actionable=false and the
+            // recovery reason. The pre-DEC-116 path destroyed the session
+            // here instead, and the follow-up capture was rejected.
             check(result && result.value().failed &&
-                  result.value().safe_error_summary.find("\"hint\"") == std::string::npos);
-        if (mode == "changed_refresh" || mode == "changed_refresh_lease") {
-            // M7-19: the structural rejection publishes the guard's fresh
-            // frame and its receipt carries the new image_scope, so the model
-            // retries without another capture round trip. The lease variant
-            // holds an action lease taken before the click: the coordinator
-            // epoch (2 after try_begin) then coincides with the guard frame's
-            // fake source_sequence (2), so the swapped finish_native_publish
-            // arguments pass the epoch staleness check and the publish path
-            // itself can be observed.
-            if (mode == "changed_refresh_lease")
-                std::cerr << "changed_refresh_lease receipt: "
-                          << (result ? result.value().safe_error_summary : std::string("none"))
-                          << "\n";
-            check(result && result.value().failed);
-            const auto &summary = result.value().safe_error_summary;
-            check(summary.find("target_pixels_changed") != std::string::npos);
-            check(summary.size() <= 512);
-            const auto receipt = mira::parse_json(summary);
-            // The model reads refreshed_image_scope from the embedded error
-            // JSON inside the canonical receipt's message field.
-            std::string refreshed;
-            if (receipt && receipt.value().find("refreshed_image_scope") &&
-                receipt.value().find("refreshed_image_scope")->as_string())
-                refreshed = *receipt.value().find("refreshed_image_scope")->as_string();
-            if (refreshed.empty() && receipt && receipt.value().find("message") &&
-                receipt.value().find("message")->as_string()) {
-                const auto *embedded = receipt.value().find("message")->as_string();
-                if (const auto inner = mira::parse_json(*embedded);
-                    inner && inner.value().find("refreshed_image_scope") &&
-                    inner.value().find("refreshed_image_scope")->as_string())
-                    refreshed = *inner.value().find("refreshed_image_scope")->as_string();
-            }
-            if (mode == "changed_refresh_lease") {
-                // Diagnostic: hold an action lease from before the capture so
-                // the coordinator epoch coincides with the guard frame's fake
-                // source_sequence; report whether the receipt hands the model
-                // a readable scope in that case too.
-                std::cerr << "changed_refresh_lease: refreshed scope readable="
-                          << !refreshed.empty() << "; summary: " << summary << "\n";
-                check(env->captures == 2 && env->inputs == 0);
-                return;
-            }
-            if (refreshed.empty()) {
-                deferred_failure += "\nM7-19: target_pixels_changed receipt carries no readable "
-                                    "refreshed_image_scope for the model; receipt: " +
-                                    summary;
-                std::cerr << deferred_failure << '\n';
-                check(env->captures == 2 && env->inputs == 0);
-                return;
-            }
-            check(refreshed != std::string(*meta.find("image_scope")->as_string()));
-            check(env->captures == 2 && env->inputs == 0);
-            // The published observation is supplied without any recapture.
-            mira::AgentLoopSpec refresh_spec;
-            refresh_spec.task_id = ctx.task;
-            refresh_spec.session_id = ctx.session;
-            refresh_spec.task_epoch = ctx.task_epoch;
-            auto refresh_supply = turn.supply(refresh_spec);
-            check(refresh_supply && refresh_supply.value().size() == 1 && env->captures == 2);
-            mira::ModelRequest refresh_request;
-            refresh_request.task_id = ctx.task;
-            refresh_request.task_epoch = ctx.task_epoch;
-            refresh_request.input = refresh_supply.value();
-            check(bool(turn.validate_request(refresh_request, ctx)));
-            args.set("image_scope", refreshed);
-            const auto retry = invoke("desktop.session.click", args, action_ctx);
-            if (retry && retry.value().failed)
-                std::cerr << "changed_refresh retry: " << retry.value().safe_error_summary << "\n";
-            check(retry && !retry.value().failed);
-            check(env->inputs == 1);
-            // Only the retry's own guard frame and its postcondition
-            // observation ran; no separate recapture call happened.
-            check(env->captures == 5 && env->created == 1);
-            check(retry.value().result.find("verified")->as_boolean() == true);
+                  result.value().safe_error_summary.find("fixture_input_failed") !=
+                      std::string::npos);
+            check(result.value().safe_error_summary.find("\"hint\"") != std::string::npos);
+            check(result.value().safe_error_summary.find(
+                      "\"side_effect_may_have_occurred\":true") != std::string::npos);
+            const auto observed = invoke("desktop.screen.capture",
+                                         JsonValue{JsonValue::Object{{"source", "desktop"}}}, ctx);
+            check(observed && !observed.value().failed);
+            check(observed.value().result.find("input_actionable")->as_boolean() == false);
+            const auto *blocked_reason = observed.value().result.find("input_blocked_reason");
+            check(blocked_reason && blocked_reason->as_string() &&
+                  !blocked_reason->as_string()->empty());
+            check(env->created == 1 && env->closed == 0);
+        }
+        if (mode == "changed_refresh_lease") {
+            check(result && result.value().failed && env->inputs == 0 && env->captures == 1);
+            check(result.value().safe_error_summary.find("desktop_busy") != std::string::npos);
+            return;
+        }
+        if (mode == "changed_refresh" || mode.ends_with("arrival_changed") || mode == "changed") {
+            // DEC-117 supersedes the old rejection/refresh expectations: the
+            // same requested action proceeds despite appearance changes.
+            check(result && !result.value().failed && env->inputs == 1);
+            check(result.value().result.find("approach_completed")->as_boolean() == true);
+            check(result.value().result.find("press_dispatched")->as_boolean() == true);
+            check(result.value().result.find("release_confirmed")->as_boolean() == true);
+            check(env->captures == 2); // Initial image + explicitly requested postcondition only.
             check(verification.settle());
             return;
         }
@@ -874,7 +844,7 @@ void shared_contracts(const std::string &mode) {
             check(result.value().result.find("verified")->as_boolean() == false);
             const auto *proof = result.value().result.find("verification");
             check(proof && *proof->find("status")->as_string() == "not_requested");
-            check(env->captures == 3 && measured.ocr.calls == 0);
+            check(env->captures == 1 && measured.ocr.calls == 0);
             check(!verification.settle());
             auto feedback = invoke(
                 "desktop.screen.capture",
@@ -888,7 +858,8 @@ void shared_contracts(const std::string &mode) {
         const bool success = mode == "normal" || mode == "ocr" || mode == "uniform_drift" ||
                              mode == "double" || mode == "triple" || mode == "repeat" ||
                              mode == "click_limit" || mode == "right" || mode == "middle" ||
-                             mode == "drag" || mode == "wheel" || mode == "glide";
+                             mode == "drag" || mode == "wheel" || mode == "glide" ||
+                             mode == "pointer_sequence_mismatch";
         if (mode == "right" || mode == "middle")
             check(env->last_input.value == mode);
         if (mode == "glide")
@@ -927,7 +898,8 @@ void shared_contracts(const std::string &mode) {
         if (mode.ends_with("click_count"))
             check(env->captures == 1 && env->inputs == 0);
         const bool dispatched = success || mode == "post_failure" || mode == "wrong_ocr" ||
-                                mode == "ocr_invalid" || mode == "repeated_source";
+                                mode == "ocr_invalid" || mode == "repeated_source" ||
+                                mode == "pretimeout";
         if (dispatched && !success) {
             check(result && !result.value().failed &&
                   result.value().result.find("verified")->as_boolean() == false);
@@ -950,7 +922,7 @@ void shared_contracts(const std::string &mode) {
                   *proof->find("evidence_scope")->as_string() ==
                       (mode == "ocr" ? "text_presence" : "fresh_frame"));
             const auto before = measured.capture.calls;
-            check(before == 4u && measured.ocr.calls == (mode == "ocr" ? 1u : 0u));
+            check(before == 2u && measured.ocr.calls == (mode == "ocr" ? 1u : 0u));
             check(verification.settle());
             check(measured.capture.calls == before &&
                   measured.ocr.calls == (mode == "ocr" ? 1u : 0u));
@@ -1116,19 +1088,19 @@ void native_observation_efficiency() {
             }
             check(!hidden && admitted == restored);
         }
-        check(env->inputs == 40 && env->captures == 121 && env->created == 1);
+        check(env->inputs == 40 && env->captures == 41 && env->created == 1);
         auto roi =
             invoke("desktop.screen.capture",
                    JsonValue{JsonValue::Object{
                        {"source", "roi"}, {"x", 8}, {"y", 8}, {"width", 16}, {"height", 8}}});
-        check(roi && !roi.value().failed && env->captures == 122);
+        check(roi && !roi.value().failed && env->captures == 42);
         const auto before_ocr = ocr_calls;
         auto regional_ocr = invoke("desktop.vision.ocr", JsonValue{JsonValue::Object{}});
         check(regional_ocr && !regional_ocr.value().failed && ocr_calls == before_ocr + 1);
         check(*regional_ocr.value().result.find("source_kind")->as_string() == "roi");
         check(*regional_ocr.value().result.find("width")->as_integer() == 16 &&
               *regional_ocr.value().result.find("height")->as_integer() == 8);
-        check(env->captures == 122 && !hidden && admitted == restored);
+        check(env->captures == 42 && !hidden && admitted == restored);
         fail_ocr = true;
         auto new_roi =
             invoke("desktop.screen.capture",
@@ -1140,7 +1112,7 @@ void native_observation_efficiency() {
             auto failed = invoke("desktop.vision.ocr", JsonValue{JsonValue::Object{}});
             check(failed && failed.value().failed);
         }
-        check(ocr_calls == before_failure + 1 && env->captures == 123);
+        check(ocr_calls == before_failure + 1 && env->captures == 43);
         fail_ocr = false;
         // Neither a successful result nor a failed analysis can bypass permission.
         allowed = false;
@@ -1584,7 +1556,8 @@ void native_region_sources() {
             check(env->last_action_x >= 2.0 && env->last_action_x <= 6.0 &&
                   env->last_action_y >= 1.0 && env->last_action_y <= 3.0);
             // Only the click's own guard frame; no extra recapture.
-            check(env->captures == captures_before_click + 2);
+            check(env->captures ==
+                  captures_before_click); // Undecorated execution has no postcheck.
         } catch (const std::exception &failure) {
             deferred_failure += std::string("\nM7-18 C5 ROI-supplied session click failed: ") +
                                 failure.what() + " | receipt: " + receipt;
@@ -1609,6 +1582,7 @@ auto execute_native_tool(mira::BuiltinToolRegistry &registry, const mira::Operat
     call.tool_id = tool->tool_id;
     call.tool_version = tool->version;
     call.wire_name = name;
+    call.has_side_effects = tool->has_side_effects;
     call.operation_id = mira::OperationId::generate();
     call.provider_call_id.value = "native-wiring";
     call.arguments = mira::parse_json(args).value();
@@ -1668,6 +1642,11 @@ void native_text_only_and_state_wiring() {
     spec.task_epoch = ctx.task_epoch;
     const auto old_input = turn.supply(spec);
     check(old_input && !old_input.value().empty());
+    mira::ModelRequest delivered;
+    delivered.task_id = ctx.task;
+    delivered.task_epoch = ctx.task_epoch;
+    delivered.input = old_input.value();
+    check(bool(turn.validate_request(delivered, ctx)));
     const auto read =
         execute_native_tool(registry, ctx, "desktop.vision.ocr", R"({"text_only":true})");
     check(read && !read.value().failed && reads == 1);
@@ -1678,13 +1657,30 @@ void native_text_only_and_state_wiring() {
         check(read.value().result.find("continuous") != nullptr);
     }
     const auto text_supply = turn.supply(spec);
-    check(text_supply && text_supply.value().empty() && !turn.supplied_image());
+    check(text_supply && text_supply.value().empty() && turn.supplied_image());
     mira::ModelRequest stale;
     stale.task_id = ctx.task;
     stale.task_epoch = ctx.task_epoch;
     stale.input = old_input.value();
     check(!turn.validate_request(stale, ctx));
     const auto captures = env->captures;
+    const auto &intent = capture.value().result;
+    JsonValue click_args{JsonValue::Object{{"image_scope", *intent.find("image_scope")},
+                                           {"environment_epoch", *intent.find("environment_epoch")},
+                                           {"x", 0},
+                                           {"y", 0},
+                                           {"width", 1},
+                                           {"height", 1}}};
+    const auto clicked = execute_native_tool(registry, ctx, "desktop.session.click",
+                                             mira::to_json_string(click_args).c_str());
+    check(clicked && !clicked.value().failed && env->inputs == 1 && env->captures == captures);
+    auto key_args = click_args;
+    key_args.set("environment_epoch", *clicked.value().result.find("environment_epoch"));
+    key_args.set("key_name", "super");
+    const auto keyed = execute_native_tool(registry, ctx, "desktop.session.key",
+                                           mira::to_json_string(key_args).c_str());
+    check(keyed && !keyed.value().failed && env->last_input.value == "meta" &&
+          env->captures == captures);
     const auto state = execute_native_tool(registry, ctx, "desktop.vision.state", "{}");
     check(state && !state.value().failed && queries == 1);
     check(env->captures == captures && reads == 1);
@@ -1823,9 +1819,12 @@ void native_session_poison_discipline() {
         check(env->created == created_base + 1 && env->closed == closed_base);
     }
     {
-        // (c) Preservation: a platform capture failure still poisons the
-        // session fail-closed; later captures answer with the canonical
-        // no-reauthorization receipt and never touch the provider again.
+        // (c) DEC-116: a platform capture failure reports its real cause and
+        // keeps the session fail-open for observation; the next capture
+        // retries the same provider session and succeeds once the transient
+        // condition clears. The pre-DEC-116 wrapper poisoned here instead,
+        // and the follow-up capture answered "native sharing ended or
+        // failed" with `closed` already at 1.
         const auto created_base = env->created, closed_base = env->closed,
                    captures_base = env->captures;
         detail::DesktopImageTurn turn(source, tools, ctx, stop);
@@ -1836,15 +1835,23 @@ void native_session_poison_discipline() {
             run_capture(registry, ctx, R"({"source":"desktop","interaction":true})");
         check(failed && failed.value().failed &&
               failed.value().safe_error_summary.find("fixture_failed") != std::string::npos);
-        check(env->created == created_base + 1 && env->closed == closed_base + 1);
-        env->fail = false;
-        const auto blocked =
-            run_capture(registry, ctx, R"({"source":"desktop","interaction":true})");
-        check(blocked && blocked.value().failed &&
-              blocked.value().safe_error_summary.find("native sharing ended or failed") !=
-                  std::string::npos);
-        check(env->created == created_base + 1 && env->closed == closed_base + 1 &&
+        check(failed.value().safe_error_summary.find("no reauthorization") == std::string::npos);
+        check(env->created == created_base + 1 && env->closed == closed_base &&
               env->captures == captures_base + 1);
+        env->fail = false;
+        // The same provider session serves the retry. The first retry omits
+        // the interaction flag: with the cast not yet (re)established the
+        // input route is unavailable, so an interactive retry would be an
+        // argument error ("sharing mode cannot change"), not a session loss.
+        const auto recovered = run_capture(registry, ctx, R"({"source":"desktop"})");
+        check(recovered && !recovered.value().failed);
+        check(env->created == created_base + 1 && env->closed == closed_base &&
+              env->captures == captures_base + 2);
+        const auto interactive_again =
+            run_capture(registry, ctx, R"({"source":"desktop","interaction":true})");
+        check(interactive_again && !interactive_again.value().failed);
+        check(env->created == created_base + 1 && env->closed == closed_base &&
+              env->captures == captures_base + 3);
     }
     {
         // (d) Wrapper path: a pre-publication epoch race (the environment
@@ -1918,6 +1925,186 @@ void native_session_poison_discipline() {
         const auto capture_after = run_capture(registry, ctx, R"({"source":"desktop"})");
         check(capture_after && !capture_after.value().failed);
         check(env->created == created_base + 1 && env->closed == closed_base);
+    }
+    check(env->created == env->closed);
+}
+
+// DEC-116 acceptance: the supply layer must keep the provider session alive
+// across transient capture failures (cancelled, portal_timeout, stream-level
+// and session-level codes), pass the real error through, and poison only for
+// authorization-class breakage (desktop_authorization_changed). Staleness
+// (new_source_frame_required) never touches the session either, and no error
+// may carry the retired "no reauthorization in this task" wording.
+void native_transient_recovery_contract() {
+    auto env = std::make_shared<NativeEnvironment>();
+    env->interactive = true;
+    env->frame_width = 8;
+    env->frame_height = 4;
+    // Constant pixels: the shared-input stability guard must pass and every
+    // capture must carry a full 8x4 stride-exact buffer.
+    env->session_pixels = [] {
+        return std::vector<std::uint8_t>(std::size_t(8) * 4 * 4, std::uint8_t{7});
+    };
+    auto tools = desktop();
+    tools.environment = env;
+    tools.gate = [](const auto &, const auto &, const auto &cancel) { return !cancel(); };
+    auto source = std::make_shared<detail::DesktopImageSource>();
+    const auto ctx = context();
+    mirage::desktop::CancelToken stop;
+    const auto run_capture = [](mira::BuiltinToolRegistry &registry,
+                                const mira::OperationContext &owner, const char *json) {
+        const auto exposed = registry.exposed_tools();
+        const auto tool = std::find_if(exposed.begin(), exposed.end(), [](const auto &spec) {
+            return spec.wire_name == "desktop.screen.capture";
+        });
+        check(tool != exposed.end());
+        mira::ToolProposal call;
+        call.tool_id = tool->tool_id;
+        call.tool_version = tool->version;
+        call.wire_name = tool->wire_name;
+        call.operation_id = mira::OperationId::generate();
+        call.provider_call_id.value = "transient-recovery";
+        call.arguments = mira::parse_json(json).value();
+        call.arguments_digest = mira::canonical_json_digest(call.arguments);
+        return registry.execute(call, owner);
+    };
+    const auto run_shared = [](mira::BuiltinToolRegistry &registry,
+                               const mira::OperationContext &owner, const std::string &name,
+                               const JsonValue &args) {
+        const auto exposed = registry.exposed_tools();
+        const auto tool = std::find_if(exposed.begin(), exposed.end(),
+                                       [&](const auto &spec) { return spec.wire_name == name; });
+        check(tool != exposed.end());
+        mira::ToolProposal call;
+        call.tool_id = tool->tool_id;
+        call.tool_version = tool->version;
+        call.wire_name = name;
+        call.has_side_effects = tool->has_side_effects;
+        call.operation_id = mira::OperationId::generate();
+        call.provider_call_id.value = "transient-recovery";
+        call.arguments = args;
+        call.arguments_digest = mira::canonical_json_digest(args);
+        return registry.execute(call, owner);
+    };
+    const std::string retired_wording = "no reauthorization in this task";
+    // (a) Caller cancellation and frame timeouts leave the session untouched:
+    // the error passes through with its real code and the next capture
+    // succeeds on the same provider session (no second session creation).
+    for (const auto *transient : {"cancelled", "portal_timeout", "invalid_stream_frame",
+                                  "pipewire_unavailable", "portal_session_closed"}) {
+        detail::DesktopImageTurn turn(source, tools, ctx, stop);
+        mira::BuiltinToolRegistry registry;
+        turn.register_tool(registry, {}, true);
+        const auto established =
+            run_capture(registry, ctx, R"({"source":"desktop","interaction":true})");
+        if (!established || established.value().failed)
+            std::cerr << "transient-recovery establish summary: "
+                      << (established ? established.value().safe_error_summary
+                                      : established.error().safe_message)
+                      << "\n";
+        check(established && !established.value().failed);
+        const auto created_base = env->created, closed_base = env->closed,
+                   captures_base = env->captures;
+        env->fail_times = 1;
+        env->fail_code = transient;
+        const auto failed =
+            run_capture(registry, ctx, R"({"source":"desktop","interaction":true})");
+        check(failed && failed.value().failed);
+        check(failed.value().safe_error_summary.find(transient) != std::string::npos);
+        check(failed.value().safe_error_summary.find(retired_wording) == std::string::npos);
+        check(env->created == created_base && env->closed == closed_base);
+        const auto recovered =
+            run_capture(registry, ctx, R"({"source":"desktop","interaction":true})");
+        check(recovered && !recovered.value().failed);
+        check(env->created == created_base && env->closed == closed_base &&
+              env->captures == captures_base + 2);
+    }
+    check(env->created == env->closed);
+    // (c) Authorization revocation stays terminal within the task: the
+    // desktop_authorization_changed capture poisons the session and later
+    // captures answer the re-grant receipt without touching the provider.
+    {
+        detail::DesktopImageTurn turn(source, tools, ctx, stop);
+        mira::BuiltinToolRegistry registry;
+        turn.register_tool(registry, {}, true);
+        const auto established =
+            run_capture(registry, ctx, R"({"source":"desktop","interaction":true})");
+        check(established && !established.value().failed);
+        const auto created_base = env->created, closed_base = env->closed,
+                   captures_base = env->captures;
+        env->fail_times = 1;
+        env->fail_code = "desktop_authorization_changed";
+        const auto revoked =
+            run_capture(registry, ctx, R"({"source":"desktop","interaction":true})");
+        check(revoked && revoked.value().failed &&
+              revoked.value().safe_error_summary.find("desktop_authorization_changed") !=
+                  std::string::npos);
+        check(env->created == created_base && env->closed == closed_base + 1);
+        for (int repeat = 0; repeat < 2; ++repeat) {
+            const auto blocked =
+                run_capture(registry, ctx, R"({"source":"desktop","interaction":true})");
+            check(blocked && blocked.value().failed);
+            check(blocked.value().safe_error_summary.find(
+                      "until the user re-grants desktop sharing") != std::string::npos);
+            check(blocked.value().safe_error_summary.find(retired_wording) == std::string::npos);
+        }
+        check(env->created == created_base && env->closed == closed_base + 1 &&
+              env->captures == captures_base + 1);
+    }
+    check(env->created == env->closed);
+    // (d) A staleness race (new_source_frame_required) never touched the
+    // session: the same provider session serves the next capture.
+    {
+        detail::DesktopImageTurn turn(source, tools, ctx, stop);
+        mira::BuiltinToolRegistry registry;
+        turn.register_tool(registry, {}, true);
+        const auto established =
+            run_capture(registry, ctx, R"({"source":"desktop","interaction":true})");
+        check(established && !established.value().failed);
+        const auto session_created = env->created, session_closed = env->closed;
+        const auto &metadata = established.value().result;
+        mira::AgentLoopSpec spec;
+        spec.task_id = ctx.task;
+        spec.session_id = ctx.session;
+        spec.task_epoch = ctx.task_epoch;
+        const auto supplied = turn.supply(spec);
+        check(supplied.has_value());
+        mira::ModelRequest request;
+        request.task_id = ctx.task;
+        request.task_epoch = ctx.task_epoch;
+        request.input = supplied.value();
+        check(bool(turn.validate_request(request, ctx)));
+        // One successful dispatch installs the newer-frame watermark.
+        const JsonValue click_args{JsonValue::Object{
+            {"image_scope", *metadata.find("image_scope")->as_string()},
+            {"environment_epoch", *metadata.find("environment_epoch")->as_integer()},
+            {"x", 0},
+            {"y", 0},
+            {"width", 2},
+            {"height", 1}}};
+        const auto click = run_shared(registry, ctx, "desktop.session.click", click_args);
+        if (!click || click.value().failed)
+            std::cerr << "transient-recovery click summary: "
+                      << (click ? click.value().safe_error_summary : click.error().safe_message)
+                      << "\n";
+        check(click && !click.value().failed);
+        check(env->inputs == 1 && env->created == session_created && env->closed == session_closed);
+        // A frozen source sequence now reproduces the staleness rejection; the
+        // pre-DEC-116 supply layer destroyed the session here instead.
+        const auto created_base = env->created, closed_base = env->closed,
+                   captures_base = env->captures;
+        env->repeated_source_after_input = true;
+        const auto stale = run_capture(registry, ctx, R"({"source":"desktop","interaction":true})");
+        check(stale && stale.value().failed &&
+              stale.value().safe_error_summary.find("new_source_frame_required") !=
+                  std::string::npos);
+        check(stale.value().safe_error_summary.find(retired_wording) == std::string::npos);
+        check(env->created == created_base && env->closed == closed_base);
+        env->repeated_source_after_input = false;
+        const auto fresh = run_capture(registry, ctx, R"({"source":"desktop","interaction":true})");
+        check(fresh && !fresh.value().failed);
+        check(env->created == created_base && env->closed == closed_base &&
+              env->captures == captures_base + 2);
     }
     check(env->created == env->closed);
 }
@@ -2265,14 +2452,16 @@ class NativeOcrScript final : public mira::IModelProvider {
         return response;
     }
 };
-class TaskFeedFixture final : public integration::DesktopPerceptionFeed {
+class TaskFeedFixture : public integration::DesktopPerceptionFeed {
   public:
     integration::PerceptionView state;
     std::shared_ptr<integration::PerceptionPreview> preview;
     std::uint64_t acknowledged = 0;
-    int frame_reads = 0, pause_depth = 0;
+    int frame_reads = 0, pause_depth = 0, waits = 0;
     TaskFeedFixture() {
         state.state = "sampling";
+        state.source_epoch = 1;
+        state.attention.emplace();
         preview = std::make_shared<integration::PerceptionPreview>();
         preview->id = "event-frame-fixture";
         preview->image.width = 4;
@@ -2290,10 +2479,18 @@ class TaskFeedFixture final : public integration::DesktopPerceptionFeed {
         event.kind = "observed_unconfirmed";
         event.text = "temporary fixture notice " + std::to_string(event.sequence);
         event.frame_id = preview->id;
-        event.observed_at = std::chrono::steady_clock::now();
+        event.source_epoch = state.source_epoch;
+        event.frame_sequence = 1; // each notice refers to this same retained preview
+        event.observed_at = preview->observed_at;
         state.events.push_back(std::move(event));
     }
     integration::PerceptionView view() const override { return state; }
+    std::string wait(std::uint64_t, std::chrono::milliseconds,
+                     const mirage::desktop::CancelToken &) override {
+        check(pause_depth == 0);
+        ++waits;
+        return "timeout";
+    }
     bool acknowledge(std::uint64_t cursor) override {
         acknowledged = cursor;
         return true;
@@ -2304,7 +2501,16 @@ class TaskFeedFixture final : public integration::DesktopPerceptionFeed {
         state.previews.clear();
         return true;
     }
-    void focus(const mirage::desktop::WindowGeometry &) override {}
+    std::vector<mirage::desktop::WindowGeometry> focus_calls;
+    void focus(const mirage::desktop::WindowGeometry &region) override {
+        focus_calls.push_back(region);
+        state.attention.emplace();
+        if (region.width > 0 && region.height > 0) {
+            state.attention->mode = "region";
+            state.attention->active = true;
+            state.attention->region = region;
+        }
+    }
     struct Pause final : integration::PerceptionPause {
         int &depth;
         explicit Pause(int &value) : depth(value) { ++depth; }
@@ -2314,6 +2520,1261 @@ class TaskFeedFixture final : public integration::DesktopPerceptionFeed {
         return std::make_unique<Pause>(pause_depth);
     }
 };
+void resident_wait_registry_without_capture() {
+    auto env = std::make_shared<NativeEnvironment>();
+    auto feed = std::make_shared<TaskFeedFixture>();
+    auto tools = desktop();
+    tools.environment = env;
+    tools.resident_session = [env, feed](bool, auto) {
+        return integration::PerceptionConnection{env->create_desktop_capture_session(), feed};
+    };
+    tools.continuous_session = [feed](auto session, auto) {
+        return integration::PerceptionConnection{std::move(session), feed};
+    };
+    auto ctx = context();
+    detail::DesktopImageTurn turn(std::make_shared<detail::DesktopImageSource>(), tools, ctx, {});
+    mira::BuiltinToolRegistry registry;
+    turn.register_tool(registry, {}, false);
+    const auto result = execute_native_tool(registry, ctx, "desktop.vision.wait",
+                                            R"({"timeout_ms":100,"after_cursor":1})");
+    check(result && !result.value().failed &&
+          *result.value().result.find("status")->as_string() == "timeout");
+    check(feed->waits == 1 && env->captures == 0 && env->inputs == 0);
+    const auto invalid =
+        execute_native_tool(registry, ctx, "desktop.vision.wait", R"({"timeout_ms":30001})");
+    check(!invalid || invalid.value().failed);
+    check(feed->waits == 1 && env->captures == 0);
+    auto scoped = tools;
+    scoped.capture_scope = "only-this-window";
+    const auto created = env->created;
+    detail::DesktopImageTurn restricted(std::make_shared<detail::DesktopImageSource>(), scoped, ctx,
+                                        {});
+    mira::AgentLoopSpec spec;
+    spec.task_id = ctx.task;
+    spec.session_id = ctx.session;
+    spec.task_epoch = ctx.task_epoch;
+    const auto supplied = restricted.supply(spec);
+    check(supplied && supplied.value().empty() && env->created == created);
+}
+
+void batched_events_supply_and_ack() {
+    auto env = std::make_shared<NativeEnvironment>();
+    auto feed = std::make_shared<TaskFeedFixture>();
+    feed->state.events.clear();
+    feed->state.newest = 0;
+    const auto now = std::chrono::steady_clock::now();
+    for (unsigned n = 1; n <= 24; ++n) {
+        integration::PerceptionEvent event;
+        event.sequence = event.frame_sequence = ++feed->state.newest;
+        event.entity = event.instance_generation = event.source_epoch = 1;
+        event.confirmed = true;
+        event.kind = "position_or_appearance_changed";
+        event.text = "Same text; inspect each appearance observation";
+        event.x = n;
+        event.width = event.height = 1;
+        event.observed_at = now - std::chrono::milliseconds(240 - n * 10);
+        feed->state.events.push_back(event);
+    }
+    auto barrier = feed->state.events.back();
+    barrier.sequence = ++feed->state.newest;
+    barrier.kind = "disappeared";
+    feed->state.events.push_back(barrier);
+    auto tools = desktop();
+    tools.environment = env;
+    tools.resident_session = [env, feed](bool, auto) {
+        return integration::PerceptionConnection{env->create_desktop_capture_session(), feed};
+    };
+    tools.continuous_session = [feed](auto session, auto) {
+        return integration::PerceptionConnection{std::move(session), feed};
+    };
+    const auto ctx = context();
+    detail::DesktopImageTurn turn(std::make_shared<detail::DesktopImageSource>(), tools, ctx, {});
+    mira::BuiltinToolRegistry registry;
+    turn.register_tool(registry, {}, false);
+    mira::AgentLoopSpec spec;
+    spec.task_id = ctx.task;
+    spec.session_id = ctx.session;
+    spec.task_epoch = ctx.task_epoch;
+    const auto first = turn.supply(spec);
+    check(first && feed->acknowledged == 0);
+    const auto retry = turn.supply(spec); // failed/uncompleted requests cannot consume
+    check(retry && feed->acknowledged == 0);
+    bool found = false;
+    for (const auto &item : retry.value())
+        for (const auto &part : item.content)
+            if (const auto *text = std::get_if<mira::TextPart>(&part);
+                text && text->text.starts_with("Untrusted continuous desktop observations")) {
+                check(text->text.size() <= 8192);
+                const auto parsed =
+                    mira::parse_json(text->text.substr(text->text.find('{'))).value();
+                const auto &rows = *parsed.find("events")->as_array();
+                check(rows.size() == 4 && *rows[0].find("sample_count")->as_integer() == 8);
+                check(rows[0].find("prior_samples")->as_array()->size() == 7);
+                check(*rows.back().find("kind")->as_string() == "disappeared");
+                check(parsed.find("cursor")->as_integer() == 25);
+                found = true;
+            }
+    check(found);
+    mira::ModelRequest consumed;
+    consumed.request_id = mira::ModelRequestId::generate();
+    turn.perception_consumed(consumed, ctx); // supplier absent: no ACK
+    check(feed->acknowledged == 0);
+    consumed.input = retry.value();
+    turn.perception_consumed(consumed, ctx);
+    check(feed->acknowledged == 25 && feed->state.events.size() == 25);
+    // Saturate event and scene budgets together. The outer 8KiB guard must
+    // remove whole rows and ACK only the prefix left in the actual request.
+    feed->state.scene.emplace();
+    auto &scene = *feed->state.scene;
+    scene.ok = scene.reset = true;
+    scene.source_session = "batch-supplier-fixture";
+    scene.context_revision = scene.frame_sequence = 1;
+    feed->state.scene_observed_at = std::chrono::steady_clock::now();
+    for (unsigned n = 100; n < 108; ++n) {
+        mirage::desktop::VisualSceneRecord record;
+        record.object.id = n;
+        record.object.incarnation = record.object.content_revision = 1;
+        record.object.identity_confirmed = true;
+        record.object.bounds = {10, 10, 80, 20};
+        record.object.text.assign(256, 's');
+        scene.updated.push_back(record);
+    }
+    const auto later = std::chrono::steady_clock::now();
+    for (unsigned n = 1; n <= 96; ++n) {
+        auto e = feed->state.events.front();
+        e.sequence = e.frame_sequence = ++feed->state.newest;
+        e.text.assign(256, 'm');
+        e.observed_at = later - std::chrono::milliseconds(480 - n * 5);
+        feed->state.events.push_back(std::move(e));
+    }
+    const auto before_trim = detail::perception_event_batch(feed->view(), 25, later).cursor;
+    const auto large = turn.supply(spec);
+    check(bool(large));
+    std::int64_t actual_cursor = 0;
+    for (const auto &item : large.value())
+        for (const auto &part : item.content)
+            if (const auto *text = std::get_if<mira::TextPart>(&part);
+                text && text->text.starts_with("Untrusted continuous desktop observations")) {
+                check(text->text.size() <= 8192);
+                const auto projection =
+                    mira::parse_json(text->text.substr(text->text.find('{'))).value();
+                actual_cursor = *projection.find("cursor")->as_integer();
+                check(actual_cursor > 25 && actual_cursor < static_cast<std::int64_t>(before_trim));
+                std::int64_t represented = 25;
+                for (const auto &row : *projection.find("events")->as_array()) {
+                    if (const auto *prior = row.find("prior_samples"))
+                        for (const auto &point : *prior->as_array())
+                            check(point.find("cursor")->as_integer() == ++represented);
+                    check(row.find("cursor")->as_integer() == ++represented);
+                }
+                check(represented == actual_cursor);
+            }
+    consumed.input = large.value();
+    turn.perception_consumed(consumed, ctx);
+    check(feed->acknowledged == static_cast<std::uint64_t>(actual_cursor));
+    check(env->captures == 0 && env->inputs == 0);
+}
+
+// DEC-118: the desktop.vision.focus tool surfaces the task feed's attention
+// region to the model. Argument validation happens before any feed effect, a
+// resident feed is required, and zero extents mean "clear".
+void focus_tool_contract() {
+    auto ctx = context();
+    mira::AgentLoopSpec spec;
+    spec.task_id = ctx.task;
+    spec.session_id = ctx.session;
+    spec.task_epoch = ctx.task_epoch;
+    const auto invoke = [&](const char *args) {
+        auto env = std::make_shared<NativeEnvironment>();
+        auto feed = std::make_shared<TaskFeedFixture>();
+        auto tools = desktop();
+        tools.environment = env;
+        tools.resident_session = [env, feed](bool, auto) {
+            return integration::PerceptionConnection{env->create_desktop_capture_session(), feed};
+        };
+        tools.continuous_session = [feed](auto session, auto) {
+            return integration::PerceptionConnection{std::move(session), feed};
+        };
+        detail::DesktopImageTurn turn(std::make_shared<detail::DesktopImageSource>(), tools, ctx,
+                                      {});
+        mira::BuiltinToolRegistry registry;
+        turn.register_tool(registry, {}, false);
+        const auto exposed = registry.exposed_tools();
+        check(std::any_of(exposed.begin(), exposed.end(), [](const auto &tool) {
+            return tool.wire_name == "desktop.vision.focus";
+        }));
+        return std::pair{execute_native_tool(registry, ctx, "desktop.vision.focus", args),
+                         std::move(feed)};
+    };
+    // Schema rejections (fractional and negative extents) fail before the feed.
+    for (const char *args :
+         {R"({"x":1.5,"y":0,"width":1,"height":1})", R"({"x":-1,"y":0,"width":1,"height":1})"}) {
+        const auto [result, feed] = invoke(args);
+        check(result && result.value().failed && feed->focus_calls.empty());
+    }
+    // Handler rejections: missing members and missing resident feed.
+    for (const char *args : {"{}", R"({"x":1,"y":2,"width":3})", R"({"x":1,"y":2,"height":3})",
+                             R"({"x":2147483648,"y":0,"width":1,"height":1})",
+                             R"({"x":999999,"y":0,"width":2,"height":1})"}) {
+        const auto [result, feed] = invoke(args);
+        check(result && !result.value().failed &&
+              *result.value().result.find("applied")->as_boolean() == false &&
+              *result.value().result.find("reason")->as_string() ==
+                  std::string("invalid_argument") &&
+              feed->focus_calls.empty());
+    }
+    {
+        // A continuous session wired but never upgraded by a capture: the
+        // perception tools register and focus reports no_resident_feed instead
+        // of touching a feed.
+        auto feed = std::make_shared<TaskFeedFixture>();
+        auto tools = desktop();
+        tools.continuous_session = [feed](auto session, auto) {
+            return integration::PerceptionConnection{std::move(session), feed};
+        };
+        detail::DesktopImageTurn turn(std::make_shared<detail::DesktopImageSource>(), tools, ctx,
+                                      {});
+        mira::BuiltinToolRegistry registry;
+        turn.register_tool(registry, {}, false);
+        const auto result = execute_native_tool(registry, ctx, "desktop.vision.focus",
+                                                R"({"x":1,"y":2,"width":3,"height":4})");
+        check(result && !result.value().failed &&
+              *result.value().result.find("applied")->as_boolean() == false &&
+              *result.value().result.find("reason")->as_string() ==
+                  std::string("no_resident_feed") &&
+              feed->focus_calls.empty());
+    }
+    // Valid region: applied, not cleared, delivered to the feed unchanged.
+    {
+        const auto [result, feed] = invoke(R"({"x":10,"y":20,"width":300,"height":200})");
+        check(result && !result.value().failed &&
+              *result.value().result.find("applied")->as_boolean() == true);
+        const auto *focus = result.value().result.find("focus");
+        check(focus && *focus->find("cleared")->as_boolean() == false &&
+              *focus->find("x")->as_integer() == 10 && *focus->find("y")->as_integer() == 20 &&
+              *focus->find("width")->as_integer() == 300 &&
+              *focus->find("height")->as_integer() == 200);
+        check(feed->focus_calls.size() == 1 && feed->focus_calls.back().x == 10 &&
+              feed->focus_calls.back().y == 20 && feed->focus_calls.back().width == 300 &&
+              feed->focus_calls.back().height == 200);
+    }
+    // Zero extents clear the attention region (width=height=0).
+    {
+        const auto [result, feed] = invoke(R"({"x":0,"y":0,"width":0,"height":0})");
+        check(result && !result.value().failed &&
+              *result.value().result.find("applied")->as_boolean() == true);
+        check(*result.value().result.find("focus")->find("cleared")->as_boolean() == true);
+        check(feed->focus_calls.size() == 1 && feed->focus_calls.back().width == 0 &&
+              feed->focus_calls.back().height == 0);
+    }
+}
+class StoryboardFeed final : public TaskFeedFixture {
+  public:
+    std::vector<std::shared_ptr<integration::PerceptionPreview>> frames;
+    std::vector<std::string> read_ids;
+    bool reject_frame_ack = false;
+    StoryboardFeed() {
+        state.events.clear();
+        state.previews.clear();
+        state.source_epoch = 7;
+        for (int i = 0; i < 2; ++i) {
+            auto p = std::make_shared<integration::PerceptionPreview>(*preview);
+            p->id = "story-" + std::to_string(i);
+            p->observed_at = std::chrono::steady_clock::now() - std::chrono::seconds{3 - i};
+            state.previews.emplace_back(p->id, p);
+            integration::PerceptionEvent event;
+            event.sequence = std::uint64_t(i + 1);
+            event.source_epoch = state.source_epoch;
+            event.frame_sequence = std::uint64_t(i + 1);
+            event.frame_id = p->id;
+            event.kind = "visual_region_changed";
+            event.text = "keyframe";
+            event.observed_at = p->observed_at;
+            state.events.push_back(event);
+            frames.push_back(std::move(p));
+        }
+        state.newest = 2;
+    }
+    bool acknowledge_frame(const std::string &id) override {
+        read_ids.push_back(id);
+        if (reject_frame_ack)
+            return false;
+        std::erase_if(state.previews, [&](const auto &p) { return p.first == id; });
+        return true;
+    }
+};
+void storyboard_tool_contract() {
+    auto env = std::make_shared<NativeEnvironment>();
+    auto feed = std::make_shared<StoryboardFeed>();
+    feed->state.dispatch = integration::PerceptionDispatch{};
+    feed->state.dispatch->sampled = 12;
+    feed->state.dispatch->superseded = 3;
+    feed->state.dispatch->pending = true;
+    feed->state.tracking = integration::PerceptionTracking{};
+    feed->state.tracking->error.assign(64, 'x');
+    for (unsigned i = 0; i < 8; ++i) {
+        integration::PerceptionTrack track;
+        track.entity = i + 1;
+        track.state = "lost";
+        track.evidence = "placeholder";
+        track.reacquired = true;
+        feed->state.tracking->tracks.push_back(track);
+    }
+    auto tools = desktop();
+    tools.environment = env;
+    tools.resident_session = [env, feed](bool, auto) {
+        return integration::PerceptionConnection{env->create_desktop_capture_session(), feed};
+    };
+    tools.continuous_session = [feed](auto session, auto) {
+        return integration::PerceptionConnection{std::move(session), feed};
+    };
+    auto owner = context();
+    detail::DesktopImageTurn turn(std::make_shared<detail::DesktopImageSource>(), tools, owner, {});
+    mira::BuiltinToolRegistry registry;
+    turn.register_tool(registry, {}, false);
+    const auto call = [&](const std::string &args) {
+        return execute_native_tool(registry, owner, "desktop.vision.storyboard", args.c_str());
+    };
+    const auto duplicate = call(R"({"frame_ids":["story-0","story-0"]})");
+    check(!duplicate || duplicate.value().failed);
+    const auto missing = call(R"({"frame_ids":["story-0","evicted"]})");
+    check(missing && !missing.value().failed &&
+          !*missing.value().result.find("available")->as_boolean());
+    const auto board = call(R"({"frame_ids":["story-1","story-0"]})");
+    check(board && !board.value().failed &&
+          *board.value().result.find("source")->as_string() == "storyboard" &&
+          !*board.value().result.find("actionable")->as_boolean());
+    check(feed->read_ids.empty() && env->captures == 0 && env->inputs == 0);
+    mira::AgentLoopSpec spec;
+    spec.task_id = owner.task;
+    spec.session_id = owner.session;
+    spec.task_epoch = owner.task_epoch;
+    const auto supplied = turn.supply(spec);
+    check(static_cast<bool>(supplied));
+    mira::ModelRequest request;
+    request.request_id = mira::ModelRequestId::generate();
+    request.task_id = owner.task;
+    request.task_epoch = owner.task_epoch;
+    request.input = supplied.value();
+    check(static_cast<bool>(turn.validate_request(request, owner)));
+    int images = 0;
+    for (const auto &item : request.input)
+        for (const auto &part : item.content) {
+            images += std::holds_alternative<mira::ImagePart>(part);
+            if (const auto *text = std::get_if<mira::TextPart>(&part);
+                text && text->text.find("Untrusted continuous desktop observations") == 0) {
+                check(text->text.size() <= 8192);
+                const auto parsed = mira::parse_json(text->text.substr(text->text.find('{')));
+                check(static_cast<bool>(parsed));
+                const auto *dispatch = parsed.value().find("dispatch");
+                check(dispatch && dispatch->find("cv_samples")->as_integer() == 12);
+                check(dispatch->find("superseded")->as_integer() == 3);
+                check(dispatch->find("pending")->as_boolean() == true);
+                const auto *tracking = parsed.value().find("tracking");
+                check(tracking && tracking->find("total_tracks")->as_integer() == 8);
+                check(tracking->find("tracks")->as_array()->size() <= 4);
+                check(tracking->find("input_actionable")->as_boolean() == false);
+                check(*tracking->find("content_freshness")->as_string() == "not_established");
+            }
+        }
+    check(images == 1 && feed->read_ids.empty());
+    auto text_only = request;
+    for (auto &item : text_only.input)
+        std::erase_if(item.content,
+                      [](const auto &p) { return std::holds_alternative<mira::ImagePart>(p); });
+    turn.perception_consumed(text_only, owner);
+    check(feed->read_ids.empty());
+    auto foreign = owner;
+    foreign.task = mira::TaskId::generate();
+    turn.perception_consumed(request, foreign);
+    check(feed->read_ids.empty());
+    ++feed->state.source_epoch;
+    check(!turn.validate_request(request, owner));
+    --feed->state.source_epoch;
+    turn.perception_consumed(request, owner);
+    check(feed->read_ids.empty()); // DEC-132: epoch ABA cannot revive an old offer
+    const auto rebuilt = call(R"({"frame_ids":["story-1","story-0"]})");
+    check(rebuilt && !rebuilt.value().failed);
+    request.request_id = mira::ModelRequestId::generate();
+    request.input = turn.supply(spec).value();
+    check(bool(turn.validate_request(request, owner)));
+    turn.perception_consumed(request, owner);
+    check(feed->read_ids == std::vector<std::string>{"story-0", "story-1"});
+    const auto repeat = turn.supply(spec);
+    check(static_cast<bool>(repeat));
+    for (const auto &item : repeat.value())
+        for (const auto &part : item.content)
+            check(!std::holds_alternative<mira::ImagePart>(part));
+    check(env->captures == 0 && env->inputs == 0);
+    const auto consumed = call(R"({"frame_ids":["story-0","story-1"]})");
+    check(consumed && !*consumed.value().result.find("available")->as_boolean());
+    detail::DesktopImageTurn no_images(std::make_shared<detail::DesktopImageSource>(), tools, owner,
+                                       {}, false);
+    mira::BuiltinToolRegistry text_registry;
+    no_images.register_tool(text_registry, {}, false);
+    for (const auto &tool : text_registry.exposed_tools())
+        check(tool.wire_name != "desktop.vision.storyboard");
+}
+
+class EvidenceCompletionProvider final : public mira::IModelProvider {
+    mira::ModelProfile profile_;
+
+  public:
+    mira::ModelCompletionStatus status = mira::ModelCompletionStatus::Completed;
+    bool fail = false;
+    const mira::ModelProfile &profile() const override { return profile_; }
+    mira::Result<mira::ModelResponse> infer(const mira::ModelRequest &request,
+                                            const mira::OperationContext &,
+                                            const mira::ProviderInferOptions &) override {
+        if (fail) {
+            mira::Error error;
+            error.code = mira::ErrorCode::Unavailable;
+            error.safe_message = "controlled inference failure";
+            return error;
+        }
+        mira::ModelResponse response;
+        response.request_id = request.request_id;
+        response.status = status;
+        return response;
+    }
+};
+void delivered_evidence_tool_contract() {
+    auto env = std::make_shared<NativeEnvironment>();
+    auto feed = std::make_shared<StoryboardFeed>();
+    auto tools = desktop();
+    tools.environment = env;
+    tools.resident_session = [env, feed](bool, auto) {
+        return integration::PerceptionConnection{env->create_desktop_capture_session(), feed};
+    };
+    tools.continuous_session = [feed](auto session, auto) {
+        return integration::PerceptionConnection{std::move(session), feed};
+    };
+    auto owner = context();
+    mirage::desktop::CancelToken cancel;
+    detail::DesktopImageTurn turn(std::make_shared<detail::DesktopImageSource>(), tools, owner,
+                                  cancel);
+    mira::BuiltinToolRegistry registry;
+    turn.register_tool(registry, {}, false);
+    mira::AgentLoopSpec spec;
+    spec.task_id = owner.task;
+    spec.session_id = owner.session;
+    spec.task_epoch = owner.task_epoch;
+    const auto report = [&](const std::vector<mira::ModelInputItem> &items) {
+        for (const auto &item : items)
+            for (const auto &part : item.content)
+                if (const auto *text = std::get_if<mira::TextPart>(&part);
+                    text && text->text.starts_with("Untrusted continuous desktop observations")) {
+                    check(text->text.size() <= 8192);
+                    const auto parsed =
+                        mira::parse_json(text->text.substr(text->text.find('{'))).value();
+                    const auto evidence = *parsed.find("retained_visual_evidence");
+                    check(mira::to_json_string(evidence).size() <= 1024);
+                    return evidence;
+                }
+        throw std::runtime_error("missing retained evidence report");
+    };
+    check(report(turn.supply(spec).value()).find("retained_samples")->as_integer() == 0);
+    const auto call = [&](const std::string &name, const char *args) {
+        return execute_native_tool(registry, owner, name, args);
+    };
+    // Unknown source, missing event and future timestamps never serve a retained image.
+    const auto saved = feed->state;
+    feed->state.events[0].source_epoch = 0;
+    auto invalid = call("desktop.vision.event_frame", R"({"frame_id":"story-0"})");
+    check(invalid && invalid.value().result.find("available")->as_boolean() == false);
+    feed->state = saved;
+    const auto original_time = feed->frames[0]->observed_at;
+    feed->frames[0]->observed_at = std::chrono::steady_clock::now() + std::chrono::seconds(1);
+    invalid = call("desktop.vision.event_frame", R"({"frame_id":"story-0"})");
+    check(invalid && invalid.value().result.find("available")->as_boolean() == false);
+    feed->frames[0]->observed_at = original_time;
+    auto board = call("desktop.vision.storyboard", R"({"frame_ids":["story-1","story-0"]})");
+    check(board && !board.value().failed);
+    mira::ModelRequest request;
+    request.task_id = owner.task;
+    request.task_epoch = owner.task_epoch;
+    request.request_id = mira::ModelRequestId::generate();
+    request.input = turn.supply(spec).value();
+    check(report(request.input).find("retained_samples")->as_integer() == 0);
+    check(bool(turn.validate_request(request, owner)));
+    const auto forged = [&](auto mutate) {
+        auto bad = request;
+        for (auto &item : bad.input)
+            for (auto &part : item.content)
+                if (auto *image = std::get_if<mira::ImagePart>(&part))
+                    mutate(*image);
+        turn.perception_consumed(bad, owner);
+        check(feed->read_ids.empty());
+    };
+    forged([](auto &i) { ++i.source.byte_size; });
+    forged([](auto &i) { i.media_type = "image/jpeg"; });
+    forged([](auto &i) { i.source.media_type = "image/jpeg"; });
+    forged([](auto &i) { i.detail = mira::ImageDetail::Low; });
+    auto stub = std::make_shared<EvidenceCompletionProvider>();
+    detail::ObservedProvider provider(stub);
+    provider.request_guard = [&](const auto &r, const auto &ctx) {
+        return turn.validate_request(r, ctx);
+    };
+    provider.consumed = [&](const auto &r, const auto &ctx) { turn.perception_consumed(r, ctx); };
+    turn.set_budget_remaining([] { return std::optional<std::int64_t>{5000}; });
+    auto withheld = request;
+    withheld.request_id = mira::ModelRequestId::generate();
+    withheld.input = turn.supply(spec).value();
+    check(bool(provider.infer(withheld, owner, {})) && feed->read_ids.empty());
+    check(report(withheld.input).find("retained_samples")->as_integer() == 0);
+    turn.set_budget_remaining({});
+    request.input = turn.supply(spec).value();
+    stub->fail = true;
+    check(!provider.infer(request, owner, {}));
+    stub->fail = false;
+    for (const auto status :
+         {mira::ModelCompletionStatus::Incomplete, mira::ModelCompletionStatus::Cancelled}) {
+        stub->status = status;
+        check(bool(provider.infer(request, owner, {})) && feed->read_ids.empty());
+    }
+    auto text_only = request;
+    for (auto &item : text_only.input)
+        std::erase_if(item.content,
+                      [](const auto &p) { return std::holds_alternative<mira::ImagePart>(p); });
+    stub->status = mira::ModelCompletionStatus::Completed;
+    check(!provider.infer(text_only, owner, {}) && feed->read_ids.empty());
+    auto foreign = owner;
+    foreign.task = mira::TaskId::generate();
+    turn.perception_consumed(request, foreign);
+    check(feed->read_ids.empty());
+    auto expired = owner;
+    expired.deadline = std::chrono::steady_clock::now() - std::chrono::seconds(1);
+    turn.perception_consumed(request, expired);
+    check(feed->read_ids.empty());
+    check(bool(provider.infer(request, owner, {})));
+    check(feed->read_ids == std::vector<std::string>{"story-0", "story-1"});
+    const auto after = turn.supply(spec).value();
+    const auto delivered = report(after);
+    check(delivered.find("retained_samples")->as_integer() == 2);
+    check(*delivered.find("state")->as_string() == "sparse_observation");
+    check(delivered.find("observer_span_ms")->as_integer() > 0);
+    check(delivered.find("complete_video")->as_boolean() == false &&
+          delivered.find("audio")->as_boolean() == false);
+    check(*delivered.find("content_understanding")->as_string() == "not_verified");
+    const auto span = delivered.find("observer_span_ms")->as_integer();
+    // More time or text progress cannot expand the observed visual span.
+    feed->state.media.active = true;
+    check(report(turn.supply(spec).value()).find("observer_span_ms")->as_integer() == span);
+    // Replacing a published image preserves the ledger; only its completed
+    // input contributes. The new preview is not acknowledged before completion.
+    auto extra = std::make_shared<integration::PerceptionPreview>(*feed->frames.back());
+    extra->id = "story-2";
+    extra->observed_at = std::chrono::steady_clock::now();
+    feed->frames.push_back(extra);
+    feed->state.previews.emplace_back(extra->id, extra);
+    auto event = feed->state.events.back();
+    event.sequence = ++feed->state.newest;
+    event.frame_sequence = 3;
+    event.frame_id = extra->id;
+    event.observed_at = extra->observed_at;
+    feed->state.events.push_back(event);
+    check(!call("desktop.vision.event_frame", R"({"frame_id":"story-2"})").value().failed);
+    request.request_id = mira::ModelRequestId::generate();
+    request.input = turn.supply(spec).value();
+    check(report(request.input).find("retained_samples")->as_integer() == 2);
+    check(bool(provider.infer(request, owner, {})));
+    check(report(turn.supply(spec).value()).find("retained_samples")->as_integer() == 3);
+    // Artifact IDs are content-addressed. An older completed request with the
+    // SAME pixels must never attest a newer frame's different observation time.
+    const auto old_request = request;
+    auto identical = std::make_shared<integration::PerceptionPreview>(*extra);
+    identical->id = "story-3";
+    identical->observed_at = std::chrono::steady_clock::now();
+    feed->frames.push_back(identical);
+    feed->state.previews.emplace_back(identical->id, identical);
+    event.sequence = ++feed->state.newest;
+    event.frame_sequence = 4;
+    event.frame_id = identical->id;
+    event.observed_at = identical->observed_at;
+    feed->state.events.push_back(event);
+    check(!call("desktop.vision.event_frame", R"({"frame_id":"story-3"})").value().failed);
+    request.request_id = mira::ModelRequestId::generate();
+    request.input = turn.supply(spec).value();
+    check(bool(turn.validate_request(request, owner)));
+    const auto read_count = feed->read_ids.size();
+    turn.perception_consumed(old_request, owner);
+    check(feed->read_ids.size() == read_count);
+    check(bool(provider.infer(request, owner, {})));
+    check(report(turn.supply(spec).value()).find("retained_samples")->as_integer() == 4);
+    // A source gap revokes the prior segment. The same epoch cannot revive it.
+    ++feed->state.dropped;
+    const auto interrupted = report(turn.supply(spec).value());
+    check(interrupted.find("retained_samples")->as_integer() == 0);
+    check(*interrupted.find("last_interruption")->as_string() == "observation_gap");
+    turn.perception_consumed(request, owner);
+    check(report(turn.supply(spec).value()).find("retained_samples")->as_integer() == 0);
+    // Resident-only turns also reject an authority change before any capture.
+    const auto before = feed->read_ids.size();
+    tools.actions->takeover();
+    turn.perception_consumed(request, owner);
+    check(feed->read_ids.size() == before);
+    cancel.request_cancel();
+    turn.perception_consumed(request, owner);
+    check(feed->read_ids.size() == before && env->captures == 0 && env->inputs == 0);
+}
+
+void temporal_storyboard_tool_contract() {
+    auto env = std::make_shared<NativeEnvironment>();
+    auto feed = std::make_shared<StoryboardFeed>();
+    feed->reject_frame_ack = true; // local completion ledger must suppress even a retained preview
+    auto tools = desktop();
+    tools.environment = env;
+    tools.resident_session = [env, feed](bool, auto) {
+        return integration::PerceptionConnection{env->create_desktop_capture_session(), feed};
+    };
+    tools.continuous_session = [feed](auto session, auto) {
+        return integration::PerceptionConnection{std::move(session), feed};
+    };
+    auto owner = context();
+    detail::DesktopImageTurn turn(std::make_shared<detail::DesktopImageSource>(), tools, owner, {});
+    mira::BuiltinToolRegistry registry;
+    turn.register_tool(registry, {}, false);
+    const auto call = [&](const char *args = R"({"window_ms":10000})") {
+        return execute_native_tool(registry, owner, "desktop.vision.storyboard", args);
+    };
+    for (const auto *args :
+         {"{}", R"({"max_frames":2})", R"({"window_ms":99})", R"({"window_ms":120001})",
+          R"({"window_ms":10000,"max_frames":5})", R"({"window_ms":10000,"max_frames":1})",
+          R"({"window_ms":10000,"max_frames":2.5})",
+          R"({"window_ms":10000,"frame_ids":["story-0","story-1"]})",
+          R"({"frame_ids":["story-0","story-1"],"max_frames":2})",
+          R"({"window_ms":10000,"unknown":2})", R"({"window_ms":"10000"})"}) {
+        const auto bad = call(args);
+        check(!bad || bad.value().failed);
+    }
+    auto chosen = call(R"({"window_ms":10000,"max_frames":2})");
+    check(chosen && !chosen.value().failed);
+    const auto &meta = chosen.value().result;
+    check(*meta.find("selection")->as_string() == "observer_window_maximin");
+    check(meta.find("window_ms")->as_integer() == 10000);
+    check(meta.find("eligible_frames")->as_integer() == 2 &&
+          meta.find("selected_frames")->as_integer() == 2);
+    check(meta.find("width")->as_integer() == 640 && meta.find("height")->as_integer() == 320);
+    check(meta.find("input_actionable")->as_boolean() == false);
+    const auto tiles = *meta.find("tiles")->as_array();
+    check(*tiles[0].find("frame_id")->as_string() == "story-0" &&
+          *tiles[1].find("frame_id")->as_string() == "story-1");
+    check(tiles[0].find("content_ref")->as_string()->size() == 64);
+    mira::AgentLoopSpec spec;
+    spec.task_id = owner.task;
+    spec.session_id = owner.session;
+    spec.task_epoch = owner.task_epoch;
+    const auto request = [&] {
+        mira::ModelRequest value;
+        value.request_id = mira::ModelRequestId::generate();
+        value.task_id = owner.task;
+        value.task_epoch = owner.task_epoch;
+        value.input = turn.supply(spec).value();
+        for (const auto &item : value.input)
+            for (const auto &part : item.content)
+                if (const auto *text = std::get_if<mira::TextPart>(&part);
+                    text && text->text.starts_with("Untrusted continuous desktop observations"))
+                    check(text->text.size() <= 8192);
+        return value;
+    };
+    auto stub = std::make_shared<EvidenceCompletionProvider>();
+    detail::ObservedProvider provider(stub);
+    provider.request_guard = [&](const auto &r, const auto &ctx) {
+        return turn.validate_request(r, ctx);
+    };
+    provider.consumed = [&](const auto &r, const auto &ctx) { turn.perception_consumed(r, ctx); };
+    turn.set_budget_remaining([] { return std::optional<std::int64_t>{5000}; });
+    check(bool(provider.infer(request(), owner, {})) && feed->read_ids.empty());
+    turn.set_budget_remaining({});
+    check(call().value().result.find("eligible_frames")->as_integer() == 2);
+    stub->fail = true;
+    check(!provider.infer(request(), owner, {}) && feed->read_ids.empty());
+    stub->fail = false;
+    check(call().value().result.find("eligible_frames")->as_integer() == 2);
+    stub->status = mira::ModelCompletionStatus::Incomplete;
+    check(bool(provider.infer(request(), owner, {})) && feed->read_ids.empty());
+    stub->status = mira::ModelCompletionStatus::Completed;
+    check(bool(provider.infer(request(), owner, {})));
+    check(feed->read_ids.size() == 2 && feed->state.previews.size() == 2);
+    const auto no_new = call();
+    check(no_new && no_new.value().result.find("available")->as_boolean() == false);
+    check(*no_new.value().result.find("reason")->as_string() == "no_new_temporal_frames");
+    check(call(R"({"frame_ids":["story-0","story-1"]})")
+              .value()
+              .result.find("available")
+              ->as_boolean() == true);
+    ++feed->state.dropped;
+    check(call().value().result.find("available")->as_boolean() == true);
+    const auto old = request();
+    check(bool(turn.validate_request(old, owner)));
+    ++feed->state.source_epoch;
+    (void)request();
+    --feed->state.source_epoch;
+    turn.perception_consumed(old, owner);
+    check(feed->read_ids.size() == 2);
+    check(call().value().result.find("available")->as_boolean() == true);
+    tools.actions->takeover();
+    const auto revoked = call();
+    check(!revoked || revoked.value().failed);
+    check(env->captures == 0 && env->inputs == 0);
+}
+
+void content_task_tool_contract() {
+    auto env = std::make_shared<NativeEnvironment>();
+    auto feed = std::make_shared<StoryboardFeed>();
+    auto tools = desktop();
+    tools.environment = env;
+    tools.resident_session = [env, feed](bool, auto) {
+        return integration::PerceptionConnection{env->create_desktop_capture_session(), feed};
+    };
+    tools.continuous_session = [feed](auto session, auto) {
+        return integration::PerceptionConnection{std::move(session), feed};
+    };
+    auto owner = context();
+    mirage::desktop::CancelToken cancel;
+    detail::DesktopImageTurn turn(std::make_shared<detail::DesktopImageSource>(), tools, owner,
+                                  cancel);
+    mira::BuiltinToolRegistry registry;
+    turn.register_tool(registry, {}, false);
+    const auto call = [&](const std::string &args) {
+        return execute_native_tool(registry, owner, "desktop.vision.content", args.c_str());
+    };
+    check(!turn.settle_content_task().active);
+    check(!turn.task_purpose_declared());
+    check(call(R"({"action":"navigation"})").value().result.find("applied")->as_boolean() == true);
+    check(turn.task_purpose_declared() && turn.navigation_task());
+    const auto begin =
+        call(R"({"action":"begin","scope":"observed_samples","requires_audio":false})");
+    check(begin && begin.value().result.find("applied")->as_boolean() == true);
+    check(!turn.navigation_task());
+    check(call(R"({"action":"navigation"})").value().result.find("applied")->as_boolean() == false);
+    const auto changed =
+        call(R"({"action":"begin","scope":"entire_video","requires_audio":false})");
+    check(changed && changed.value().result.find("applied")->as_boolean() == false);
+    const auto unknown = call(R"({"action":"status","unexpected":true})");
+    check(!unknown || unknown.value().failed ||
+          unknown.value().result.find("applied")->as_boolean() == false);
+    const auto board = execute_native_tool(registry, owner, "desktop.vision.storyboard",
+                                           R"({"frame_ids":["story-0","story-1"]})");
+    check(board && !board.value().failed);
+    const auto ref =
+        *board.value().result.find("tiles")->as_array()->front().find("content_ref")->as_string();
+    const auto assessment = mira::to_json_string(
+        JsonValue{JsonValue::Object{{"action", "assess"},
+                                    {"verdict", "answerable"},
+                                    {"answer", "two observed samples"},
+                                    {"limitations", "no sound; sparse"},
+                                    {"evidence_refs", JsonValue{JsonValue::Array{ref}}}}});
+    const auto premature = call(assessment);
+    check(premature && premature.value().result.find("applied")->as_boolean() == false);
+    mira::AgentLoopSpec spec;
+    spec.task_id = owner.task;
+    spec.session_id = owner.session;
+    spec.task_epoch = owner.task_epoch;
+    mira::ModelRequest request;
+    request.request_id = mira::ModelRequestId::generate();
+    request.task_id = owner.task;
+    request.task_epoch = owner.task_epoch;
+    request.input = turn.supply(spec).value();
+    for (const auto &item : request.input)
+        for (const auto &part : item.content)
+            if (const auto *text = std::get_if<mira::TextPart>(&part);
+                text && text->text.starts_with("Untrusted continuous desktop observations"))
+                check(text->text.size() <= 8192);
+    check(bool(turn.validate_request(request, owner)));
+    turn.perception_consumed(request, owner);
+    auto status = call(R"({"action":"status"})");
+    check(status && status.value().result.find("available_refs")->as_array()->size() == 2);
+    check(mira::to_json_string(*status.value().result.find("available_refs")).size() <= 1024);
+    const auto assessed = call(assessment);
+    check(assessed && assessed.value().result.find("applied")->as_boolean() == true);
+    check(turn.settle_content_task().satisfied);
+    ++feed->state.source_epoch;
+    check(!turn.settle_content_task().satisfied);
+    check(turn.settle_content_task().reason == "content_evidence_retired");
+    auto foreign = context();
+    const auto wrong_owner =
+        execute_native_tool(registry, foreign, "desktop.vision.content", R"({"action":"status"})");
+    check(!wrong_owner || wrong_owner.value().failed);
+    cancel.request_cancel();
+    const auto stopped = call(R"({"action":"status"})");
+    check(!stopped || stopped.value().failed);
+    check(env->captures == 0 && env->inputs == 0);
+}
+void content_ready_wait_tool_contract() {
+    auto env = std::make_shared<NativeEnvironment>();
+    auto feed = std::make_shared<StoryboardFeed>();
+    auto tools = desktop();
+    tools.environment = env;
+    tools.resident_session = [env, feed](bool, auto) {
+        return integration::PerceptionConnection{env->create_desktop_capture_session(), feed};
+    };
+    tools.continuous_session = [feed](auto session, auto) {
+        return integration::PerceptionConnection{std::move(session), feed};
+    };
+    auto owner = context();
+    detail::DesktopImageTurn turn(std::make_shared<detail::DesktopImageSource>(), tools, owner, {},
+                                  true);
+    mira::BuiltinToolRegistry registry;
+    turn.register_tool(registry, {}, false);
+    const auto wait = [&](const char *args) {
+        return execute_native_tool(registry, owner, "desktop.vision.wait", args);
+    };
+    auto inactive = wait(R"({"until":"content_ready","after_cursor":2})");
+    check(inactive && *inactive.value().result.find("status")->as_string() == "content_inactive");
+    check(feed->waits == 0);
+    auto legacy = wait(R"({"after_cursor":2,"timeout_ms":1})");
+    check(legacy && *legacy.value().result.find("status")->as_string() == "timeout" &&
+          feed->waits == 1);
+    for (const auto *args : {R"({"until":"unknown"})", R"({"until":true})",
+                             R"({"until":"content_ready","timeout_ms":30001})"}) {
+        const auto invalid = wait(args);
+        check(!invalid || invalid.value().failed);
+    }
+    auto begin = execute_native_tool(
+        registry, owner, "desktop.vision.content",
+        R"({"action":"begin","scope":"observed_samples","requires_audio":false,"auto_storyboard":true})");
+    check(begin && begin.value().result.find("applied")->as_boolean() == true);
+    // A keyword string without the typed producer bit is never coalesced.
+    auto urgent = wait(R"({"until":"content_ready","after_cursor":0})");
+    check(urgent && *urgent.value().result.find("status")->as_string() == "event");
+    auto ready = wait(R"({"until":"content_ready","after_cursor":2,"timeout_ms":5000})");
+    check(ready && *ready.value().result.find("status")->as_string() == "content_ready");
+    check(feed->waits == 1 && feed->read_ids.empty() && feed->acknowledged == 0);
+    check(feed->state.events.size() == 2 && feed->state.previews.size() == 2);
+    mira::AgentLoopSpec spec;
+    spec.task_id = owner.task;
+    spec.session_id = owner.session;
+    spec.task_epoch = owner.task_epoch;
+    mira::ModelRequest request;
+    request.request_id = mira::ModelRequestId::generate();
+    request.task_id = owner.task;
+    request.task_epoch = owner.task_epoch;
+    auto supplied = turn.supply(spec);
+    check(bool(supplied));
+    request.input = supplied.value();
+    unsigned images = 0;
+    for (const auto &item : request.input)
+        for (const auto &part : item.content)
+            images += std::holds_alternative<mira::ImagePart>(part);
+    check(images == 1 && feed->read_ids.empty());
+    auto stub = std::make_shared<EvidenceCompletionProvider>();
+    detail::ObservedProvider provider(stub);
+    provider.request_guard = [&](const auto &r, const auto &ctx) {
+        return turn.validate_request(r, ctx);
+    };
+    provider.consumed = [&](const auto &r, const auto &ctx) { turn.perception_consumed(r, ctx); };
+    stub->status = mira::ModelCompletionStatus::Completed;
+    check(bool(provider.infer(request, owner, {})) && feed->read_ids.size() == 2);
+    auto cooldown = wait(R"({"until":"content_ready","after_cursor":2})");
+    // This fixture reports timeout without advancing time; stop instead of spinning.
+    check(cooldown && *cooldown.value().result.find("status")->as_string() == "wait_no_progress" &&
+          feed->waits == 2);
+    auto event = feed->state.events.back();
+    event.sequence = ++feed->state.newest;
+    event.kind = "text_changed";
+    event.text = "important caption";
+    feed->state.events.push_back(event);
+    urgent = wait(R"({"until":"content_ready","after_cursor":2})");
+    check(urgent && *urgent.value().result.find("status")->as_string() == "event" &&
+          feed->waits == 2);
+    ++feed->state.source_epoch;
+    const auto retired = wait(R"({"until":"content_ready","after_cursor":3})");
+    check(retired && *retired.value().result.find("status")->as_string() == "content_inactive");
+    tools.actions->takeover();
+    const auto denied = wait(R"({"until":"content_ready"})");
+    check(!denied || denied.value().failed);
+    check(env->captures == 0 && env->inputs == 0);
+}
+void automatic_content_supply(const std::string &mode) {
+    auto env = std::make_shared<NativeEnvironment>();
+    auto feed = std::make_shared<StoryboardFeed>();
+    feed->reject_frame_ack = true;
+    auto tools = desktop();
+    tools.environment = env;
+    tools.resident_session = [env, feed](bool, auto) {
+        return integration::PerceptionConnection{env->create_desktop_capture_session(), feed};
+    };
+    tools.continuous_session = [feed](auto session, auto) {
+        return integration::PerceptionConnection{std::move(session), feed};
+    };
+    auto owner = context();
+    mirage::desktop::CancelToken cancel;
+    detail::DesktopImageTurn turn(std::make_shared<detail::DesktopImageSource>(), tools, owner,
+                                  cancel, mode != "text_only");
+    mira::BuiltinToolRegistry registry;
+    turn.register_tool(registry, {}, false);
+    const char *begin =
+        R"({"action":"begin","scope":"observed_samples","requires_audio":false,"auto_storyboard":true})";
+    const auto call = [&](const char *args) {
+        return execute_native_tool(registry, owner, "desktop.vision.content", args);
+    };
+    check(call(begin).value().result.find("applied")->as_boolean() == true);
+    if (mode == "pending") {
+        const auto explicit_picture = execute_native_tool(
+            registry, owner, "desktop.vision.storyboard", R"({"frame_ids":["story-0","story-1"]})");
+        check(explicit_picture && !explicit_picture.value().failed);
+    }
+    if (mode == "budget")
+        turn.set_budget_remaining([] { return std::optional<std::int64_t>{5000}; });
+    if (mode == "missing")
+        feed->frames[1].reset();
+    if (mode == "pack_failure")
+        feed->frames[1]->image.stride = 1;
+    if (mode == "cancel")
+        cancel.request_cancel();
+    mira::AgentLoopSpec spec;
+    spec.task_id = owner.task;
+    spec.session_id = owner.session;
+    spec.task_epoch = owner.task_epoch;
+    const auto make_request = [&] {
+        mira::ModelRequest r;
+        r.request_id = mira::ModelRequestId::generate();
+        r.task_id = owner.task;
+        r.task_epoch = owner.task_epoch;
+        auto items = turn.supply(spec);
+        check(bool(items));
+        r.input = items.value();
+        return r;
+    };
+    const auto images = [](const auto &r) {
+        unsigned count = 0;
+        for (const auto &item : r.input)
+            for (const auto &part : item.content)
+                count += std::holds_alternative<mira::ImagePart>(part);
+        return count;
+    };
+    const auto json = [](const auto &r, const std::string &prefix) {
+        for (const auto &item : r.input)
+            for (const auto &part : item.content)
+                if (const auto *text = std::get_if<mira::TextPart>(&part);
+                    text && text->text.starts_with(prefix)) {
+                    check(text->text.size() <= 8192);
+                    return mira::parse_json(text->text.substr(text->text.find('{'))).value();
+                }
+        throw std::runtime_error("missing automatic supply projection");
+    };
+    const auto supply_state = [&](const auto &r) {
+        return *json(r, "Untrusted continuous desktop observations").find("content_visual_supply");
+    };
+    if (mode == "cancel") {
+        check(!turn.supply(spec));
+        return;
+    }
+    auto request = make_request();
+    if (mode == "text_only" || mode == "missing" || mode == "pack_failure" || mode == "budget") {
+        check(images(request) == 0 && feed->read_ids.empty());
+        const auto state = supply_state(request);
+        const auto reason = *state.find("reason")->as_string();
+        check(reason == (mode == "text_only" ? "images_disabled_or_text_step"
+                         : mode == "missing" ? "need_two_new_temporal_frames"
+                         : mode == "budget"  ? "context_budget_low"
+                                             : "packaging_or_publish_failed"));
+        check(mira::to_json_string(state).size() <= 256);
+        if (mode == "pack_failure")
+            check(state.find("failure_code")->as_integer() ==
+                  static_cast<std::int64_t>(mira::ErrorCode::InvalidArgument));
+        if (mode != "budget")
+            return;
+        turn.set_budget_remaining({});
+        request = make_request();
+    }
+    check(images(request) == 1);
+    const auto meta = json(request, "Untrusted desktop image;");
+    if (mode == "pending") {
+        check(!meta.find("automatic_content_supply"));
+        check(*supply_state(request).find("reason")->as_string() == "image_pending");
+    } else {
+        check(meta.find("automatic_content_supply")->as_boolean() == true);
+        check(meta.find("input_references_retired")->as_boolean() == true);
+    }
+    const auto repeated = make_request();
+    check(images(repeated) == 1);
+    check(*json(repeated, "Untrusted desktop image;").find("artifact_id")->as_string() ==
+          *meta.find("artifact_id")->as_string());
+    auto stub = std::make_shared<EvidenceCompletionProvider>();
+    detail::ObservedProvider provider(stub);
+    provider.request_guard = [&](const auto &r, const auto &ctx) {
+        return turn.validate_request(r, ctx);
+    };
+    provider.consumed = [&](const auto &r, const auto &ctx) { turn.perception_consumed(r, ctx); };
+    stub->fail = true;
+    check(!provider.infer(repeated, owner, {}) && feed->read_ids.empty());
+    stub->fail = false;
+    stub->status = mira::ModelCompletionStatus::Incomplete;
+    check(bool(provider.infer(repeated, owner, {})) && feed->read_ids.empty());
+    stub->status = mira::ModelCompletionStatus::Completed;
+    check(bool(provider.infer(repeated, owner, {})) && feed->read_ids.size() == 2);
+    check(feed->state.previews.size() == 2);
+    const auto after = make_request();
+    check(images(after) == 0);
+    check(*supply_state(after).find("reason")->as_string() ==
+          (mode == "pending" ? "no_new_temporal_frames" : "cooldown"));
+    check(call(begin).value().result.find("applied")->as_boolean() == true);
+    check(images(make_request()) == 0); // idempotent begin cannot reset the interval
+    const auto changed = call(
+        R"({"action":"begin","scope":"observed_samples","requires_audio":false,"auto_storyboard":false})");
+    check(changed.value().result.find("applied")->as_boolean() == false);
+    const auto ref = *meta.find("tiles")->as_array()->front().find("content_ref")->as_string();
+    const auto assessment = mira::to_json_string(
+        JsonValue{JsonValue::Object{{"action", "assess"},
+                                    {"verdict", "answerable"},
+                                    {"answer", "sample answer"},
+                                    {"limitations", "sparse"},
+                                    {"evidence_refs", JsonValue{JsonValue::Array{ref}}}}});
+    check(call(assessment.c_str()).value().result.find("applied")->as_boolean() == true);
+    check(images(make_request()) == 0 && turn.settle_content_task().satisfied);
+    check(*supply_state(make_request()).find("reason")->as_string() == "assessed_or_interrupted");
+    ++feed->state.dropped;
+    check(images(make_request()) == 0 && !turn.settle_content_task().satisfied);
+    check(call(begin).value().result.find("applied")->as_boolean() == true);
+    const auto reopened = make_request();
+    check(images(reopened) == 1); // a new segment may explicitly reopen, using fresh references
+    turn.perception_consumed(repeated, owner);
+    check(feed->read_ids.size() == 2);
+    tools.actions->takeover();
+    check(images(make_request()) == 0);
+    check(env->captures == 0 && env->inputs == 0);
+}
+
+class ContentTaskScript final : public mira::IModelProvider {
+    mira::ModelProfile profile_;
+    std::shared_ptr<StoryboardFeed> feed_;
+    std::string mode_;
+    mirage::desktop::CancelToken cancel_;
+
+  public:
+    bool product_ = false;
+    unsigned calls = 0, visual_tool_calls = 0, images_seen = 0;
+    ContentTaskScript(mira::ModelProfile profile, std::shared_ptr<StoryboardFeed> feed,
+                      std::string mode, mirage::desktop::CancelToken cancel)
+        : profile_(std::move(profile)), feed_(std::move(feed)), mode_(std::move(mode)),
+          cancel_(std::move(cancel)) {}
+    const mira::ModelProfile &profile() const override { return profile_; }
+    mira::Result<mira::ModelResponse> infer(const mira::ModelRequest &request,
+                                            const mira::OperationContext &,
+                                            const mira::ProviderInferOptions &) override {
+        JsonValue::Array refs;
+        unsigned images = 0;
+        for (const auto &item : request.input)
+            for (const auto &part : item.content) {
+                images += std::holds_alternative<mira::ImagePart>(part);
+                const auto *text = std::get_if<mira::TextPart>(&part);
+                if (!text)
+                    continue;
+                if (text->text.starts_with("Untrusted continuous desktop observations"))
+                    check(text->text.size() <= 8192);
+                const std::string prefix = "Untrusted desktop image; coordinates and source: ";
+                if (text->text.starts_with(prefix)) {
+                    const auto meta = mira::parse_json(text->text.substr(prefix.size())).value();
+                    if (mode_ == "sample") {
+                        check(*meta.find("selection")->as_string() == "observer_window_maximin");
+                        check(meta.find("eligible_frames")->as_integer() == 2);
+                    }
+                    for (const auto &tile : *meta.find("tiles")->as_array())
+                        refs.emplace_back(*tile.find("content_ref"));
+                }
+            }
+        images_seen += images;
+        mira::ModelResponse response;
+        response.request_id = request.request_id;
+        response.operation_id = request.operation_id;
+        response.profile_id = profile_.id;
+        response.status = mira::ModelCompletionStatus::Completed;
+        const bool terminal = calls == (mode_.starts_with("auto") ? 2u : 3u) ||
+                              (mode_.ends_with("unassessed") && calls == 1);
+        if (!terminal) {
+            const std::string name = calls == 1 && !mode_.starts_with("auto")
+                                         ? "desktop.vision.storyboard"
+                                         : "desktop.vision.content";
+            const auto tool =
+                std::find_if(request.tools.begin(), request.tools.end(), [&](const auto &t) {
+                    return t.wire_name == mirage::testing::fixture_tool_name(name);
+                });
+            check(tool != request.tools.end());
+            mira::ToolCallOutput call;
+            call.tool_id = tool->tool_id;
+            call.provider_name = tool->wire_name;
+            call.provider_call_id.value = "content-" + std::to_string(calls);
+            if (name == "desktop.vision.storyboard")
+                ++visual_tool_calls;
+            if (calls == 0) {
+                call.arguments = JsonValue{JsonValue::Object{
+                    {"action", "begin"},
+                    {"scope", mode_.ends_with("full") ? "entire_video" : "observed_samples"},
+                    {"requires_audio", mode_.ends_with("audio")}}};
+                if (mode_.starts_with("auto") && !product_)
+                    call.arguments.set("auto_storyboard", true);
+            } else if (calls == 1 && !mode_.starts_with("auto"))
+                call.arguments =
+                    mode_ == "sample"
+                        ? JsonValue{JsonValue::Object{{"window_ms", 10000}, {"max_frames", 4}}}
+                        : JsonValue{JsonValue::Object{
+                              {"frame_ids", JsonValue{JsonValue::Array{"story-0", "story-1"}}}}};
+            else {
+                check(images == 1 && refs.size() == 2 && feed_->read_ids.empty());
+                call.arguments =
+                    JsonValue{JsonValue::Object{{"action", "assess"},
+                                                {"verdict", "answerable"},
+                                                {"answer", "受控画面片段回答"},
+                                                {"limitations", "稀疏画面，无音频"},
+                                                {"evidence_refs", JsonValue{std::move(refs)}}}};
+                if (mode_.ends_with("retired"))
+                    ++feed_->state.source_epoch;
+            }
+            call.arguments_digest = mira::digest_string(mira::to_json_string(call.arguments));
+            response.output.emplace_back(std::move(call));
+        } else {
+            if (mode_.ends_with("cancel"))
+                cancel_.request_cancel();
+            mira::MessageOutput message;
+            message.content.emplace_back(
+                mira::OutputTextPart{"我已完整看完视频并听清了全部旁白。", {}});
+            response.output.emplace_back(std::move(message));
+        }
+        ++calls;
+        return response;
+    }
+};
+void content_task_model_layer(kairo::Executor &executor, const std::string &mode,
+                              bool product = false) {
+    auto tools = desktop();
+    auto env = std::make_shared<NativeEnvironment>();
+    auto feed = std::make_shared<StoryboardFeed>();
+    tools.environment = env;
+    tools.resident_session = [env, feed](bool, auto) {
+        return integration::PerceptionConnection{env->create_desktop_capture_session(), feed};
+    };
+    tools.continuous_session = [feed](auto session, auto) {
+        return integration::PerceptionConnection{std::move(session), feed};
+    };
+    mirage::desktop::CancelToken cancel;
+    std::shared_ptr<ContentTaskScript> script;
+    integration::ModelProviderOverride provider([&](const auto &profile) {
+        script = std::make_shared<ContentTaskScript>(profile, feed, mode, cancel);
+        script->product_ = product;
+        return script;
+    });
+    integration::ModelLayerConfig config;
+    config.enabled = config.supports_images = true;
+    config.model_selector = "content-fixture";
+    tools.require_task_purpose = product;
+    integration::ModelLayer model(executor, config, &provider, tools);
+    const auto result =
+        executor
+            .submit_auto([&] {
+                return model.complete_harness_turn("", "根据用户所需范围观察内容", context(), "",
+                                                   true, {}, {}, cancel);
+            })
+            .get();
+    if (mode == "sample" || mode == "auto") {
+        if (!result.ok)
+            std::cerr << "content fixture: " << result.error << '\n';
+        check(result.ok && !result.failed &&
+              result.reply_text.find("受控画面片段回答") != std::string::npos);
+        check(result.reply_text.find("仅基于已观察的稀疏片段") != std::string::npos);
+    } else if (mode.ends_with("cancel"))
+        check(result.cancelled && !result.ok);
+    else {
+        check(!result.ok && result.failed);
+        check(result.error.find(mode.ends_with("full")      ? "完整视频"
+                                : mode.ends_with("audio")   ? "声音证据"
+                                : mode.ends_with("retired") ? "失效"
+                                                            : "尚未完成评估") != std::string::npos);
+        check(result.reply_text == result.error);
+    }
+    check(result.reply_text.find("听清了全部旁白") == std::string::npos);
+    check(script->calls == (mode.ends_with("unassessed") ? 2u
+                            : mode.starts_with("auto")   ? 3u
+                                                         : 4u));
+    check(script->visual_tool_calls ==
+          (mode.starts_with("auto") || mode.ends_with("unassessed") ? 0u : 1u));
+    check(script->images_seen ==
+          (mode.ends_with("unassessed") && !mode.starts_with("auto") ? 0u : 1u));
+    check(env->captures == 0 && env->inputs == 0);
+    model.shutdown();
+}
+
+class PurposeScript final : public mira::IModelProvider {
+    mira::ModelProfile profile_;
+    bool navigation_;
+
+  public:
+    unsigned calls = 0;
+    bool refused = false;
+    PurposeScript(mira::ModelProfile p, bool nav) : profile_(std::move(p)), navigation_(nav) {}
+    const mira::ModelProfile &profile() const override { return profile_; }
+    mira::Result<mira::ModelResponse> infer(const mira::ModelRequest &request,
+                                            const mira::OperationContext &,
+                                            const mira::ProviderInferOptions &) override {
+        mira::ModelResponse response;
+        response.request_id = request.request_id;
+        response.operation_id = request.operation_id;
+        response.profile_id = profile_.id;
+        response.status = mira::ModelCompletionStatus::Completed;
+        for (const auto &item : request.input)
+            for (const auto &part : item.content)
+                if (const auto *r = std::get_if<mira::ToolResultPart>(&part))
+                    refused = refused ||
+                              (r->failed && r->safe_error_summary.find("task_purpose_required") !=
+                                                std::string::npos);
+        if (calls < (navigation_ ? 2u : 1u)) {
+            const auto name =
+                navigation_ && calls == 0 ? "desktop.vision.content" : "desktop.screen.capture";
+            const auto tool =
+                std::find_if(request.tools.begin(), request.tools.end(), [&](const auto &t) {
+                    return t.wire_name == mirage::testing::fixture_tool_name(name);
+                });
+            check(tool != request.tools.end());
+            mira::ToolCallOutput call;
+            call.tool_id = tool->tool_id;
+            call.provider_name = tool->wire_name;
+            call.provider_call_id.value = "purpose-" + std::to_string(calls);
+            call.arguments = navigation_ && calls == 0
+                                 ? JsonValue{JsonValue::Object{{"action", "navigation"}}}
+                                 : JsonValue{JsonValue::Object{{"source", "desktop"}}};
+            call.arguments_digest = mira::digest_string(mira::to_json_string(call.arguments));
+            response.output.emplace_back(std::move(call));
+        } else {
+            mira::MessageOutput message;
+            message.content.emplace_back(mira::OutputTextPart{"页面已打开。", {}});
+            response.output.emplace_back(std::move(message));
+        }
+        ++calls;
+        return response;
+    }
+};
+void purpose_model_layer(kairo::Executor &executor, bool navigation) {
+    auto tools = desktop();
+    auto env = std::make_shared<NativeEnvironment>();
+    tools.environment = env;
+    tools.require_task_purpose = true;
+    // Deliberately no continuous feed: navigation declaration must still work.
+    tools.continuous_session = {};
+    std::shared_ptr<PurposeScript> script;
+    integration::ModelProviderOverride provider([&](const auto &p) {
+        script = std::make_shared<PurposeScript>(p, navigation);
+        return script;
+    });
+    integration::ModelLayerConfig config;
+    config.enabled = config.supports_images = true;
+    config.model_selector = "purpose-fixture";
+    integration::ModelLayer model(executor, config, &provider, tools);
+    const auto result =
+        executor
+            .submit_auto([&] {
+                return model.complete_harness_turn("", "打开页面", context(), "", true, {}, {}, {});
+            })
+            .get();
+    check(result.ok == navigation && result.failed != navigation);
+    check(script->refused != navigation);
+    check(env->captures == (navigation ? 1 : 0));
+    check(result.reply_text.find(navigation ? "仅导航/交互" : "尚未声明") != std::string::npos);
+    check(mirage::conversation::valid_parts(result.parts));
+    check(result.parts.back().id == mirage::conversation::terminal_reply_id);
+    model.shutdown();
+}
+
 class TaskFeedScript final : public mira::IModelProvider {
   public:
     mira::ModelProfile profile_;
@@ -2427,6 +3888,502 @@ void task_feed_model_layer(kairo::Executor &executor, bool missing_frame = false
     model.shutdown();
 }
 
+class SemanticFeedFixture final : public TaskFeedFixture {
+    detail::PerceptionJournal journal_{"semantic-model-fixture"};
+    std::uint64_t frame_ = 0;
+
+  public:
+    std::vector<mirage::desktop::VisualSemanticBinding> object_focus_calls;
+    bool focus_object(const mirage::desktop::VisualSemanticBinding &binding) override {
+        object_focus_calls.push_back(binding);
+        return true;
+    }
+    SemanticFeedFixture() { update("Search", 10); }
+    void update(const std::string &text, int x) {
+        integration::PerceptionSample sample;
+        sample.ok = sample.objects_complete = true;
+        sample.source_epoch = 1;
+        sample.frame_sequence = ++frame_;
+        integration::PerceptionObject object;
+        object.content_observed = true;
+        object.object.id = 7;
+        object.object.incarnation = 1;
+        object.object.source = mirage::desktop::VisualRegionSource::kOcr;
+        object.object.bounds = {x, 10, 80, 20};
+        object.object.text = text;
+        object.object.confidence = .9;
+        object.object.identity_confirmed = true;
+        sample.objects.push_back(std::move(object));
+        journal_.append(std::move(sample), {}, std::chrono::steady_clock::now());
+        const auto projection = journal_.view();
+        state.scene = projection.scene;
+        state.scene_observed_at = projection.scene_observed_at;
+    }
+};
+class SemanticFeedScript final : public mira::IModelProvider {
+    mira::ModelProfile profile_;
+    std::shared_ptr<SemanticFeedFixture> feed_;
+    std::string original_ref_, annotation_request_;
+
+  public:
+    unsigned calls = 0;
+    SemanticFeedScript(mira::ModelProfile profile, std::shared_ptr<SemanticFeedFixture> feed)
+        : profile_(std::move(profile)), feed_(std::move(feed)) {}
+    const mira::ModelProfile &profile() const override { return profile_; }
+    mira::Result<mira::ModelResponse> infer(const mira::ModelRequest &request,
+                                            const mira::OperationContext &,
+                                            const mira::ProviderInferOptions &) override {
+        JsonValue scene;
+        for (const auto &item : request.input)
+            for (const auto &part : item.content)
+                if (const auto *text = std::get_if<mira::TextPart>(&part);
+                    text && text->text.starts_with("Untrusted continuous desktop observations")) {
+                    check(text->text.size() <= 8192);
+                    const auto parsed = mira::parse_json(text->text.substr(text->text.find('{')));
+                    check(bool(parsed));
+                    scene = *parsed.value().find("semantic_scene");
+                }
+        std::string object_ref;
+        if (calls) {
+            const auto &object = scene.find("objects")->as_array()->front();
+            object_ref = *object.find("object_ref")->as_string();
+            if (calls == 1) {
+                original_ref_ = object_ref;
+                annotation_request_ = request.request_id.to_string();
+                feed_->update("Search", 20); // actual provider response is now late
+            }
+            if (calls == 2) {
+                check(*object.find("semantic_label")->as_string() == "搜索框");
+                check(*object.find("semantic_state")->as_string() == "active");
+                check(object.find("x")->as_integer() == 20);
+                check(*object.find("annotation_request_id")->as_string() == annotation_request_);
+                feed_->update("Delete", 20);
+            }
+            if (calls == 3 || calls == 4) {
+                check(*object.find("semantic_state")->as_string() == "suspended");
+                check(*object.find("text")->as_string() == "Delete");
+                check(*object.find("semantic_label")->as_string() == "搜索框");
+            }
+            if (calls == 5) {
+                check(*object.find("semantic_state")->as_string() == "active");
+                check(*object.find("semantic_label")->as_string() == "删除按钮");
+                check(*object.find("text")->as_string() == "Delete");
+                check(*object.find("annotation_source")->as_string() == "llm_annotation");
+            }
+        }
+        mira::ModelResponse response;
+        response.request_id = request.request_id;
+        response.operation_id = request.operation_id;
+        response.profile_id = profile_.id;
+        response.status = mira::ModelCompletionStatus::Completed;
+        if (calls < 5) {
+            const std::string name = calls == 0   ? "desktop.screen.capture"
+                                     : calls == 2 ? "wait"
+                                                  : "desktop.vision.annotate";
+            const auto tool =
+                std::find_if(request.tools.begin(), request.tools.end(), [&](const auto &spec) {
+                    return spec.wire_name == mirage::testing::fixture_tool_name(name);
+                });
+            check(tool != request.tools.end());
+            mira::ToolCallOutput call;
+            call.tool_id = tool->tool_id;
+            call.provider_name = tool->wire_name;
+            call.provider_call_id.value = "semantic-" + std::to_string(calls);
+            call.arguments = calls == 0 ? JsonValue{JsonValue::Object{{"source", "desktop"}}}
+                             : calls == 2
+                                 ? JsonValue{JsonValue::Object{{"duration_ms", std::int64_t{0}}}}
+                                 : JsonValue{JsonValue::Object{
+                                       {"object_ref", calls == 3 ? original_ref_ : object_ref},
+                                       {"label", calls == 4 ? "删除按钮" : "搜索框"}}};
+            call.arguments_digest = mira::digest_string(mira::to_json_string(call.arguments));
+            response.output.emplace_back(std::move(call));
+        } else {
+            mira::MessageOutput message;
+            message.content.emplace_back(mira::OutputTextPart{"semantic fixture complete", {}});
+            response.output.emplace_back(std::move(message));
+        }
+        ++calls;
+        return response;
+    }
+};
+void semantic_feed_model_layer(kairo::Executor &executor) {
+    auto tools = desktop();
+    auto env = std::make_shared<NativeEnvironment>();
+    tools.environment = env;
+    auto feed = std::make_shared<SemanticFeedFixture>();
+    tools.continuous_session = [feed](auto session, const auto &) {
+        return integration::PerceptionConnection{std::move(session), feed};
+    };
+    std::shared_ptr<SemanticFeedScript> script;
+    integration::ModelProviderOverride provider([&](const auto &profile) {
+        script = std::make_shared<SemanticFeedScript>(profile, feed);
+        return script;
+    });
+    integration::ModelLayerConfig config;
+    config.enabled = config.supports_images = true;
+    config.model_selector = "semantic-fixture";
+    integration::ModelLayer model(executor, config, &provider, tools);
+    const auto result =
+        executor
+            .submit_auto([&] {
+                return model.complete_harness_turn("", "label changing objects", context());
+            })
+            .get();
+    if (!result.ok)
+        std::cerr << "semantic fixture: " << result.error << "\n";
+    check(result.ok && script->calls == 6);
+    check(env->captures == 1 && env->inputs == 0 && env->created == env->closed);
+    model.shutdown();
+}
+
+void semantic_annotation_guards() {
+    auto tools = desktop();
+    auto env = std::make_shared<NativeEnvironment>();
+    tools.environment = env;
+    auto feed = std::make_shared<SemanticFeedFixture>();
+    tools.continuous_session = [feed](auto session, const auto &) {
+        return integration::PerceptionConnection{std::move(session), feed};
+    };
+    auto owner = context();
+    mirage::desktop::CancelToken cancel;
+    detail::DesktopImageTurn turn(std::make_shared<detail::DesktopImageSource>(), tools, owner,
+                                  cancel);
+    mira::BuiltinToolRegistry registry;
+    turn.register_tool(registry, {}, false);
+    const auto invoke = [&](const std::string &name, JsonValue args, const auto &ctx) {
+        const auto exposed = registry.exposed_tools();
+        const auto spec = std::find_if(exposed.begin(), exposed.end(),
+                                       [&](const auto &tool) { return tool.wire_name == name; });
+        check(spec != exposed.end());
+        mira::ToolProposal call;
+        call.tool_id = spec->tool_id;
+        call.tool_version = spec->version;
+        call.wire_name = name;
+        call.operation_id = mira::OperationId::generate();
+        call.provider_call_id.value = "annotation-guard-" + call.operation_id.to_string();
+        call.arguments = std::move(args);
+        call.arguments_digest = mira::canonical_json_digest(call.arguments);
+        return registry.execute(call, ctx);
+    };
+    check(!invoke("desktop.screen.capture", JsonValue{JsonValue::Object{{"source", "desktop"}}},
+                  owner)
+               .value()
+               .failed);
+    mira::AgentLoopSpec loop;
+    loop.task_id = owner.task;
+    loop.session_id = owner.session;
+    loop.task_epoch = owner.task_epoch;
+    const auto supplied = turn.supply(loop);
+    check(bool(supplied));
+    JsonValue scene;
+    for (const auto &item : supplied.value())
+        for (const auto &part : item.content)
+            if (const auto *text = std::get_if<mira::TextPart>(&part);
+                text && text->text.starts_with("Untrusted continuous desktop observations")) {
+                check(text->text.size() <= 8192);
+                const auto observation =
+                    mira::parse_json(text->text.substr(text->text.find('{'))).value();
+                check(*observation.find("attention")->find("mode")->as_string() == "global");
+                check(observation.find("attention")->find("input_actionable")->as_boolean() ==
+                      false);
+                scene = *observation.find("semantic_scene");
+            }
+    const auto ref = *scene.find("objects")->as_array()->front().find("object_ref")->as_string();
+    const JsonValue args{JsonValue::Object{{"label", "搜索框"}, {"object_ref", ref}}};
+    const JsonValue focus_args{JsonValue::Object{{"object_ref", ref}}};
+    check(invoke("desktop.vision.focus", focus_args, owner)
+              .value()
+              .result.find("applied")
+              ->as_boolean() == false);
+    check(feed->object_focus_calls.empty());
+
+    check(invoke("desktop.vision.annotate", args, owner)
+              .value()
+              .result.find("applied")
+              ->as_boolean() == false);
+    mira::ModelRequest consumed;
+    consumed.request_id = mira::ModelRequestId::generate();
+    // A request with the supply removed by context budgeting grants no references.
+    turn.perception_consumed(consumed, owner);
+    check(invoke("desktop.vision.annotate", args, owner)
+              .value()
+              .result.find("applied")
+              ->as_boolean() == false);
+    check(invoke("desktop.vision.focus", focus_args, owner)
+              .value()
+              .result.find("applied")
+              ->as_boolean() == false);
+    check(feed->object_focus_calls.empty());
+    consumed.input = supplied.value();
+    turn.perception_consumed(consumed, owner);
+    check(invoke("desktop.vision.annotate", args, owner)
+              .value()
+              .result.find("applied")
+              ->as_boolean() == true);
+    check(invoke("desktop.vision.focus", focus_args, owner)
+              .value()
+              .result.find("applied")
+              ->as_boolean() == true);
+    check(feed->object_focus_calls.size() == 1 && feed->object_focus_calls.back().object_id == 7 &&
+          feed->object_focus_calls.back().model_request_id == consumed.request_id.to_string());
+    auto mixed = focus_args;
+    mixed.set("x", 0);
+    check(
+        invoke("desktop.vision.focus", mixed, owner).value().result.find("applied")->as_boolean() ==
+        false);
+    check(feed->object_focus_calls.size() == 1);
+    feed->update("Search", 50);
+    check(invoke("desktop.vision.focus", focus_args, owner)
+              .value()
+              .result.find("applied")
+              ->as_boolean() == true);
+    feed->update("Delete", 50);
+    check(invoke("desktop.vision.focus", focus_args, owner)
+              .value()
+              .result.find("applied")
+              ->as_boolean() == false);
+    check(feed->object_focus_calls.size() == 2);
+    auto foreign = owner;
+    foreign.task = mira::TaskId::generate();
+    const auto foreign_focus = invoke("desktop.vision.focus", focus_args, foreign);
+    check(!foreign_focus || foreign_focus.value().failed);
+    const auto foreign_result = invoke("desktop.vision.annotate", args, foreign);
+    check(!foreign_result || foreign_result.value().failed);
+    auto expired = owner;
+    expired.deadline = std::chrono::steady_clock::now() - std::chrono::seconds(1);
+    const auto expired_focus = invoke("desktop.vision.focus", focus_args, expired);
+    check(!expired_focus || expired_focus.value().failed);
+    const auto timed_out = invoke("desktop.vision.annotate", args, expired);
+    check(!timed_out || timed_out.value().failed);
+    tools.actions->takeover();
+    const auto takeover_focus = invoke("desktop.vision.focus", focus_args, owner);
+    check(!takeover_focus || takeover_focus.value().failed ||
+          takeover_focus.value().result.find("applied")->as_boolean() == false);
+    const auto takeover_result = invoke("desktop.vision.annotate", args, owner);
+    check(!takeover_result || takeover_result.value().failed);
+    cancel.request_cancel();
+    const auto cancelled_result = invoke("desktop.vision.annotate", args, owner);
+    check(!cancelled_result || cancelled_result.value().failed);
+    check(env->captures == 1 && env->inputs == 0);
+}
+
+class MultiFocusFeedFixture final : public TaskFeedFixture {
+    mutable detail::TaskAttention attention_;
+    bool configured_ = false;
+
+  public:
+    unsigned focus_attempts = 0;
+    bool supported = true;
+    std::vector<integration::PerceptionFocusTarget> accepted;
+    MultiFocusFeedFixture() {
+        state.source_epoch = 1;
+        state.scene_observed_at = std::chrono::steady_clock::now();
+        state.scene.emplace();
+        auto &scene = *state.scene;
+        scene.ok = scene.reset = true;
+        scene.source_session = "multi-focus-fixture";
+        scene.frame_sequence = scene.context_revision = 1;
+        for (unsigned id = 7; id <= 10; ++id) {
+            mirage::desktop::VisualSceneRecord record;
+            record.object.id = id;
+            record.object.incarnation = record.object.content_revision = 1;
+            record.object.identity_confirmed = true;
+            record.object.text = "Fixture target " + std::to_string(id);
+            record.object.bounds = {static_cast<int>(id * 30), 10, 20, 20};
+            scene.updated.push_back(record);
+        }
+    }
+    integration::PerceptionView view() const override {
+        auto result = state;
+        if (configured_)
+            result.attention = attention_.update(state);
+        return result;
+    }
+    bool focus_objects(const std::vector<integration::PerceptionFocusTarget> &targets) override {
+        ++focus_attempts;
+        if (!supported || !attention_.objects(targets, state))
+            return false;
+        configured_ = true;
+        accepted = targets;
+        return true;
+    }
+};
+void multi_focus_tool_provenance_and_supply() {
+    auto tools = desktop();
+    auto env = std::make_shared<NativeEnvironment>();
+    auto feed = std::make_shared<MultiFocusFeedFixture>();
+    tools.environment = env;
+    tools.resident_session = [env, feed](bool, auto) {
+        return integration::PerceptionConnection{env->create_desktop_capture_session(), feed};
+    };
+    tools.continuous_session = [feed](auto session, auto) {
+        return integration::PerceptionConnection{std::move(session), feed};
+    };
+    const auto owner = context();
+    mirage::desktop::CancelToken cancel;
+    detail::DesktopImageTurn turn(std::make_shared<detail::DesktopImageSource>(), tools, owner,
+                                  cancel);
+    mira::BuiltinToolRegistry registry;
+    turn.register_tool(registry, {}, false);
+    const auto invoke = [&](const JsonValue &args, const auto &ctx) {
+        const auto exposed = registry.exposed_tools();
+        const auto spec = std::find_if(exposed.begin(), exposed.end(), [](const auto &tool) {
+            return tool.wire_name == "desktop.vision.focus";
+        });
+        check(spec != exposed.end());
+        mira::ToolProposal call;
+        call.tool_id = spec->tool_id;
+        call.tool_version = spec->version;
+        call.wire_name = spec->wire_name;
+        call.operation_id = mira::OperationId::generate();
+        call.provider_call_id.value = "multi-focus-" + call.operation_id.to_string();
+        call.arguments = args;
+        call.arguments_digest = mira::canonical_json_digest(call.arguments);
+        return registry.execute(call, ctx);
+    };
+    mira::AgentLoopSpec spec;
+    spec.task_id = owner.task;
+    spec.session_id = owner.session;
+    spec.task_epoch = owner.task_epoch;
+    const auto supplied = turn.supply(spec);
+    check(bool(supplied));
+    JsonValue::Array refs;
+    for (const auto &item : supplied.value())
+        for (const auto &part : item.content)
+            if (const auto *text = std::get_if<mira::TextPart>(&part);
+                text && text->text.starts_with("Untrusted continuous desktop observations")) {
+                const auto parsed =
+                    mira::parse_json(text->text.substr(text->text.find('{'))).value();
+                for (const auto &object :
+                     *parsed.find("semantic_scene")->find("objects")->as_array())
+                    refs.push_back(JsonValue{
+                        JsonValue::Object{{"object_ref", *object.find("object_ref")->as_string()},
+                                          {"priority", refs.empty() ? "wake" : "observe"}}});
+            }
+    check(refs.size() == 4);
+    const JsonValue args{JsonValue::Object{{"targets", JsonValue{refs}}}};
+    check(invoke(args, owner).value().result.find("applied")->as_boolean() == false);
+    check(feed->focus_attempts == 0); // not authenticated until actual completed supply
+    mira::ModelRequest consumed;
+    consumed.request_id = mira::ModelRequestId::generate();
+    turn.perception_consumed(consumed, owner); // context trimming removed supply
+    check(invoke(args, owner).value().result.find("applied")->as_boolean() == false);
+    check(feed->focus_attempts == 0);
+    consumed.input = supplied.value();
+    turn.perception_consumed(consumed, owner);
+    check(invoke(args, owner).value().result.find("applied")->as_boolean() == true);
+    check(feed->focus_attempts == 1 && feed->accepted.size() == 4);
+    for (const auto &target : feed->accepted)
+        check(target.object.model_request_id == consumed.request_id.to_string());
+    check(feed->accepted[0].wake && !feed->accepted[1].wake);
+    const auto reject = [&](const JsonValue &bad) {
+        const auto result = invoke(bad, owner);
+        check(!result || result.value().failed ||
+              result.value().result.find("applied")->as_boolean() == false);
+        check(feed->focus_attempts == 1 && feed->view().attention->active);
+    };
+    reject(JsonValue{JsonValue::Object{{"targets", JsonValue{JsonValue::Array{}}}}});
+    auto bad = refs;
+    bad.push_back(refs.front());
+    reject(JsonValue{JsonValue::Object{{"targets", JsonValue{bad}}}});
+    bad = {refs[0], refs[0]};
+    reject(JsonValue{JsonValue::Object{{"targets", JsonValue{bad}}}});
+    bad = refs;
+    for (auto &target : bad)
+        target.set("priority", "observe");
+    reject(JsonValue{JsonValue::Object{{"targets", JsonValue{bad}}}});
+    for (const auto &priority : {JsonValue{"urgent"}, JsonValue{2}}) {
+        bad = refs;
+        bad.back().set("priority", priority);
+        reject(JsonValue{JsonValue::Object{{"targets", JsonValue{bad}}}});
+    }
+    bad = refs;
+    bad.back().set("object_ref", "not-supplied");
+    reject(JsonValue{JsonValue::Object{{"targets", JsonValue{bad}}}});
+    bad = refs;
+    bad.back().set("object_ref", 7);
+    reject(JsonValue{JsonValue::Object{{"targets", JsonValue{bad}}}});
+    auto mixed = args;
+    mixed.set("object_ref", *refs[0].find("object_ref"));
+    reject(mixed);
+    mixed = args;
+    mixed.set("x", 0);
+    reject(mixed);
+    auto foreign = owner;
+    foreign.task = mira::TaskId::generate();
+    const auto outside = invoke(args, foreign);
+    check(!outside || outside.value().failed);
+    auto expired = owner;
+    expired.deadline = std::chrono::steady_clock::now() - std::chrono::seconds(1);
+    const auto late = invoke(args, expired);
+    check(!late || late.value().failed);
+    check(feed->focus_attempts == 1);
+    // A valid but unsupported feed also returns applied=false, without changing policy.
+    feed->supported = false;
+    check(invoke(args, owner).value().result.find("applied")->as_boolean() == false);
+    feed->supported = true;
+    check(feed->view().attention->active);
+    // Ordinary observe events still appear automatically in the next model request,
+    // and four attention targets coexist with the event/whole-request byte budgets.
+    const auto now = std::chrono::steady_clock::now();
+    for (unsigned n = 1; n <= 96; ++n) {
+        integration::PerceptionEvent event;
+        event.sequence = event.frame_sequence = ++feed->state.newest;
+        event.entity = 8;
+        event.instance_generation = event.source_epoch = 1;
+        event.confirmed = true;
+        event.kind = "position_or_appearance_changed";
+        event.text.assign(256, 'p');
+        event.x = 240;
+        event.y = 10;
+        event.width = event.height = 10;
+        event.observed_at = now - std::chrono::milliseconds(480 - n * 5);
+        feed->state.events.push_back(event);
+    }
+    const auto next = turn.supply(spec);
+    check(bool(next));
+    bool projected = false;
+    std::uint64_t offered = 0;
+    for (const auto &item : next.value())
+        for (const auto &part : item.content)
+            if (const auto *text = std::get_if<mira::TextPart>(&part);
+                text && text->text.starts_with("Untrusted continuous desktop observations")) {
+                check(text->text.size() <= 8192);
+                const auto parsed =
+                    mira::parse_json(text->text.substr(text->text.find('{'))).value();
+                const auto &attention = *parsed.find("attention");
+                check(*attention.find("mode")->as_string() == "objects");
+                check(attention.find("targets")->as_array()->size() == 4);
+                check(*attention.find("targets")->as_array()->at(1).find("priority")->as_string() ==
+                      "observe");
+                offered = static_cast<std::uint64_t>(*parsed.find("cursor")->as_integer());
+                check(offered > 1 && offered < feed->state.newest);
+                bool retained = false;
+                for (const auto &event : *parsed.find("events")->as_array())
+                    retained = retained || event.find("entity")->as_integer() == 8;
+                check(retained);
+                projected = true;
+            }
+    check(projected && feed->acknowledged == 1);
+    consumed.input = next.value();
+    turn.perception_consumed(consumed, owner);
+    check(feed->acknowledged == offered && feed->state.events.size() == 97);
+    // Re-authenticate current refs, then one stale secondary rejects the whole call.
+    ++feed->state.scene->updated[1].object.content_revision;
+    ++feed->state.scene->frame_sequence;
+    const auto attempts = feed->focus_attempts;
+    check(invoke(args, owner).value().result.find("applied")->as_boolean() == false);
+    check(feed->focus_attempts == attempts && !feed->view().attention->active);
+    tools.actions->takeover();
+    const auto takeover = invoke(args, owner);
+    check(!takeover || takeover.value().failed ||
+          takeover.value().result.find("applied")->as_boolean() == false);
+    cancel.request_cancel();
+    const auto cancelled = invoke(args, owner);
+    check(!cancelled || cancelled.value().failed);
+    check(env->captures == 0 && env->inputs == 0);
+}
+
 class SharedScript final : public mira::IModelProvider {
   public:
     mira::ModelProfile profile_;
@@ -2475,8 +4432,7 @@ class SharedScript final : public mira::IModelProvider {
             check(click != request.tools.end() &&
                   click->description.find("to focus it; no window API is needed") !=
                       std::string::npos);
-            check(click->description.find("Every capture or OCR refresh replaces") !=
-                  std::string::npos);
+            check(click->description.find("text-only OCR preserves it") != std::string::npos);
         }
         if (calls == 1)
             first_scope = *metadata.find("image_scope")->as_string();
@@ -3421,7 +5377,11 @@ void layer(kairo::Executor &executor, const std::string &dialect, bool enabled, 
                         !value->failed && value->provider_call_id.value == "capture-1";
             }
         check(image && canonical_result);
-        check(result.parts.size() == 1 && result.parts.front().status == "complete");
+        check(result.parts.front().kind == "tool" && result.parts.front().status == "complete");
+        check(std::count_if(result.parts.begin(), result.parts.end(),
+                            [](const auto &p) { return p.kind == "tool"; }) == 1);
+        if (!result.reply_text.empty())
+            check(result.parts.back().id == mirage::conversation::terminal_reply_id);
         check(result.parts.front().output.find("artifact_id") != std::string::npos);
     }
     model.shutdown();
@@ -4251,15 +6211,37 @@ void shared_registration_rejection() {
     check(registry.size() == 1 && env->created == 0 && env->inputs == 0);
 }
 
-int main() {
+int main(int argc, char **argv) {
     try {
+        const bool automatic_suite =
+            argc == 2 && std::string_view{argv[1]} == "--automatic-content";
+        check(argc == 1 || automatic_suite);
         if (const auto *mode = std::getenv("MIRAGE_IMAGE_LIVE");
-            mode && std::string_view{mode} == "1")
+            mode && std::string_view{mode} == "1" && !automatic_suite)
             return live();
         kairo::Executor executor;
         kairo::ExecutorConfig config;
         config.min_threads = config.max_threads = 3;
         check(static_cast<bool>(executor.initialize(config)));
+        if (automatic_suite) {
+            content_ready_wait_tool_contract();
+            for (const auto *mode :
+                 {"normal", "budget", "pending", "missing", "pack_failure", "text_only", "cancel"})
+                automatic_content_supply(mode);
+            purpose_model_layer(executor, false);
+            purpose_model_layer(executor, true);
+            for (const auto *mode : {"auto", "auto_full", "auto_audio", "auto_unassessed",
+                                     "auto_retired", "auto_cancel"})
+                content_task_model_layer(executor, mode, true);
+            content_task_model_layer(executor, "sample");
+            for (const auto *mode : {"auto", "auto_full", "auto_audio", "auto_unassessed",
+                                     "auto_retired", "auto_cancel"})
+                content_task_model_layer(executor, mode);
+            executor.shutdown(true);
+            std::cout << checks << " automatic content supply checks passed\n";
+            return 0;
+        }
+
         executor
             .submit_auto([] {
                 for (const auto &mode : {"right",
@@ -4348,6 +6330,11 @@ int main() {
              {"overlap", "plan", "repeat", "wrong", "deny", "release", "takeover", "lag", "throw"})
             executor.submit_auto([&] { ime_fill_tool(fault); }).get();
         task_feed_model_layer(executor);
+        semantic_feed_model_layer(executor);
+        for (const auto *mode : {"sample", "full", "audio", "unassessed", "retired", "cancel"})
+            content_task_model_layer(executor, mode);
+        executor.submit_auto([] { semantic_annotation_guards(); }).get();
+        executor.submit_auto([] { multi_focus_tool_provenance_and_supply(); }).get();
         task_feed_model_layer(executor, true);
         shared_registration_rejection();
         contracts(executor);
@@ -4367,6 +6354,9 @@ int main() {
         const auto decoded = mirage::runtime::persistence::decode_settings(
             mirage::runtime::persistence::encode_settings(settings));
         check(decoded.ok && decoded.settings.model->supports_images);
+        purpose_model_layer(executor, false);
+        purpose_model_layer(executor, true);
+        content_task_model_layer(executor, "auto", true);
         auto rejected_tools = desktop();
         auto rejected_env = std::static_pointer_cast<mirage::testing::FakeDesktopEnvironment>(
             rejected_tools.environment);
@@ -4393,7 +6383,16 @@ int main() {
         native_region_sources();
         native_roi_pixel_budget();
         native_text_only_and_state_wiring();
+        resident_wait_registry_without_capture();
+        batched_events_supply_and_ack();
+        focus_tool_contract();
+        storyboard_tool_contract();
+        delivered_evidence_tool_contract();
+        content_task_tool_contract();
+        temporal_storyboard_tool_contract();
+
         native_session_poison_discipline();
+        native_transient_recovery_contract();
         native_observation_efficiency();
         input_reuse_identity();
         capability_receipts();

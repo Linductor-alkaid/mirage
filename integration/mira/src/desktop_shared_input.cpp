@@ -1,6 +1,5 @@
 #include "desktop_action_verification.hpp"
 #include "desktop_image_supply.hpp"
-#include "desktop_stability_guard.hpp"
 #include "tool_click.hpp"
 #include "tool_geometry.hpp"
 #include <algorithm>
@@ -47,9 +46,9 @@ void DesktopImageTurn::register_shared_input(mira::BuiltinToolRegistry &registry
     for (const auto *operation : {"click", "key", "type_text", "scroll", "drag"}) {
         mira::BuiltinToolSpec spec;
         spec.wire_name = std::string("desktop.session.") + operation;
-        spec.version = {4, 0, 0};
+        spec.version = {5, 0, 0};
         if (std::string_view(operation) == "click" || std::string_view(operation) == "key")
-            spec.version = {4, 1, 0};
+            spec.version = {5, 0, 0};
         spec.has_side_effects = true;
         const std::string use =
             std::string_view(operation) == "click"
@@ -59,8 +58,8 @@ void DesktopImageTurn::register_shared_input(mira::BuiltinToolRegistry &registry
                   "use 2 to OPEN an item that a single click only selects, 3 for triple-click. "
                   "Do not approximate a double-click with separate tool calls. "
                   "Automatically approaches the target "
-                  "along a locally timed minimum-jerk path, then checks fresh target pixels before "
-                  "pressing. No model timing parameter. Requires a fresh same-stream cursor "
+                  "along a locally timed minimum-jerk path and presses once without an arrival "
+                  "screenshot gate. No model timing parameter. Requires a fresh same-stream cursor "
                   "origin; "
                   "pointer_origin_unknown refuses without clicking. "
             : std::string_view(operation) == "key"
@@ -70,16 +69,17 @@ void DesktopImageTurn::register_shared_input(mira::BuiltinToolRegistry &registry
             : std::string_view(operation) == "drag"
                 ? "Complete locally paced curved drag between source rectangle center and "
                   "destination_x/y/width/height rectangle center in the same shared image. "
-                  "Max 2048 desktop pixels; automatically approach and revalidate before pressing. "
+                  "Max 2048 desktop pixels; automatically approach before pressing. "
                 : "Scroll a visible UI region to reveal more content. ";
         spec.description =
             use +
             "Wayland complete input on a system-authorized interactive shared monitor. "
             "Requires latest supplied image_scope and environment_epoch; x/y/width/height identify "
-            "the target rectangle in IMAGE pixels, revalidated from fresh stream pixels before "
-            "input. Rectangle must fit the supplied image: x+width<=image width, "
+            "the target rectangle in IMAGE pixels. Pixel appearance changes do not veto "
+            "ordinary input. Rectangle must fit the supplied image: x+width<=image width, "
             "y+height<=image height; source dimensions are not action-image bounds. "
-            "Every capture or OCR refresh replaces the previous image_scope; use the "
+            "A new image capture replaces the previous image_scope; text-only OCR preserves it. "
+            "Use the "
             "latest actionable image, including for key and type_text. "
             "click/scroll use rectangle center. key uses canonical lowercase key_name (e.g. "
             "ctrl+l, enter, shift; bare ctrl/alt/shift/meta tap and release; meta+ for "
@@ -94,7 +94,7 @@ void DesktopImageTurn::register_shared_input(mira::BuiltinToolRegistry &registry
             "vertical_steps/horizontal_steps "
             "(default 0; positive right/down, negative left/up; total absolute steps 1..16). "
             "click/drag use button=left/middle/right (default left). Scroll and drag approach "
-            "and revalidate the target first. Wheel steps, drag motion and key transitions "
+            "before input. Wheel steps, drag motion and key transitions "
             "use local natural timing; text is typed character by character. No timing arguments "
             "or held keys. Click/key accept press=long for one locally timed 1080..1240 ms "
             "complete press (click_count must be 1); default normal is unchanged. No duration "
@@ -106,8 +106,6 @@ void DesktopImageTurn::register_shared_input(mira::BuiltinToolRegistry &registry
             "the receipt reports execution only. Capture at the next state dependency or "
             "task boundary to obtain a fresh actionable image_scope. Requested evidence "
             "does not prove the full task or focus identity. "
-            "A target_pixels_changed rejection already supplies the fresh frame with a new "
-            "image_scope in its receipt: retry against that scope without recapturing. "
             "Do not retry uncertain effects.";
         Json::Object props;
         if (std::string_view(operation) == "click" || std::string_view(operation) == "key")
@@ -252,6 +250,8 @@ mira::Result<Json> DesktopImageTurn::shared_input(const std::string &operation, 
     action.value = (operation == "click" || drag) ? *button
                    : operation == "key"           ? field(args, "key_name")
                                                   : field(args, "text");
+    if (operation == "key" && (action.value == "super" || action.value.starts_with("super+")))
+        action.value.replace(0, 5, "meta");
     if (operation == "click" && action.value.empty())
         action.value = "left";
     if ((operation == "click" && action.value != "left" && action.value != "middle" &&
@@ -313,30 +313,13 @@ mira::Result<Json> DesktopImageTurn::shared_input(const std::string &operation, 
         return rejected("permission_denied");
     if (bounded.cancelled())
         return rejected("cancelled");
-    desktop::CaptureOutcome fresh;
-    try {
-        fresh = measure_phase(timings_ ? &timings_->capture : nullptr, [&] {
-            return native_session_->capture_presented({desktop_capture_bytes}, bounded,
-                                                      desktop_.exclude_pet);
-        });
-    } catch (...) {
-        native_session_.reset();
-        native_failed_ = true;
-        return rejected("capture_failed");
-    }
-    if (!fresh.ok || !valid_image_frame(fresh.frame, desktop_capture_bytes)) {
-        native_session_.reset();
-        native_failed_ = true;
-        if (fresh.error.code == "cancelled" && !cancel_.cancelled() &&
-            desktop_.actions->authority_epoch() == authority &&
-            !ctx.cancelled_or_expired(mira::Timestamp::now()) &&
-            std::chrono::steady_clock::now() >= deadline)
-            return rejected("input_pre_capture_timeout");
-        return rejected(fresh.error.code.empty() ? "capture_failed" : fresh.error.code);
-    }
+    // DEC-117: consume the resident producer's geometry without acquiring a
+    // frame solely to prove pixel similarity. Input intent is already scoped.
     const auto &old = *native_input_frame_;
-    if (!valid_image_frame(old, desktop_capture_bytes) || old.width != fresh.frame.width ||
-        old.height != fresh.frame.height)
+    const auto current = native_session_->latest_frame();
+    if (!valid_image_frame(old, desktop_capture_bytes) ||
+        (current.image &&
+         (old.width != current.image->width || old.height != current.image->height)))
         return rejected("shared_source_changed");
     // M7-18: image pixels map into shared-monitor pixels through the published
     // origin and per-image scale when present (ROI and window crops); full
@@ -377,38 +360,6 @@ mira::Result<Json> DesktopImageTurn::shared_input(const std::string &operation, 
         perception_->focus({left, top, right - left, bottom - top});
     if (bounded.cancelled())
         return rejected("cancelled");
-    // M7-16 / DEC-082: the target must be stable, not byte-identical. Edge
-    // animation and same-subject noise (caret, launch pulse) proceed; a moved
-    // or replaced subject, a global scene change, or any unprovable comparison
-    // rejects exactly like the previous byte comparison.
-    if (assess_target_stability(old, fresh.frame, {left, top, right, bottom}) ==
-        TargetStability::kChanged) {
-        // M7-19: the guard's frame is already a fresh observation — publish it
-        // so the model retries against current pixels without a recapture
-        // round trip. The receipt carries the new image_scope.
-        std::string refreshed;
-        if (native_input_enabled_ && !bounded.cancelled()) {
-            if (finish_native_publish(
-                    fresh.frame, fresh.frame,
-                    desktop::WindowGeometry{0, 0, fresh.frame.width, fresh.frame.height}, "desktop",
-                    "", fresh.frame.source_sequence, epoch_)) {
-                native_capture_args_ =
-                    Json{Json::Object{{"source", "desktop"}, {"interaction", true}}};
-                native_capture_key_ =
-                    mira::canonical_json_digest(Json{Json::Object{{"source", "desktop"}}})
-                        .to_string();
-                if (fresh.presentation_excluded == false)
-                    metadata_.set("pet_presentation",
-                                  Json{Json::Object{{"excluded", false},
-                                                    {"reason", "unsupported_compositor"},
-                                                    {"pixels_may_include_pet", true}}});
-                const auto *scope = metadata_.find("image_scope");
-                if (scope && scope->as_string())
-                    refreshed = *scope->as_string();
-            }
-        }
-        return rejected("target_pixels_changed", false, true, refreshed);
-    }
     action.x = double(to_monitor_x(*x + *w / 2));
     action.y = double(to_monitor_y(*y + *h / 2));
     action.destination_x = double(to_monitor_x(*dx + *dw / 2));
@@ -428,11 +379,9 @@ mira::Result<Json> DesktopImageTurn::shared_input(const std::string &operation, 
             const auto origin = native_session_->pointer_position(bounded);
             if (!origin.ok)
                 return rejected(origin.cancelled ? "cancelled" : "pointer_origin_unknown");
-            if (origin.image_width != fresh.frame.width ||
-                origin.image_height != fresh.frame.height ||
-                origin.source_sequence != fresh.frame.source_sequence || origin.position.x < 0 ||
-                origin.position.y < 0 || origin.position.x >= origin.image_width ||
-                origin.position.y >= origin.image_height)
+            if (origin.image_width != old.width || origin.image_height != old.height ||
+                origin.position.x < 0 || origin.position.y < 0 ||
+                origin.position.x >= origin.image_width || origin.position.y >= origin.image_height)
                 return rejected("pointer_origin_unknown");
         } catch (...) {
             return rejected("pointer_query_failed");
@@ -450,24 +399,35 @@ mira::Result<Json> DesktopImageTurn::shared_input(const std::string &operation, 
     limits.timeout = std::min(action_cap, std::chrono::duration_cast<std::chrono::milliseconds>(
                                               execution_end - std::chrono::steady_clock::now()));
     desktop::InputOutcome out;
+    bool approach_completed = false;
+    bool press_dispatched = false;
+    const auto input_watermark = std::max(old.source_sequence, native_session_->source_sequence());
     const auto input_failure = [&](const desktop::InputOutcome &failed) {
         if (failed.side_effect_may_have_occurred) {
-            if (failed.error.code == "input_lag" && failed.input_released) {
-                native_input_recovery_.failed(failed, fresh.frame.source_sequence);
-                metadata_.set("input_actionable", false);
-                metadata_.set("input_blocked_reason", native_input_recovery_.reason());
-                native_newer_than_sequence_ = fresh.frame.source_sequence;
-            } else {
-                native_session_.reset();
-                native_failed_ = true;
-            }
+            // DEC-116: an uncertain input side effect blocks the input route
+            // (awaiting a fresh frame, or unavailable for this session) and
+            // demands newer post-action evidence. Capture and OCR stay alive;
+            // killing the whole session here left the task blind (2026-10-26
+            // incident).
+            native_input_recovery_.failed(failed, input_watermark);
+            metadata_.set("input_actionable", false);
+            metadata_.set("input_blocked_reason", native_input_recovery_.reason());
+            native_newer_than_sequence_ = input_watermark;
         }
-        return rejected(failed.error.code, failed.side_effect_may_have_occurred,
-                        failed.input_released, {}, {},
-                        native_input_recovery_.blocked()
-                            ? "Observe current state and replan; do not replay the failed input."
-                            : "",
-                        failed.error.message);
+        auto failure = rejected(
+            failed.error.code, failed.side_effect_may_have_occurred, failed.input_released, {}, {},
+            native_input_recovery_.blocked()
+                ? "Observe current state and replan; do not replay the failed input."
+                : "",
+            failed.error.message);
+        auto receipt = mira::parse_json(failure.safe_message);
+        if (receipt) {
+            receipt.value().set("approach_completed", approach_completed);
+            receipt.value().set("press_dispatched", press_dispatched);
+            receipt.value().set("release_confirmed", failed.input_released);
+            failure.safe_message = mira::to_json_string(receipt.value());
+        }
+        return failure;
     };
     try {
         bool moved = false;
@@ -485,26 +445,12 @@ mira::Result<Json> DesktopImageTurn::shared_input(const std::string &operation, 
             if (!travel.ok)
                 return input_failure(travel);
             moved = travel.side_effect_may_have_occurred;
-            if (moved) {
-                const auto arrived = measure_phase(timings_ ? &timings_->capture : nullptr, [&] {
-                    return native_session_->capture_presented(
-                        {desktop_capture_bytes, fresh.frame.source_sequence}, bounded,
-                        desktop_.exclude_pet);
-                });
-                if (!arrived.ok || !valid_image_frame(arrived.frame, desktop_capture_bytes) ||
-                    arrived.frame.width != old.width || arrived.frame.height != old.height ||
-                    arrived.frame.source_sequence <= fresh.frame.source_sequence ||
-                    bounded.cancelled() ||
-                    assess_target_stability(old, arrived.frame, {left, top, right, bottom}) ==
-                        TargetStability::kChanged)
-                    return rejected(bounded.cancelled() ? "cancelled" : "arrival_target_changed",
-                                    moved);
-                fresh = arrived;
-            }
+            approach_completed = true;
         }
         limits.timeout =
             std::min(action_cap, std::chrono::duration_cast<std::chrono::milliseconds>(
                                      execution_end - std::chrono::steady_clock::now()));
+        press_dispatched = true;
         out = native_session_->input(action, limits, bounded);
         out.side_effect_may_have_occurred |= moved;
     } catch (...) {
@@ -515,11 +461,21 @@ mira::Result<Json> DesktopImageTurn::shared_input(const std::string &operation, 
     if (!out.ok) {
         return input_failure(out);
     }
+    lease = {}; // Publish the completed coordinator epoch, after release, to the next action.
     native_input_recovery_.completed();
     // DEC-081: only a later source frame can verify this dispatched action.
-    native_newer_than_sequence_ = fresh.frame.source_sequence;
+    native_newer_than_sequence_ = input_watermark;
+    epoch_ = desktop_.actions->epoch();
+    metadata_.set("environment_epoch", static_cast<std::int64_t>(epoch_));
+    withhold_image_ = true; // Retain the intent, never re-offer pre-action pixels as new feedback.
+    expect_image_ = false;
     return Json{Json::Object{{"schema", 2},
                              {"status", "dispatched"},
+                             {"approach_completed", approach_completed},
+                             {"press_dispatched", press_dispatched},
+                             {"release_confirmed", out.input_released},
+                             {"image_scope", field(metadata_, "image_scope")},
+                             {"environment_epoch", static_cast<std::int64_t>(epoch_)},
                              {"verified", false},
                              {"side_effect_may_have_occurred", true},
                              {"input_released", true}}};

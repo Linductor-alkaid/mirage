@@ -388,7 +388,7 @@ void expiry(const Json &golden) {
 int main() {
     try {
         std::ifstream file(std::filesystem::path{__FILE__}.parent_path() /
-                           "data/desktop_action_policy_v3.json");
+                           "data/desktop_action_policy_v4.json");
         const std::string source{std::istreambuf_iterator<char>{file}, {}};
         const auto golden = mira::parse_json(source);
         if (!golden)

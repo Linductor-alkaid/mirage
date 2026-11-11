@@ -72,6 +72,7 @@ class Script final : public mira::IModelProvider {
     std::vector<mira::ModelRequest> requests;
     std::string mutation_fault;
     std::vector<std::pair<std::string, std::string>> actions_override;
+    bool declare_purpose = false;
     /// DEC-085 epoch-reset probe: coordinator whose environment epoch the
     /// fixture advances (takeover + resume, a fresh observation) immediately
     /// before serving the model turns listed here — i.e. between tool
@@ -117,6 +118,9 @@ class Script final : public mira::IModelProvider {
                       {"desktop.window.front", "{}"}};
         if (!actions_override.empty())
             actions = actions_override;
+        if (declare_purpose)
+            actions.insert(actions.begin(),
+                           {"desktop.vision.content", R"({"action":"navigation"})"});
         const auto step = step_++;
         if (coordinator != nullptr &&
             std::find(advance_epoch_before_turn.begin(), advance_epoch_before_turn.end(), step) !=
@@ -490,6 +494,9 @@ void layer_scenario(const std::string &scenario) {
                 desktop->windows[0].focused = true;
                 desktop->windows[1].focused = false;
             }
+            if (scenario == "focus_lost")
+                for (auto &window : desktop->windows)
+                    window.focused = false;
             if (scenario == "cancelled")
                 cancel.request_cancel();
             if (scenario == "expired") {
@@ -537,9 +544,9 @@ void layer_scenario(const std::string &scenario) {
     // DEC-056 revision: a trailing clean no-effect rejection followed by a
     // successful desktop observation settles the turn — the guard scenarios
     // end with the model answering from fresh evidence, not a failed turn.
-    const bool rejected_then_answered = scenario == "denied" || scenario == "focus_changed" ||
-                                        scenario == "stale_scope" || scenario == "stale_epoch" ||
-                                        scenario == "epoch_during_gate";
+    const bool rejected_then_answered =
+        scenario == "denied" || scenario == "focus_changed" || scenario == "focus_lost" ||
+        scenario == "stale_scope" || scenario == "stale_epoch" || scenario == "epoch_during_gate";
     const bool success =
         scenario == "normal" || read_only || scenario == "backend_scope" || rejected_then_answered;
     MIRAGE_CHECK(result.ok == success);
@@ -575,8 +582,25 @@ void layer_scenario(const std::string &scenario) {
         MIRAGE_CHECK(failed_result(*script, "call-4", "stale_observation"));
     if (scenario == "denied")
         MIRAGE_CHECK(failed_result(*script, "call-4", "permission denied"));
-    if (scenario == "focus_changed")
+    if (scenario == "focus_changed") {
+        // The type_text proposal fails pre-dispatch in the mutation handler's
+        // own focus guard ("focused window changed or moved; re-observe").
         MIRAGE_CHECK(failed_result(*script, "call-4", "focused window changed"));
+        // The follow-up observation capture (semantic_snapshot of w2) hits the
+        // split decorator branch: still stale_observation, but the front
+        // window merely is a different one — reported as "not the foreground
+        // window", not as a capture-time focus change.
+        MIRAGE_CHECK(failed_result(*script, "call-5", "stale_observation"));
+        MIRAGE_CHECK(failed_result(*script, "call-5", "foreground window"));
+        MIRAGE_CHECK(!failed_result(*script, "call-5", "focused window changed during capture"));
+    }
+    if (scenario == "focus_lost") {
+        // With every window unfocused, front_window reports no front window at
+        // all: that case keeps the original capture-time message.
+        MIRAGE_CHECK(failed_result(*script, "call-5", "stale_observation"));
+        MIRAGE_CHECK(failed_result(*script, "call-5", "focused window changed during capture"));
+        MIRAGE_CHECK(!failed_result(*script, "call-5", "foreground window"));
+    }
     if (scenario == "throwing")
         MIRAGE_CHECK(failed_result(*script, "call-4", "tool handler failed"));
     if (scenario == "cancelled" || scenario == "expired")
@@ -2397,6 +2421,7 @@ void service_scenario(bool replacement, bool deny_input, bool uri_handoff = fals
     config.model_provider_override = std::make_shared<
         integration::ModelProviderOverride>([uri_handoff](const auto &profile) {
         auto script = std::make_shared<Script>(profile, false);
+        script->declare_purpose = true;
         if (uri_handoff)
             script->actions_override = {
                 {"desktop.application.list", "{}"},
@@ -2445,7 +2470,7 @@ void service_scenario(bool replacement, bool deny_input, bool uri_handoff = fals
             MIRAGE_CHECK(turn.status == "ok");
             MIRAGE_CHECK(std::count_if(turn.parts.begin(), turn.parts.end(), [](const auto &part) {
                              return part.kind == "tool" && part.status == "complete";
-                         }) == (uri_handoff ? (deny_input ? 3 : 5) : (deny_input ? 6 : 9)));
+                         }) == 1 + (uri_handoff ? (deny_input ? 3 : 5) : (deny_input ? 6 : 9)));
             if (uri_handoff)
                 for (const auto &part : turn.parts) {
                     MIRAGE_CHECK(part.input.find("https://example.invalid/private-query") ==
@@ -2545,8 +2570,12 @@ void service_cancel_scenario(bool shutdown, bool takeover = false) {
     config.socket_path = temp.root() / "cancel.sock";
     config.persist_recovery_state = config.persist_session_state = config.persist_settings = false;
     config.model = model_config();
-    config.model_provider_override = std::make_shared<integration::ModelProviderOverride>(
-        [](const auto &profile) { return std::make_shared<Script>(profile, false); });
+    config.model_provider_override =
+        std::make_shared<integration::ModelProviderOverride>([](const auto &profile) {
+            auto script = std::make_shared<Script>(profile, false);
+            script->declare_purpose = true;
+            return script;
+        });
     mirage::runtime::RuntimeService service(config);
     MIRAGE_CHECK(service.start(std::make_shared<integration::MiraEnvironmentBinding>(desktop)).ok);
     ipc::IpcClient client(config.socket_path);
@@ -2589,8 +2618,12 @@ void service_release_failure(const std::string &fault) {
     config.socket_path = temp.root() / "release.sock";
     config.persist_recovery_state = config.persist_session_state = config.persist_settings = false;
     config.model = model_config();
-    config.model_provider_override = std::make_shared<integration::ModelProviderOverride>(
-        [](const auto &profile) { return std::make_shared<Script>(profile, false); });
+    config.model_provider_override =
+        std::make_shared<integration::ModelProviderOverride>([](const auto &profile) {
+            auto script = std::make_shared<Script>(profile, false);
+            script->declare_purpose = true;
+            return script;
+        });
     mirage::runtime::RuntimeService service(config);
     MIRAGE_CHECK(service.start(std::make_shared<integration::MiraEnvironmentBinding>(desktop)).ok);
     ipc::IpcClient client(config.socket_path);
@@ -2637,6 +2670,7 @@ void service_tool_error_scenario() {
     config.model_provider_override =
         std::make_shared<integration::ModelProviderOverride>([](const auto &profile) {
             auto script = std::make_shared<Script>(profile, true);
+            script->declare_purpose = true;
             // Three deterministic failures block the tool; the scripted
             // provider then answers, so the turn settles ok with one
             // classified failure entry.
@@ -3229,9 +3263,9 @@ int main() {
     dialog_sse_scenario(true);
     dialog_sse_scenario(false);
     harness_sse_scenario();
-    for (const auto *scenario :
-         {"normal", "read_only", "denied", "focus_changed", "cancelled", "expired", "throwing",
-          "stale_scope", "stale_epoch", "missing_scope", "epoch_during_gate", "backend_scope"})
+    for (const auto *scenario : {"normal", "read_only", "denied", "focus_changed", "focus_lost",
+                                 "cancelled", "expired", "throwing", "stale_scope", "stale_epoch",
+                                 "missing_scope", "epoch_during_gate", "backend_scope"})
         layer_scenario(scenario);
     service_scenario(false, false);
     service_scenario(true, false);

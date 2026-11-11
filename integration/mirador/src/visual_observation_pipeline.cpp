@@ -31,7 +31,18 @@ VisualObservationPipeline::VisualObservationPipeline(kairo::Executor &executor,
 
 VisualObservationPipeline::~VisualObservationPipeline() { stop(); }
 
-bool VisualObservationPipeline::start(std::string &error) { return session_.start(error); }
+bool VisualObservationPipeline::start(std::string &error) {
+    const auto interval = config_.experimental_recognition_refresh.count();
+    if (interval != 0 && (interval < 100 || interval > 5000)) {
+        error = "experimental recognition refresh must be 0 or 100..5000ms";
+        return false;
+    }
+    if (config_.session.enable_object_tracking && interval == 0) {
+        error = "object tracking requires experimental recognition refresh";
+        return false;
+    }
+    return session_.start(error);
+}
 
 void VisualObservationPipeline::stop() { session_.stop(); }
 
@@ -438,6 +449,9 @@ EnvironmentVisualRefresh VisualObservationPipeline::refresh_impl(
         return refresh;
     }
     switch (result.outcome.kind) {
+    case VisualAnalysisOutcome::Kind::kSampled:
+        refresh.analysis_error = {"sample_only", "CV sample is not a fusion observation"};
+        break;
     case VisualAnalysisOutcome::Kind::kSkippedUnchanged:
         refresh.analysis_error = {"analysis_skipped", result.outcome.message};
         break;

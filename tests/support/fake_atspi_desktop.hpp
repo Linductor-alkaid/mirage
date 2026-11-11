@@ -55,6 +55,13 @@ class FakeAtspiDesktop {
     std::mutex observation_mutex;
     std::vector<std::string> activated;                     // paths of DoAction calls
     std::vector<std::pair<std::string, std::string>> texts; // path -> new contents
+    // The tree topology is frozen after start(). The one mutable title uses
+    // a dedicated fixture lock, including property serialization. Do not use
+    // observation_mutex: tests can hold it while asserting rejected RPC calls.
+    void rename_node(std::size_t index, std::string name) {
+        std::lock_guard guard(node_name_mutex_);
+        nodes.at(index).name = std::move(name);
+    }
 
     bool start(const std::string &bus_address) {
         GError *error = nullptr;
@@ -103,6 +110,7 @@ class FakeAtspiDesktop {
     }
 
   private:
+    std::mutex node_name_mutex_;
     static constexpr const char *kComponentXml =
         "<node><interface name='org.a11y.atspi.Component'>"
         "<method name='GetExtents'><arg type='u' direction='in'/>"
@@ -304,6 +312,7 @@ class FakeAtspiDesktop {
         FakeNode &node = self.nodes[static_cast<std::size_t>(context->index)];
         const std::string name = property_name;
         if (name == "Name") {
+            std::lock_guard guard(self.node_name_mutex_);
             return g_variant_new_string(node.name.c_str());
         }
         if (name == "Description" || name == "HelpText" || name == "Locale") {

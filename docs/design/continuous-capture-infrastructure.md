@@ -1,5 +1,9 @@
 # 连续帧采集基础层
 
+> 2026-10-27：已有宿主的生产所有权和前台最新帧消费按
+> [DEC-117](../decisions/DEC-117-runtime-resident-perception-and-autonomous-input.md) 及
+> [常驻设计](runtime-resident-perception.md) 更新；下文“生产消费者未接通”是首增量历史。
+
 > 状态：In Progress
 > 日期：2026-10-22
 > 负责人：Mirage 维护者

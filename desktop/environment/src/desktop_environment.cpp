@@ -162,6 +162,9 @@ std::string render_semantic_snapshot(const SemanticSnapshot &snapshot) {
         if (!node.enabled) {
             text += " [disabled]";
         }
+        if (node.collapsed_children > 0) {
+            text += " (+" + std::to_string(node.collapsed_children) + " children)";
+        }
         text += "\n";
     }
     return text;

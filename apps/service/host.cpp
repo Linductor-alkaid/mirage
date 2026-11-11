@@ -10,6 +10,8 @@
 #include <mirage/runtime/persistence/store.hpp>
 #include <mirage/runtime/runtime_service.hpp>
 
+#include <charconv>
+
 // The reference topology binds the platform backend (DEC-008 item 3):
 // the Linux desktop environment on Linux, the Windows one on Windows
 // (M4-06; a service context reports no desktop surface and every
@@ -96,6 +98,16 @@ void print_usage(std::ostream &out) {
         << "\n"
         << "Options:\n"
         << "  --ocr-manifest PATH  Verified local PP-OCR resources (opt-in build)\n"
+        << "  --perception-period-ms N  Continuous sampling period 0 or 100..1000\n"
+        << "                    (Linux default 200ms; legacy 250ms)\n"
+        << "  --perception-mode layered|legacy  Independent CV/recognition or synchronous "
+           "rollback\n"
+        << "                    (Linux default layered; Windows default legacy)\n"
+        << "  --recognition-refresh-ms N  Full recognition audit, 100..5000 (layered default "
+           "5000)\n"
+        << "                    0 disables deferral in legacy mode; deferred content is unknown\n"
+        << "  --object-tracking on|off  Bounded advisory tracking (layered default on)\n"
+        << "                    Historical --experimental-* options remain accepted aliases\n"
         << "  --socket PATH     IPC endpoint (default: XDG runtime dir)\n"
         << "  --read-root PATH  Filesystem path tasks may read (repeatable;\n"
         << "                    without one, filesystem reads are denied)\n"
@@ -275,6 +287,69 @@ int mirage::apps::run_service_host(int argc, char **argv, bool product) {
             }
             ocr_from_flags = true;
             config.ocr_manifest = path;
+            continue;
+        }
+        if (argument == "--perception-period-ms" && index + 1 < argc) {
+            const std::string value = argv[++index];
+            int parsed = 0;
+            const auto [end, ec] =
+                std::from_chars(value.data(), value.data() + value.size(), parsed);
+            if (ec != std::errc{} || end != value.data() + value.size() || parsed < 0 ||
+                parsed > 1000 || (parsed > 0 && parsed < 100)) {
+                std::cerr << kProgramName
+                          << ": --perception-period-ms expects 0 or 100..1000 (got '" << value
+                          << "')\n";
+                return 2;
+            }
+            config.perception_sample_period_ms = parsed;
+            continue;
+        }
+        if (argument == "--perception-mode" && index + 1 < argc) {
+            const std::string mode = argv[++index];
+            if (mode != "layered" && mode != "legacy") {
+                std::cerr << kProgramName << ": --perception-mode expects layered|legacy\n";
+                return 2;
+            }
+            const bool layered = mode == "layered";
+            config.perception_async_recognition = config.perception_object_tracking = layered;
+            config.perception_recognition_refresh_ms = layered ? 5000 : 0;
+            config.perception_sample_period_ms = layered ? 200 : 250;
+            continue;
+        }
+        if (argument == "--object-tracking" && index + 1 < argc) {
+            const std::string mode = argv[++index];
+            if (mode != "on" && mode != "off") {
+                std::cerr << kProgramName << ": --object-tracking expects on|off\n";
+                return 2;
+            }
+            config.perception_object_tracking = mode == "on";
+            continue;
+        }
+        if ((argument == "--recognition-refresh-ms" ||
+             argument == "--experimental-recognition-refresh-ms") &&
+            index + 1 < argc) {
+            const std::string value = argv[++index];
+            int parsed = 0;
+            const auto [end, ec] =
+                std::from_chars(value.data(), value.data() + value.size(), parsed);
+            if (ec != std::errc{} || end != value.data() + value.size() || parsed < 0 ||
+                parsed > 5000 || (parsed > 0 && parsed < 100)) {
+                std::cerr << kProgramName
+                          << ": --recognition-refresh-ms expects 0 or 100..5000 (got '" << value
+                          << "')\n";
+                return 2;
+            }
+            config.perception_recognition_refresh_ms = parsed;
+            if (argument == "--experimental-recognition-refresh-ms" && parsed == 0)
+                config.perception_async_recognition = config.perception_object_tracking = false;
+            continue;
+        }
+        if (argument == "--experimental-async-recognition") {
+            config.perception_async_recognition = true;
+            continue;
+        }
+        if (argument == "--experimental-object-tracking") {
+            config.perception_object_tracking = true;
             continue;
         }
         if (argument == "--config" && index + 1 < argc) {

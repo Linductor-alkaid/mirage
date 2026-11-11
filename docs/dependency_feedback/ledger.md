@@ -2,12 +2,45 @@
 
 > 状态：Active
 > 负责人：Mirage维护者
-> 更新日期：2026-10-25
+> 更新日期：2026-10-28
 > 维护规则：[工程规范9.4](../project/project-standards.md)
 > 本轮工作项：[Mira 同步维护](../plans/mira-upstream-sync-20261025.md)（MNT-MIRA-01～04）；既有[依赖复用整改](../plans/dependency-reuse-remediation.md)（REUSE-16/17/18
 > 台账一致性收口）；既有条目分别溯源至 M6、M7-06、M8/M9 各工作项
 
 ## 分依赖台账
+
+2026-10-28：按 DEC-121/M9-25，以现有公开 CV API 在 Mirage Adapter 交付显式
+sample_only 和独立比较基线，无 digest 翻转、无识别/语义推进；本机回归和
+sanitizer 通过，见[阶段验证](../compatibility/layered-perception-phase1-20261027.md)。
+[MIRADOR-20261027-001](mirador.md#mirador-20261027-001) 保持 Open，覆盖复用、
+未知/年龄投影和产品自动分频由 M9-26 继续核对，未修改 pinned 依赖。
+同日 M9-26 按 [DEC-122](../decisions/DEC-122-deferred-recognition-unknown-evidence.md)
+接入默认关闭的媒体延后识别，历史对象 pending、不续期、不虚构新帧覆盖。
+[验证](../compatibility/layered-perception-phase2-20261028.md) 记录调用数和原年龄；
+精确跨帧 reuse/单字符/遮挡证明继续 Open，未向上游发送或升级依赖。
+
+2026-10-28：DEC-123 / M9-27 在既有后台worker私有消费公共ObjectTracker，
+外观/近邻重捕获与几何候选均有界；跟踪只提供advisory，不签发新内容/覆盖。
+精确reuse仍由同一条目跟踪，本批无需新增依赖或更改pin；证据见
+[第三阶段验证](../compatibility/layered-perception-phase3-20261028.md)。
+
+2026-10-27：DEC-118 独立验证实证媒体周期 OCR 跳过与 mirador 周期账本证据声明
+契约冲突（digest 翻转产生盲周期），新增
+[MIRADOR-20261027-001](mirador.md#mirador-20261027-001)（Open）：连续周期保留
+变化比较基线的同时跳过识别阶段的能力诉求；集成侧预测式 OCR hold 相应撤回，
+事件侧显著性门控不受影响，见 [DEC-118](../decisions/DEC-118-significance-gated-perception-and-scoped-snapshots.md)。
+
+2026-10-27：维护者澄清独立 Agent 需求为完整交互闭环，
+[MIRA-20261027-001](mira.md#mira-20261027-001) 与上游
+[mira#111](https://github.com/Linductor-alkaid/mira/issues/111)（Proposed）据此扩展：
+用户始终通过一个入口输入，由 Mira 内部安排会话/任务、上下文与记忆，并统一返回
+结果和进度。回忆反馈/激活排序保留为子能力。Mira 承担通用协调，Mirage 提供产品 UI、
+IPC、认证/权限配置和平台能力；既有组件优先复用。来源、范围与验收见
+[反馈计划](../plans/agent-memory-upstream-feedback-20261027.md)。
+部署补充由 [DEC-119](../decisions/DEC-119-bounded-memory-and-session-retention.md) 记录：
+记忆/管理中会话/归档均有界，选择性遗忘包括物理清理；完全结束且无依赖的会话退出
+管理名额并最终清理，预算接纳与跨存储回收机制须先设计验证。已补入同一 #111。
+该提案不改变 MIRA-20261016-001 的部分交付状态，也不宣称新产品交互已启用。
 
 2026-10-25：同步 Mira master `68a8bf1`，消费上游 PR#108/109/110。
 [MIRA-20261022-001](mira.md#mira-20261022-001) 转 Resolved（Linux 消费范围）：

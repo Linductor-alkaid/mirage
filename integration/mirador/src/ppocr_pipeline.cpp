@@ -190,11 +190,22 @@ bool PpOcrPipeline::supported() {
     return false;
 #endif
 }
-std::unique_ptr<PpOcrPipeline> PpOcrPipeline::create(kairo::Executor &executor,
-                                                     desktop::ScreenProvider &screen,
-                                                     const std::filesystem::path &manifest,
-                                                     std::string &error) {
+std::unique_ptr<PpOcrPipeline>
+PpOcrPipeline::create(kairo::Executor &executor, desktop::ScreenProvider &screen,
+                      const std::filesystem::path &manifest, std::string &error,
+                      int experimental_recognition_refresh_ms, bool experimental_object_tracking,
+                      bool experimental_async_recognition) {
     error.clear();
+    if ((experimental_object_tracking || experimental_async_recognition) &&
+        experimental_recognition_refresh_ms == 0) {
+        error = "tracking/async recognition requires experimental recognition refresh";
+        return {};
+    }
+    if (experimental_recognition_refresh_ms < 0 || experimental_recognition_refresh_ms > 5000 ||
+        (experimental_recognition_refresh_ms > 0 && experimental_recognition_refresh_ms < 100)) {
+        error = "experimental recognition refresh expects 0 or 100..5000 ms";
+        return {};
+    }
 #ifndef MIRAGE_WITH_PPOCR
     (void)executor;
     (void)screen;
@@ -266,11 +277,8 @@ std::unique_ptr<PpOcrPipeline> PpOcrPipeline::create(kairo::Executor &executor,
         // DEC-076: native candidate analysis is bounded separately from
         // the 128-region wire prefix. The five-second deadline still applies.
         det.postprocess.max_boxes = screen.desktop_observation_only() ? 512 : 128;
-        // The pinned backends default to single-threaded ncnn. Measured on the
-        // bundled PP-OCRv5-mobile model (1600x1000 dense frame, 359 det boxes):
-        // det drops ~2x at four threads, while per-line rec degrades 1.6-1.8x
-        // under default libgomp scheduling (fork/join overhead dominates the
-        // tiny line tensors), so only det fans out.
+        // Single-thread OCR detection did not reduce the combined model peak
+        // in DEC-128 measurements; retain the measured latency profile.
         det.num_threads =
             std::clamp<int>(static_cast<int>(std::thread::hardware_concurrency() / 2), 1, 4);
         rec.num_threads = 1;
@@ -313,6 +321,10 @@ std::unique_ptr<PpOcrPipeline> PpOcrPipeline::create(kairo::Executor &executor,
         config.run_ocr = true;
         config.session.enable_image_session = true;
         config.session.enable_background_session = true;
+        config.session.enable_object_tracking =
+            experimental_object_tracking && !experimental_async_recognition;
+        config.experimental_recognition_refresh =
+            std::chrono::milliseconds{experimental_recognition_refresh_ms};
         config.geometry_marks = geometry_marks;
         config.roi_capture = roi_capture;
         config.session.template_assets = std::move(template_assets);
@@ -388,6 +400,7 @@ std::unique_ptr<PpOcrPipeline> PpOcrPipeline::create(kairo::Executor &executor,
                      .ok)
                 throw std::runtime_error("YOLO backend identity rejected");
             config.detector_marks = true;
+            config.background_detector = experimental_async_recognition;
             config.detector_min_confidence =
                 static_cast<float>(number(*detector, "confidence_milli", 250, 1, 1000)) / 1000.F;
             config.session.detector_backend = p->detector.get();
@@ -509,17 +522,19 @@ PpOcrPipeline::read_image_ocr(const desktop::ImageFrame &image, const desktop::C
     result.backend_calls = backend_calls();
     return result;
 }
-PerceptionSample
-PpOcrPipeline::observe_image(const desktop::ImageFrame &image, const std::string &key,
-                             const std::optional<desktop::WindowGeometry> &focus,
-                             const desktop::CancelToken &cancel,
-                             const std::optional<std::chrono::steady_clock::time_point> &deadline) {
+PerceptionSample PpOcrPipeline::observe_image(
+    const desktop::ImageFrame &image, const std::string &key,
+    const std::optional<desktop::WindowGeometry> &focus, const desktop::CancelToken &cancel,
+    const std::optional<std::chrono::steady_clock::time_point> &deadline,
+    std::optional<std::chrono::steady_clock::time_point> captured_at,
+    std::uint64_t sampling_generation, const PerceptionRecognitionWork &work) {
     if (!impl_->pipeline || !impl_->pipeline->running()) {
         PerceptionSample out;
         out.error = {"unavailable", "continuous pipeline is not running"};
         return out;
     }
-    return impl_->pipeline->observe_image(image, key, focus, cancel, deadline);
+    return impl_->pipeline->observe_image(image, key, focus, cancel, deadline, captured_at,
+                                          sampling_generation, work);
 }
 
 ImageContinuousState PpOcrPipeline::query_image_state(

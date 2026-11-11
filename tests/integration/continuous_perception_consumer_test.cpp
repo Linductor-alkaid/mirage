@@ -113,6 +113,224 @@ VisualAnalysisRequest spatial_request(const std::string &source, std::uint64_t s
     return request;
 }
 
+VisualAnalysisRequest sample_request(const std::string &source, std::uint64_t sequence,
+                                     int intensity = 128) {
+    auto request = refreshed(source, sequence);
+    auto capture = std::make_shared<SharedCaptureFrame>();
+    capture->image = pixels().frame;
+    std::fill(capture->image.pixels.begin(), capture->image.pixels.end(),
+              static_cast<std::uint8_t>(intensity));
+    capture->source_id = source;
+    capture->sequence = sequence;
+    capture->received_at = std::chrono::steady_clock::now();
+    auto frame = to_mirador_frame(capture);
+    MIRAGE_CHECK(frame.ok());
+    if (frame)
+        request.frame = frame.take_value();
+    request.run_ocr = false;
+    request.fuse = false;
+    request.sample_only = true;
+    return request;
+}
+
+void sampling_is_distinct_from_recognition_and_preserves_both_baselines() {
+    Owner owner;
+    FakeOcrBackend ocr;
+    FakeDetectorBackend detector;
+    auto config = config_for(ocr);
+    config.detector_backend = &detector;
+    VisualSessionHost host(owner.executor, "sample", config);
+    std::string error;
+    MIRAGE_CHECK(host.start(error));
+    MIRAGE_CHECK(get(host.submit(sample_request("sample", 1))).outcome.kind == Kind::kRejected);
+    auto bootstrap = refreshed("sample", 1);
+    bootstrap.run_detector = true;
+    bootstrap.detector.cache_policy = mirador::CachePolicy::kRefresh;
+    const auto initial = get(host.submit(bootstrap));
+    MIRAGE_CHECK(initial.outcome.kind == Kind::kCompleted && initial.continuous &&
+                 initial.snapshot);
+    if (!initial.continuous || !initial.snapshot)
+        return;
+    MIRAGE_CHECK(initial.cache_stats.sampling_signature_bytes == 0);
+    const auto calls = ocr.calls(), detections = detector.calls();
+    MIRAGE_CHECK(calls > 0 && detections > 0);
+    VisualContinuousQuery query;
+    query.expected_source_revision = 1;
+    const auto before = get(host.query_continuous(query));
+    MIRAGE_CHECK(before.queried);
+    if (!before.queried)
+        return;
+    for (std::uint64_t seq = 2; seq <= 7; ++seq) {
+        const auto result = get(host.submit(sample_request("sample", seq, 128 + int(seq - 1) * 2)));
+        MIRAGE_CHECK(result.outcome.kind == Kind::kSampled);
+        MIRAGE_CHECK(result.sampled && result.sampled->source_revision == 1 &&
+                     result.sampled->source_epoch == initial.continuous->source_epoch &&
+                     result.sampled->frame_sequence == seq &&
+                     result.sampled->analysis_policy_revision == 1 &&
+                     result.sampled->observed_at != std::chrono::steady_clock::time_point{});
+        MIRAGE_CHECK(result.change.classification == mirador::ChangeClassification::kNone);
+        MIRAGE_CHECK(result.sampling_baseline_sequence == seq - 1);
+        MIRAGE_CHECK(result.admission_baseline_sequence == 1 && result.admission_change);
+        if (result.admission_change && seq >= 5)
+            MIRAGE_CHECK(result.admission_change->classification !=
+                         mirador::ChangeClassification::kNone);
+        MIRAGE_CHECK(!result.snapshot && !result.continuous && !result.spatial &&
+                     result.text.empty() && result.detections.empty());
+        MIRAGE_CHECK(result.cache_stats.sampling_signature_bytes == 4096 &&
+                     result.cache_stats.background_signature_bytes == 4096);
+        MIRAGE_CHECK(ocr.calls() == calls && detector.calls() == detections);
+    }
+    const auto after = get(host.query_continuous(query));
+    MIRAGE_CHECK(after.queried);
+    if (after.queried) {
+        MIRAGE_CHECK(after.queried->last_analyzed_frame == before.queried->last_analyzed_frame);
+        MIRAGE_CHECK(after.queried->temporal == before.queried->temporal);
+    }
+    MIRAGE_CHECK(get(host.submit(sample_request("sample", 7))).outcome.kind == Kind::kRejected);
+    auto resume = sample_request("sample", 8, 255);
+    resume.sample_only = false;
+    resume.run_ocr = resume.fuse = true;
+    resume.run_detector = true;
+    resume.detector.cache_policy = mirador::CachePolicy::kRefresh;
+    const auto recognized = get(host.submit(resume));
+    MIRAGE_CHECK(recognized.outcome.kind == Kind::kCompleted && recognized.continuous);
+    MIRAGE_CHECK(recognized.admission_baseline_sequence == 1 && recognized.admission_change &&
+                 recognized.admission_change->classification !=
+                     mirador::ChangeClassification::kNone);
+    MIRAGE_CHECK(ocr.calls() > calls);
+    const auto next = get(host.submit(sample_request("sample", 9, 255)));
+    MIRAGE_CHECK(next.outcome.kind == Kind::kSampled && next.sampling_baseline_sequence == 8 &&
+                 next.admission_baseline_sequence == 8 && next.admission_change &&
+                 next.change.classification == mirador::ChangeClassification::kNone &&
+                 next.admission_change->classification == mirador::ChangeClassification::kNone);
+}
+
+void sampling_rejects_scope_changes_and_never_commits_failed_samples() {
+    Owner owner;
+    FakeOcrBackend ocr;
+    VisualSessionHost host(owner.executor, "sample-boundary", config_for(ocr));
+    std::string error;
+    MIRAGE_CHECK(host.start(error));
+    MIRAGE_CHECK(get(host.submit(refreshed("sample-boundary", 1))).outcome.kind ==
+                 Kind::kCompleted);
+    const auto calls = ocr.calls();
+    for (int variant = 0; variant < 11; ++variant) {
+        auto request = sample_request("sample-boundary", 2, 255);
+        switch (variant) {
+        case 0:
+            request.run_ocr = true;
+            break;
+        case 1:
+            request.fuse = true;
+            break;
+        case 2:
+            ++request.continuous->source_revision;
+            break;
+        case 3:
+            ++request.analysis_policy_revision;
+            break;
+        case 4:
+            ++request.continuous->full_frame_evidence_digest;
+            break;
+        case 5:
+            request.continuous->attention.conditions[0].roi = {0, 0, 4, 4};
+            break;
+        case 6:
+            request.continuous->importance.notify_enabled = false;
+            break;
+        case 7:
+            request.frame.image.width = 4;
+            break;
+        case 8:
+            request.continuous->spatial_evidence_digest = 42;
+            break;
+        case 9:
+            request.analyze_change = false;
+            break;
+        case 10:
+            request.frame.image.width = 1601;
+            break;
+        }
+        MIRAGE_CHECK(get(host.submit(request)).outcome.kind == Kind::kRejected);
+    }
+    auto cancelled = sample_request("sample-boundary", 2, 255);
+    cancelled.external_cancel.request_cancel();
+    MIRAGE_CHECK(get(host.submit(cancelled)).outcome.kind == Kind::kCancelled);
+    std::atomic<unsigned> cancellation_checks{0};
+    auto running_cancel = sample_request("sample-boundary", 2, 255);
+    running_cancel.external_cancel = desktop::CancelToken{
+        [&] { return cancellation_checks.fetch_add(1, std::memory_order_relaxed) >= 1; }};
+    MIRAGE_CHECK(get(host.submit(running_cancel)).outcome.kind == Kind::kCancelled);
+    MIRAGE_CHECK(cancellation_checks.load(std::memory_order_relaxed) == 2);
+    auto expired = sample_request("sample-boundary", 2, 255);
+    expired.deadline = std::chrono::steady_clock::now() - 1ms;
+    MIRAGE_CHECK(get(host.submit(expired)).outcome.kind == Kind::kTimedOut);
+    auto malformed = sample_request("sample-boundary", 2, 255);
+    malformed.frame.image.data = nullptr;
+    MIRAGE_CHECK(get(host.submit(malformed)).outcome.kind == Kind::kFailed);
+    // Every failed/rejected sample used sequence 2; it remains admissible and
+    // compares with the original baseline, not with the failed white pixels.
+    const auto unchanged = get(host.submit(sample_request("sample-boundary", 2)));
+    MIRAGE_CHECK(unchanged.outcome.kind == Kind::kSampled &&
+                 unchanged.sampling_baseline_sequence == 1 &&
+                 unchanged.change.classification == mirador::ChangeClassification::kNone);
+    auto changed = get(host.submit(sample_request("sample-boundary", 3, 255)));
+    MIRAGE_CHECK(changed.outcome.kind == Kind::kSampled &&
+                 changed.sampling_baseline_sequence == 2 &&
+                 changed.change.classification != mirador::ChangeClassification::kNone);
+    auto reconfigured = refreshed("sample-boundary", 4, 2, 77);
+    MIRAGE_CHECK(get(host.submit(reconfigured)).outcome.kind == Kind::kCompleted);
+    auto old = sample_request("sample-boundary", 5);
+    MIRAGE_CHECK(get(host.submit(old)).outcome.kind == Kind::kRejected);
+    old.continuous->source_revision = 2;
+    old.continuous->full_frame_evidence_digest = 77;
+    const auto renewed = get(host.submit(old));
+    MIRAGE_CHECK(renewed.outcome.kind == Kind::kSampled &&
+                 renewed.sampling_baseline_sequence == 4 &&
+                 renewed.admission_baseline_sequence == 4);
+    MIRAGE_CHECK(ocr.calls() == calls + 1);
+    host.stop();
+    MIRAGE_CHECK(get(host.submit(old)).outcome.kind == Kind::kRejected);
+}
+
+void sampling_companions_do_not_share_bootstrap_or_baselines() {
+    Owner owner;
+    FakeOcrBackend ocr;
+    VisualSessionConfig config;
+    config.ocr_backend = &ocr;
+    config.enable_image_session = config.enable_background_session = true;
+    VisualSessionHost host(owner.executor, "sample-companion", config);
+    std::string error;
+    MIRAGE_CHECK(host.start(error));
+    auto bootstrap = refreshed("sample-companion", 1);
+    bootstrap.image_session = bootstrap.background_session = true;
+    MIRAGE_CHECK(get(host.submit(bootstrap)).outcome.kind == Kind::kCompleted);
+    const auto calls = ocr.calls();
+    auto sample = sample_request("sample-companion", 2, 255);
+    sample.image_session = true;
+    // Foreground image companion did not observe this background bootstrap.
+    MIRAGE_CHECK(get(host.submit(sample)).outcome.kind == Kind::kRejected);
+    sample.background_session = true;
+    auto result = get(host.submit(sample));
+    MIRAGE_CHECK(result.outcome.kind == Kind::kSampled && result.sampling_baseline_sequence == 1);
+    VisualContinuousQuery query;
+    query.image_session = query.background_session = true;
+    query.expected_source_revision = 1;
+    result = get(host.query_continuous(query));
+    MIRAGE_CHECK(result.queried && result.queried->last_analyzed_frame == 1);
+    MIRAGE_CHECK(ocr.calls() == calls);
+    // A settled foreground command cannot hold priority while the worker
+    // unwinds its final bookkeeping after waking the future consumer.
+    for (std::uint64_t sequence = 3; sequence < 27; ++sequence) {
+        auto foreground = sample_request("sample-companion", sequence);
+        foreground.image_session = true;
+        MIRAGE_CHECK(get(host.submit(foreground)).outcome.kind == Kind::kRejected);
+        auto background = foreground;
+        background.background_session = true;
+        MIRAGE_CHECK(get(host.submit(background)).outcome.kind == Kind::kSampled);
+    }
+}
+
 class MeasuredOcr final : public mirador::OcrBackend {
   public:
     FakeOcrBackend backend;
@@ -1018,6 +1236,9 @@ void product_companion_keeps_display_state_separate() {
 } // namespace
 
 int main() {
+    sampling_is_distinct_from_recognition_and_preserves_both_baselines();
+    sampling_rejects_scope_changes_and_never_commits_failed_samples();
+    sampling_companions_do_not_share_bootstrap_or_baselines();
     product_companion_keeps_display_state_separate();
     frame_free_queries_switch_focus_without_observation();
     query_rejection_cancellation_and_drain_preserve_provenance();

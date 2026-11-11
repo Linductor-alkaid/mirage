@@ -2719,6 +2719,34 @@ void scenario_desktop_authorization_settings() {
 }
 
 int main() {
+    {
+        mirage::testing::TempDir dir;
+        auto config = make_config(dir);
+        config.perception_recognition_refresh_ms = 0;
+        config.perception_async_recognition = false;
+        config.perception_object_tracking = true;
+        RuntimeService service(config);
+        const auto outcome = service.start(make_binding(dir));
+        MIRAGE_CHECK(!outcome.ok && outcome.error.code == "invalid_argument");
+    }
+    {
+        mirage::testing::TempDir dir;
+        auto config = make_config(dir);
+        config.perception_recognition_refresh_ms = 0;
+        config.perception_object_tracking = false;
+        config.perception_async_recognition = true;
+        RuntimeService service(config);
+        const auto outcome = service.start(make_binding(dir));
+        MIRAGE_CHECK(!outcome.ok && outcome.error.code == "invalid_argument");
+    }
+    for (const int refresh : {-1, 99, 5001}) {
+        mirage::testing::TempDir dir;
+        auto config = make_config(dir);
+        config.perception_recognition_refresh_ms = refresh;
+        RuntimeService service(config);
+        const auto outcome = service.start(make_binding(dir));
+        MIRAGE_CHECK(!outcome.ok && outcome.error.code == "invalid_argument");
+    }
     scenario_desktop_authorization_settings();
     scenario_vision_configuration_persistence();
     run_scenario("run_before_start_is_rejected", scenario_run_before_start_is_rejected);

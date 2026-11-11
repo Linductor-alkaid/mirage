@@ -27,10 +27,11 @@ std::optional<DesktopEvidence> desktop_evidence(const Part &part) {
     const auto condition = field("verify_kind", 32);
     const auto *policy = v->find("policy_version");
     const auto *released = v->find("input_released");
-    const bool execution_only = view.status == "not_requested" && policy &&
-                                (policy->as_integer() == 2 || policy->as_integer() == 3) &&
-                                condition.empty() && field("execution_status", 32) == "completed" &&
-                                released && released->as_boolean().value_or(false);
+    const bool execution_only =
+        view.status == "not_requested" && policy &&
+        (policy->as_integer() == 2 || policy->as_integer() == 3 || policy->as_integer() == 4) &&
+        condition.empty() && field("execution_status", 32) == "completed" && released &&
+        released->as_boolean().value_or(false);
     const bool shared = (action == "desktop.session.click" || action == "desktop.session.key" ||
                          action == "desktop.session.type_text" ||
                          action == "desktop.session.scroll" || action == "desktop.session.drag") &&
@@ -72,6 +73,70 @@ bool truncate_text(std::string &text, std::size_t limit) {
         --limit;
     text.resize(limit);
     return true;
+}
+void bound_parts(std::vector<Part> &parts) {
+    std::size_t tool = 0;
+    for (auto &part : parts) {
+        const auto trim = [&](std::string &value) {
+            if (truncate_text(value, max_part_text))
+                part.truncated = part.omitted_for_display_budget = true;
+        };
+        trim(part.input);
+        trim(part.output);
+        trim(part.text);
+        if (part.kind == "tool")
+            tool += part.input.size() + part.output.size();
+    }
+    // At most 96 * 256 bytes remain even if every tool needs compaction.
+    // Preserve newest detail first; execution facts live in id/name/status,
+    // while canonical Mira receipts and owned verification records stay intact.
+    for (auto &part : parts) {
+        if (tool <= max_tool_budget)
+            break;
+        if (part.kind != "tool")
+            continue;
+        // Input detail yields before the result. This keeps even the newest
+        // 16KiB output when 95 older rows retain their bounded summaries.
+        if (!part.input.empty()) {
+            tool -= part.input.size();
+            part.input.clear();
+            part.truncated = part.omitted_for_display_budget = true;
+        }
+        if (tool <= max_tool_budget)
+            break;
+        const auto before = part.output.size();
+        if (before <= 256)
+            continue;
+        mira::JsonValue::Object summary{{"omitted_for_display_budget", true}};
+        const auto parsed = mira::parse_json(part.output);
+        if (parsed && parsed.value().as_object()) {
+            for (const auto *key : {"error_code", "status", "action_id", "reason"}) {
+                const auto *value = parsed.value().find(key);
+                if (value && value->as_string() && value->as_string()->size() <= 48)
+                    summary.emplace_back(key, *value);
+            }
+        } else if (!part.output.empty()) {
+            auto excerpt = part.output;
+            truncate_text(excerpt, 96);
+            summary.emplace_back("display_excerpt", std::move(excerpt));
+        }
+        auto output = mira::to_json_string(mira::JsonValue{std::move(summary)});
+        if (output.size() > 256)
+            output = R"({"omitted_for_display_budget":true})";
+        part.input.clear();
+        part.output = std::move(output);
+        part.truncated = part.omitted_for_display_budget = true;
+        tool -= before - part.output.size();
+    }
+    std::size_t text = max_text_budget, thinking = max_thinking_budget;
+    for (auto it = parts.rbegin(); it != parts.rend(); ++it) {
+        if (it->kind != "text" && it->kind != "thinking")
+            continue;
+        auto &remaining = it->kind == "text" ? text : thinking;
+        if (truncate_text(it->text, remaining))
+            it->truncated = it->omitted_for_display_budget = true;
+        remaining -= it->text.size();
+    }
 }
 void retain_terminal_reply(std::vector<Part> &parts, std::string_view reply) {
     if (reply.empty())

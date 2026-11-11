@@ -1,3 +1,4 @@
+#include "../../integration/mira/src/conversation_capture.hpp"
 #include "../../integration/mira/src/desktop_action_verification.hpp"
 #include "../support/fake_desktop_environment.hpp"
 #include "../support/provider_tool_name.hpp"
@@ -473,6 +474,52 @@ void contracts(kairo::Executor &executor) {
     };
     auto first = verifier.execute("desktop.input.key", args, ctx, handler);
     check(static_cast<bool>(first));
+    // DEC-137: owned verification backfill must not freeze process publication
+    // when earlier tool details almost exhaust the 40KiB category.
+    {
+        std::vector<mirage::conversation::Part> parts;
+        for (int n = 0; n < 3; ++n) {
+            mirage::conversation::Part p;
+            p.id = "old-" + std::to_string(n);
+            p.kind = "tool";
+            p.name = "fixture";
+            p.output = std::string(n == 2 ? 8000 : 16384, 'x');
+            parts.push_back(std::move(p));
+        }
+        mirage::conversation::Part action;
+        action.id = "owned-action";
+        action.kind = "tool";
+        action.name = "desktop.input.key";
+        action.output = mira::to_json_string(
+            Json{Json::Object{{"action_id", *first.value().find("action_id")}}});
+        parts.push_back(action);
+        check(mirage::conversation::valid_parts(parts));
+        verifier.project(parts);
+        check(mirage::conversation::valid_parts(parts));
+        check(mirage::conversation::desktop_evidence(parts.back()).has_value());
+        check(parts.front().omitted_for_display_budget);
+        verifier.project(parts);
+        check(mirage::conversation::valid_parts(parts));
+        // A large result retains a complete verification JSON envelope.
+        auto large = mira::parse_json(action.output).value();
+        large.set("payload", std::string(mirage::conversation::max_part_text, 'x'));
+        parts.back().output = mira::to_json_string(large);
+        verifier.project(parts);
+        check(mirage::conversation::valid_parts(parts));
+        check(mirage::conversation::desktop_evidence(parts.back()).has_value());
+        check(parts.back().omitted_for_display_budget);
+        // Exercise the real finish boundary too: JSON must stay whole until
+        // owned verification is projected, before generic field truncation.
+        i::detail::ConversationCapture captured({});
+        action.status = "pending";
+        action.output.clear();
+        captured.add(action);
+        captured.finish_tool(captured.start_tool(action.name), large,
+                             [&](auto &rows) { verifier.project(rows); });
+        check(mirage::conversation::valid_parts(captured.parts));
+        check(mirage::conversation::desktop_evidence(captured.parts.back()).has_value());
+        check(captured.parts.back().omitted_for_display_budget);
+    }
     check(!verifier.settle());
     mira::BuiltinToolRegistry registry;
     verifier.register_tool(registry, {});

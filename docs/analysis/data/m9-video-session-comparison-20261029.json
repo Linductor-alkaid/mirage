@@ -1,0 +1,802 @@
+{
+  "schema": 1,
+  "date": "2026-10-29",
+  "timezone": "Asia/Shanghai",
+  "code_baseline": "a6d016a",
+  "scope": "Read-only retained Bilibili video-selection tasks; not a controlled A/B benchmark",
+  "records": [
+    {
+      "source_file": "f4a19345d69842ceb97bbce125bccf80.json",
+      "source_sha256": "791da343b8feb871037f6852f2f510e55d3d896cc99e2b9af742cdc6a2eef1ae",
+      "session_created_at": "2026-10-22T21:42:31.222000+08:00",
+      "turn_sequence": 3,
+      "recorded_at": "2026-10-22T21:45:38.690000+08:00",
+      "creation_to_record_seconds": null,
+      "status": "failed",
+      "timings": {
+        "inference": {
+          "calls": 25,
+          "duration_ms": 75089
+        },
+        "capture": {
+          "calls": 9,
+          "duration_ms": 1261
+        },
+        "settlement": {
+          "calls": 1,
+          "duration_ms": 0
+        }
+      },
+      "tool_count": 24,
+      "tool_counts": {
+        "desktop.application.list": 2,
+        "desktop.application.open_uri": 2,
+        "desktop.screen.capture": 6,
+        "wait": 1,
+        "desktop.window.list": 4,
+        "desktop.window.activate": 1,
+        "desktop.accessibility.semantic_snapshot": 2,
+        "desktop.session.click": 2,
+        "desktop.vision.ocr": 1,
+        "exec": 2,
+        "desktop.action.verify": 1
+      },
+      "failed_tools": [
+        {
+          "part_index": 13,
+          "tool": "desktop.window.activate",
+          "error_code": null,
+          "details_retained": true
+        },
+        {
+          "part_index": 17,
+          "tool": "desktop.accessibility.semantic_snapshot",
+          "error_code": "not_found",
+          "details_retained": true
+        },
+        {
+          "part_index": 28,
+          "tool": "desktop.session.click",
+          "error_code": null,
+          "details_retained": true
+        },
+        {
+          "part_index": 30,
+          "tool": "desktop.screen.capture",
+          "error_code": null,
+          "details_retained": true
+        },
+        {
+          "part_index": 32,
+          "tool": "desktop.vision.ocr",
+          "error_code": null,
+          "details_retained": true
+        },
+        {
+          "part_index": 36,
+          "tool": "desktop.accessibility.semantic_snapshot",
+          "error_code": "not_found",
+          "details_retained": true
+        },
+        {
+          "part_index": 42,
+          "tool": "desktop.application.open_uri",
+          "error_code": null,
+          "details_retained": true
+        }
+      ],
+      "truncated_tool_rows": 0,
+      "empty_tool_details_rows": 0,
+      "tool_detail_utf8_bytes": 24708,
+      "capture_metadata_retained": [
+        {
+          "part_index": 6,
+          "width": 1600,
+          "height": 1000,
+          "byte_size": 222002
+        },
+        {
+          "part_index": 9,
+          "width": 1600,
+          "height": 1000,
+          "byte_size": 764474
+        },
+        {
+          "part_index": 15,
+          "width": 720,
+          "height": 1600,
+          "byte_size": 846967
+        },
+        {
+          "part_index": 21,
+          "width": 180,
+          "height": 450,
+          "byte_size": 29689
+        },
+        {
+          "part_index": 25,
+          "width": 900,
+          "height": 400,
+          "byte_size": 236375
+        }
+      ],
+      "semantic_snapshots": [
+        {
+          "part_index": 17,
+          "status": "failed",
+          "input_bytes": 95,
+          "output_bytes": 25,
+          "truncated": false
+        },
+        {
+          "part_index": 36,
+          "status": "failed",
+          "input_bytes": 95,
+          "output_bytes": 25,
+          "truncated": false
+        }
+      ],
+      "terminal_text_present": true,
+      "persisted_model": "deepseek-flash"
+    },
+    {
+      "source_file": "d3a1867caede41dc9d2773e155b198e8.json",
+      "source_sha256": "7802fa49dff0e24c558162b73a4213386ab6759cf0d99d9e41ec08f47307e947",
+      "session_created_at": "2026-10-23T11:26:05.506000+08:00",
+      "turn_sequence": 1,
+      "recorded_at": "2026-10-23T11:28:05.014000+08:00",
+      "creation_to_record_seconds": 119.508,
+      "status": "failed",
+      "timings": {
+        "inference": {
+          "calls": 27,
+          "duration_ms": 96788
+        },
+        "capture": {
+          "calls": 16,
+          "duration_ms": 1023
+        },
+        "ocr": {
+          "calls": 1,
+          "duration_ms": 2589
+        },
+        "settlement": {
+          "calls": 1,
+          "duration_ms": 0
+        }
+      },
+      "tool_count": 29,
+      "tool_counts": {
+        "desktop.application.list": 1,
+        "desktop.window.list": 1,
+        "desktop.application.open_uri": 1,
+        "desktop.screen.capture": 8,
+        "desktop.session.click": 3,
+        "desktop.window.front": 3,
+        "desktop.accessibility.semantic_snapshot": 4,
+        "desktop.input.click": 4,
+        "desktop.vision.ocr": 1,
+        "wait": 3
+      },
+      "failed_tools": [
+        {
+          "part_index": 24,
+          "tool": "desktop.input.click",
+          "error_code": null,
+          "details_retained": false
+        },
+        {
+          "part_index": 41,
+          "tool": "desktop.session.click",
+          "error_code": null,
+          "details_retained": false
+        }
+      ],
+      "truncated_tool_rows": 19,
+      "empty_tool_details_rows": 17,
+      "tool_detail_utf8_bytes": 40960,
+      "capture_metadata_retained": [
+        {
+          "part_index": 6,
+          "width": 1600,
+          "height": 1000,
+          "byte_size": 331649
+        },
+        {
+          "part_index": 11,
+          "width": 1600,
+          "height": 240,
+          "byte_size": 57287
+        }
+      ],
+      "semantic_snapshots": [
+        {
+          "part_index": 13,
+          "status": "complete",
+          "input_bytes": 95,
+          "output_bytes": 16384,
+          "truncated": true
+        },
+        {
+          "part_index": 20,
+          "status": "complete",
+          "input_bytes": 95,
+          "output_bytes": 11500,
+          "truncated": true
+        },
+        {
+          "part_index": 26,
+          "status": "complete",
+          "input_bytes": 0,
+          "output_bytes": 0,
+          "truncated": true
+        },
+        {
+          "part_index": 33,
+          "status": "complete",
+          "input_bytes": 0,
+          "output_bytes": 0,
+          "truncated": true
+        }
+      ],
+      "terminal_text_present": true,
+      "persisted_model": null
+    },
+    {
+      "source_file": "a3ba4902d7db40bfa191ea2c224cbc10.json",
+      "source_sha256": "c61725fe2b039b2c78b43a4c44ff7f5ab5235c59c7e7a4a5ca341e5ffbab3781",
+      "session_created_at": "2026-10-26T22:36:09.160000+08:00",
+      "turn_sequence": 1,
+      "recorded_at": "2026-10-26T22:37:46.129000+08:00",
+      "creation_to_record_seconds": 96.969,
+      "status": "failed",
+      "timings": {
+        "inference": {
+          "calls": 24,
+          "duration_ms": 74448
+        },
+        "capture": {
+          "calls": 3,
+          "duration_ms": 958
+        },
+        "ocr": {
+          "calls": 1,
+          "duration_ms": 2381
+        },
+        "settlement": {
+          "calls": 1,
+          "duration_ms": 0
+        }
+      },
+      "tool_count": 26,
+      "tool_counts": {
+        "desktop.application.list": 2,
+        "desktop.window.list": 2,
+        "desktop.application.open_uri": 2,
+        "desktop.screen.capture": 5,
+        "wait": 1,
+        "desktop.vision.ocr": 2,
+        "exec": 11,
+        "desktop.accessibility.semantic_snapshot": 1
+      },
+      "failed_tools": [
+        {
+          "part_index": 13,
+          "tool": "desktop.screen.capture",
+          "error_code": null,
+          "details_retained": true
+        },
+        {
+          "part_index": 15,
+          "tool": "desktop.screen.capture",
+          "error_code": null,
+          "details_retained": true
+        },
+        {
+          "part_index": 17,
+          "tool": "desktop.vision.ocr",
+          "error_code": null,
+          "details_retained": true
+        },
+        {
+          "part_index": 35,
+          "tool": "desktop.accessibility.semantic_snapshot",
+          "error_code": "snapshot_too_large",
+          "details_retained": true
+        },
+        {
+          "part_index": 43,
+          "tool": "desktop.screen.capture",
+          "error_code": null,
+          "details_retained": true
+        }
+      ],
+      "truncated_tool_rows": 0,
+      "empty_tool_details_rows": 0,
+      "tool_detail_utf8_bytes": 33058,
+      "capture_metadata_retained": [
+        {
+          "part_index": 6,
+          "width": 1600,
+          "height": 1000,
+          "byte_size": 479106,
+          "continuous_events": true
+        },
+        {
+          "part_index": 9,
+          "width": 1600,
+          "height": 1000,
+          "byte_size": 492647,
+          "continuous_events": true
+        }
+      ],
+      "semantic_snapshots": [
+        {
+          "part_index": 35,
+          "status": "failed",
+          "input_bytes": 123,
+          "output_bytes": 60,
+          "truncated": false
+        }
+      ],
+      "terminal_text_present": true,
+      "persisted_model": null
+    },
+    {
+      "source_file": "b96ee31994b740029a5da4d7a27daf7f.json",
+      "source_sha256": "026fc102fd9eef81b38743eb8cb1ab1063b3a5b404646fdbf4cfaa32188e22b4",
+      "session_created_at": "2026-10-27T14:45:32.408000+08:00",
+      "turn_sequence": 1,
+      "recorded_at": "2026-10-27T14:47:20.086000+08:00",
+      "creation_to_record_seconds": 107.678,
+      "status": "ok",
+      "timings": {
+        "inference": {
+          "calls": 22,
+          "duration_ms": 88266
+        },
+        "capture": {
+          "calls": 12,
+          "duration_ms": 161
+        },
+        "ocr": {
+          "calls": 2,
+          "duration_ms": 3438
+        },
+        "settlement": {
+          "calls": 1,
+          "duration_ms": 0
+        }
+      },
+      "tool_count": 22,
+      "tool_counts": {
+        "desktop.application.list": 1,
+        "desktop.window.list": 2,
+        "desktop.application.open_uri": 1,
+        "desktop.screen.capture": 8,
+        "wait": 4,
+        "desktop.accessibility.semantic_snapshot": 2,
+        "desktop.vision.ocr": 2,
+        "desktop.session.click": 2
+      },
+      "failed_tools": [
+        {
+          "part_index": 11,
+          "tool": "desktop.accessibility.semantic_snapshot",
+          "error_code": "not_found",
+          "details_retained": true
+        },
+        {
+          "part_index": 15,
+          "tool": "desktop.accessibility.semantic_snapshot",
+          "error_code": "snapshot_too_large",
+          "details_retained": true
+        }
+      ],
+      "truncated_tool_rows": 0,
+      "empty_tool_details_rows": 0,
+      "tool_detail_utf8_bytes": 21376,
+      "capture_metadata_retained": [
+        {
+          "part_index": 6,
+          "width": 1600,
+          "height": 1000,
+          "byte_size": 469592,
+          "continuous_events": true
+        },
+        {
+          "part_index": 9,
+          "width": 1600,
+          "height": 1000,
+          "byte_size": 480406,
+          "continuous_events": true
+        },
+        {
+          "part_index": 17,
+          "width": 1600,
+          "height": 1000,
+          "byte_size": 493825,
+          "continuous_events": true
+        },
+        {
+          "part_index": 21,
+          "width": 1534,
+          "height": 968,
+          "byte_size": 344006,
+          "continuous_events": true
+        },
+        {
+          "part_index": 23,
+          "width": 260,
+          "height": 1400,
+          "byte_size": 238920,
+          "continuous_events": true
+        },
+        {
+          "part_index": 28,
+          "width": 1600,
+          "height": 1000,
+          "byte_size": 1629301,
+          "continuous_events": true
+        },
+        {
+          "part_index": 33,
+          "width": 1600,
+          "height": 1000,
+          "byte_size": 463714,
+          "continuous_events": true
+        },
+        {
+          "part_index": 36,
+          "width": 1600,
+          "height": 1000,
+          "byte_size": 462942,
+          "continuous_events": true
+        }
+      ],
+      "semantic_snapshots": [
+        {
+          "part_index": 11,
+          "status": "failed",
+          "input_bytes": 91,
+          "output_bytes": 25,
+          "truncated": false
+        },
+        {
+          "part_index": 15,
+          "status": "failed",
+          "input_bytes": 95,
+          "output_bytes": 60,
+          "truncated": false
+        }
+      ],
+      "terminal_text_present": false,
+      "persisted_model": "deepseek-flash"
+    },
+    {
+      "source_file": "db310eb8d8ad435e8be2a6f09fec1766.json",
+      "source_sha256": "beb3d8ade53f8823d67b03d047307ec24367d11914d5c5aca731bbb145fa6084",
+      "session_created_at": "2026-10-29T21:51:44.193000+08:00",
+      "turn_sequence": 1,
+      "recorded_at": "2026-10-29T21:54:59.732000+08:00",
+      "creation_to_record_seconds": 195.539,
+      "status": "failed",
+      "timings": {
+        "inference": {
+          "calls": 33,
+          "duration_ms": 174044
+        },
+        "capture": {
+          "calls": 13,
+          "duration_ms": 211
+        },
+        "ocr": {
+          "calls": 1,
+          "duration_ms": 1373
+        },
+        "settlement": {
+          "calls": 1,
+          "duration_ms": 0
+        }
+      },
+      "tool_count": 34,
+      "tool_counts": {
+        "desktop.application.list": 1,
+        "desktop.window.list": 2,
+        "desktop.application.open_uri": 1,
+        "desktop.screen.capture": 8,
+        "wait": 4,
+        "desktop.session.click": 2,
+        "desktop.window.front": 3,
+        "desktop.accessibility.semantic_snapshot": 5,
+        "desktop.input.click": 4,
+        "desktop.session.key": 3,
+        "desktop.vision.ocr": 1
+      },
+      "failed_tools": [
+        {
+          "part_index": 27,
+          "tool": "desktop.input.click",
+          "error_code": null,
+          "details_retained": false
+        },
+        {
+          "part_index": 42,
+          "tool": "desktop.accessibility.semantic_snapshot",
+          "error_code": null,
+          "details_retained": false
+        }
+      ],
+      "truncated_tool_rows": 21,
+      "empty_tool_details_rows": 19,
+      "tool_detail_utf8_bytes": 40960,
+      "capture_metadata_retained": [
+        {
+          "part_index": 6,
+          "width": 1600,
+          "height": 1000,
+          "byte_size": 404056,
+          "continuous_events": true
+        },
+        {
+          "part_index": 9,
+          "width": 1600,
+          "height": 1000,
+          "byte_size": 499097,
+          "continuous_events": true
+        },
+        {
+          "part_index": 14,
+          "width": 1600,
+          "height": 1000,
+          "byte_size": 509118,
+          "reused_capture": true,
+          "continuous_events": true
+        }
+      ],
+      "semantic_snapshots": [
+        {
+          "part_index": 16,
+          "status": "complete",
+          "input_bytes": 95,
+          "output_bytes": 16382,
+          "truncated": true
+        },
+        {
+          "part_index": 25,
+          "status": "complete",
+          "input_bytes": 95,
+          "output_bytes": 11104,
+          "truncated": true
+        },
+        {
+          "part_index": 29,
+          "status": "complete",
+          "input_bytes": 0,
+          "output_bytes": 0,
+          "truncated": true
+        },
+        {
+          "part_index": 42,
+          "status": "failed",
+          "input_bytes": 0,
+          "output_bytes": 0,
+          "truncated": true
+        },
+        {
+          "part_index": 46,
+          "status": "complete",
+          "input_bytes": 0,
+          "output_bytes": 0,
+          "truncated": true
+        }
+      ],
+      "terminal_text_present": true,
+      "persisted_model": null
+    },
+    {
+      "source_file": "3747c5ec7dfe4ac3b8f06625083e4745.json",
+      "source_sha256": "d2adcae422a6a40e52a35bf5528035a511c135b3afb302bc425c060ef80457ed",
+      "session_created_at": "2026-10-29T22:54:07.609000+08:00",
+      "turn_sequence": 1,
+      "recorded_at": "2026-10-29T23:00:04.350000+08:00",
+      "status": "ok",
+      "timings": {
+        "inference": {
+          "calls": 74,
+          "duration_ms": 302956
+        },
+        "capture": {
+          "calls": 41,
+          "duration_ms": 245
+        },
+        "ocr": {
+          "calls": 1,
+          "duration_ms": 1488
+        },
+        "settlement": {
+          "calls": 1,
+          "duration_ms": 0
+        }
+      },
+      "tool_count": 30,
+      "tool_counts": {
+        "desktop.window.list": 3,
+        "desktop.application.list": 1,
+        "desktop.application.open_uri": 1,
+        "desktop.window.front": 3,
+        "wait": 1,
+        "desktop.screen.capture": 9,
+        "desktop.session.click": 2,
+        "desktop.accessibility.semantic_snapshot": 8,
+        "desktop.session.scroll": 1,
+        "desktop.input.click": 1
+      },
+      "tool_counts_complete": false,
+      "tool_count_scope": "retained projection only; terminal reply differs from retained last action",
+      "process_sequence": 88,
+      "retained_parts": 61,
+      "retained_request_id_prefixes": 28,
+      "truncated_tool_rows": 0,
+      "tool_detail_utf8_bytes": 40615,
+      "failed_rows": [
+        {
+          "part_index": 37,
+          "tool": "desktop.accessibility.semantic_snapshot",
+          "message": "not_found: subtree ref is from an older snapshot; take a fresh semantic snapshot",
+          "may_be_terminal_rewrite": false
+        },
+        {
+          "part_index": 49,
+          "tool": "desktop.accessibility.semantic_snapshot",
+          "message": "not_found: subtree ref is from an older snapshot; take a fresh semantic snapshot",
+          "may_be_terminal_rewrite": false
+        },
+        {
+          "part_index": 60,
+          "tool": "desktop.input.click",
+          "message": null,
+          "may_be_terminal_rewrite": true
+        }
+      ],
+      "successful_snapshot_metadata": [
+        {
+          "part_index": 33,
+          "node_count": 77,
+          "depth_limited": true,
+          "snapshot_truncated": false,
+          "captured_at_ms": 1793285725113
+        },
+        {
+          "part_index": 35,
+          "node_count": 16,
+          "depth_limited": true,
+          "snapshot_truncated": false,
+          "captured_at_ms": 1793285727438
+        },
+        {
+          "part_index": 45,
+          "node_count": 58,
+          "depth_limited": true,
+          "snapshot_truncated": false,
+          "captured_at_ms": 1793285740662
+        },
+        {
+          "part_index": 47,
+          "node_count": 5,
+          "depth_limited": true,
+          "snapshot_truncated": false,
+          "captured_at_ms": 1793285743491
+        },
+        {
+          "part_index": 55,
+          "node_count": 58,
+          "depth_limited": true,
+          "snapshot_truncated": false,
+          "captured_at_ms": 1793285761423
+        },
+        {
+          "part_index": 57,
+          "node_count": 243,
+          "depth_limited": true,
+          "snapshot_truncated": false,
+          "captured_at_ms": 1793285763845
+        }
+      ],
+      "final_context_usage": {
+        "input_tokens": 88971,
+        "window_tokens": 0,
+        "model": "deepseek-flash"
+      },
+      "last_retained_observation_ms": 1793285763845,
+      "running_product_evidence": {
+        "pid": 3036262,
+        "process_started_at": "2026-10-29T22:53:36.350000+08:00",
+        "loaded_executable_sha256": "8d6349ae5594c2988c42ce3ab94ee90e7f542b6f20be3d123de63a1f6f609ec9",
+        "loaded_inode": 12354546,
+        "observation_stage": "initial read; timestamp not separately recorded",
+        "process_alive_at_export": false,
+        "exported_at": "2026-10-29T23:16:22.433001+08:00"
+      }
+    }
+  ],
+  "product_entry_audit": {
+    "before": {
+      "date": "2026-10-29",
+      "baseline": "a6d016a63cda041b5cbe87e4125eb16659b76d1c",
+      "binaries": [
+        {
+          "path": "build/native-release/apps/tray/mirage-tray",
+          "mtime": "2026-10-27T13:51:59.088911+08:00",
+          "sha256": "554bfd90b137b68cc056128a805628934ce72c44fed0386c1cbade3294a4deb0",
+          "bytes": 30554408,
+          "markers": {
+            "auto_storyboard": false,
+            "content_ready": false,
+            "desktop.vision.content": false,
+            "desktop.vision.storyboard": false,
+            "approach_completed": true,
+            "temporal_keyframe": false
+          }
+        },
+        {
+          "path": "build/native-release/apps/mirage-service",
+          "mtime": "2026-10-29T01:57:15.184672+08:00",
+          "sha256": "9f9e3aaa5397fed965a592fa456c2ecb8c1c61cb31b17624bbd56dc5d929c4fb",
+          "bytes": 31092856,
+          "markers": {
+            "auto_storyboard": true,
+            "content_ready": true,
+            "desktop.vision.content": true,
+            "desktop.vision.storyboard": true,
+            "approach_completed": true,
+            "temporal_keyframe": true
+          }
+        },
+        {
+          "path": "build/native-release/apps/native/mirage-native",
+          "mtime": "2026-10-28T16:46:36.248867+08:00",
+          "sha256": "52441cae8b90aa482051cd0b427c6a8cae23a9fe318cf269f8d65869c0a17ba2",
+          "bytes": 4502024,
+          "markers": {
+            "auto_storyboard": false,
+            "content_ready": false,
+            "desktop.vision.content": false,
+            "desktop.vision.storyboard": false,
+            "approach_completed": false,
+            "temporal_keyframe": false
+          }
+        }
+      ],
+      "desktop_launcher_sha256": "2d27da75746ffb9c8939c3b6b68fafc739df297143339faf7159e1fcd32a060d",
+      "mirage_processes_observed": false,
+      "session_loaded_build_id": "not_persisted",
+      "old_binary_archived": false
+    },
+    "after": {
+      "recorded_at": "2026-10-29T22:37:00.797205+08:00",
+      "path": "build/native-release/apps/tray/mirage-tray",
+      "mtime": "2026-10-29T22:35:36.557098+08:00",
+      "sha256": "8d6349ae5594c2988c42ce3ab94ee90e7f542b6f20be3d123de63a1f6f609ec9",
+      "bytes": 31092856,
+      "markers": {
+        "auto_storyboard": true,
+        "content_ready": true,
+        "desktop.vision.content": true,
+        "desktop.vision.storyboard": true,
+        "temporal_keyframe": true
+      },
+      "build_exit_code": 0,
+      "command": "cmake --build build/native-release -j2 --target mirage-tray",
+      "runtime_launched": false
+    },
+    "historical_loaded_image_proven": false
+  },
+  "session_db310eb8_vs_20261027": {
+    "inference": 50.0,
+    "capture": 8.33,
+    "ocr": -50.0,
+    "inference_duration_percent": 97.18,
+    "creation_to_record_percent": 81.6
+  }
+}

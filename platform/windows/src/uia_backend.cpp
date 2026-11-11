@@ -650,6 +650,12 @@ SnapshotOutcome UiaBackend::semantic_snapshot(const std::string &window_id,
         outcome.error = error("cancelled", "snapshot cancelled");
         return outcome;
     }
+    if (limits.max_depth || !limits.subtree_ref.empty() || !limits.subtree_refs.empty() ||
+        !limits.base_scope.empty()) {
+        outcome.error =
+            error("unsupported_capability", "scoped semantic snapshots are unavailable");
+        return outcome;
+    }
     const auto handle = parse_window_id(window_id);
     if (!handle.has_value()) {
         outcome.error = error("invalid_argument", "malformed window id");

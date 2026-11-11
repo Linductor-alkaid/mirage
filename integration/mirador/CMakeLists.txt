@@ -1,15 +1,19 @@
 add_library(mirage_integration_mirador STATIC
     src/continuous_capture_host.cpp
     src/continuous_desktop_session.cpp
+    src/continuous_recognition_host.cpp
     src/continuous_image_observation.cpp
+    src/layered_visual_sampler.cpp
     src/fake_visual_backend.cpp
     src/mirador_service.cpp
     src/ppocr_pipeline.cpp
+    src/resident_desktop_perception.cpp
     src/visual_backend_registry.cpp
     src/visual_frame.cpp
     src/visual_mark_renderer.cpp
     src/visual_observation_mapper.cpp
     src/visual_observation_pipeline.cpp
+    src/visual_object_tracking.cpp
     src/visual_session_host.cpp
     src/visual_template_index.cpp
 )

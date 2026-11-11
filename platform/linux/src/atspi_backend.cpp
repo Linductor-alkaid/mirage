@@ -6,6 +6,7 @@
 #include <map>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include <atspi/atspi.h>
@@ -122,6 +123,7 @@ inline constexpr std::size_t kObjectPoolCap = 8192;
 struct WalkNode {
     AtspiAccessible *object;
     std::size_t parent; // index into the collected vector, kNoParent at roots
+    std::size_t depth;  // levels below the collection root (root = 0)
 };
 
 std::vector<std::string> split_path(const std::string &path) {
@@ -151,6 +153,24 @@ bool state_set_has(AtspiAccessible *object, AtspiStateType state) {
     const gboolean has = atspi_state_set_contains(states, state);
     g_object_unref(states);
     return has != 0;
+}
+
+/// The window provider lists only window-like accessibles exposing screen
+/// extents with positive size; occurrence resolution applies the same filter
+/// so "#N" indexes stay aligned between listing and lookup.
+bool listable_window(AtspiAccessible *window) {
+    AtspiComponent *component = atspi_accessible_get_component(window);
+    if (component == nullptr) {
+        return false;
+    }
+    AtspiRect *extents = atspi_component_get_extents(component, ATSPI_COORD_TYPE_SCREEN, nullptr);
+    g_object_unref(component);
+    if (extents == nullptr) {
+        return false;
+    }
+    const bool positive = extents->width > 0 && extents->height > 0;
+    g_free(extents);
+    return positive;
 }
 
 } // namespace
@@ -186,7 +206,7 @@ struct AtspiBackend::Impl {
     std::map<std::string, AtspiAccessible *> registry;
 
     std::uint64_t snapshot_generation = 0;
-    std::string snapshot_scope;
+    std::string snapshot_scope, snapshot_window;
 
     void clear_registry() {
         for (auto &[ref, object] : registry) {
@@ -240,14 +260,18 @@ struct AtspiBackend::Impl {
         return role.empty() || snapshot_role(atspi_accessible_get_role(object, nullptr)) == role;
     }
 
-    /// Walks the whole subtree of `root` in DFS order. Stops and returns
+    /// Walks the subtree of `root` in DFS order. `max_depth` (0 = unlimited)
+    /// stops descent below that depth (DEC-118): the frontier node is still
+    /// collected and records its direct child count as `collapsed_children`
+    /// — a requested scope, not a silent truncation. Stops and returns
     /// nullopt as soon as collecting another node would exceed `budget`
     /// (refusal, never truncation). `nodes` collects owning references.
     std::optional<std::vector<SemanticNode>> collect_tree(AtspiAccessible *root, std::size_t budget,
+                                                          std::size_t max_depth,
                                                           std::vector<AtspiAccessible *> &objects,
                                                           const CancelToken &cancel) {
         std::vector<SemanticNode> nodes;
-        std::vector<WalkNode> stack{{root, mirage::desktop::kNoParent}};
+        std::vector<WalkNode> stack{{root, mirage::desktop::kNoParent, 0}};
         const auto reject = [&]() -> std::optional<std::vector<SemanticNode>> {
             adopt_all(objects);
             for (const WalkNode &pending : stack)
@@ -287,6 +311,14 @@ struct AtspiBackend::Impl {
             node.ref = "@e" + std::to_string(nodes.size() + 1);
             nodes.push_back(std::move(node));
             objects.push_back(current.object); // registry keeps it alive
+            if (max_depth != 0 && current.depth + 1 >= max_depth) {
+                // Depth frontier: report the direct child count (one cheap
+                // call) instead of walking the subtree. The children stay
+                // reachable through a follow-up scoped snapshot on this ref.
+                const gint count = atspi_accessible_get_child_count(current.object, nullptr);
+                nodes.back().collapsed_children = count > 0 ? static_cast<std::size_t>(count) : 0;
+                continue;
+            }
             // Children keep the DFS order; push reversed so the first child
             // is visited first (stable, deterministic snapshots).
             bool refused = false;
@@ -295,33 +327,44 @@ struct AtspiBackend::Impl {
             if (refused)
                 return reject();
             for (auto it = kids.rbegin(); it != kids.rend(); ++it) {
-                stack.push_back({*it, nodes.size() - 1});
+                stack.push_back({*it, nodes.size() - 1, current.depth + 1});
             }
         }
         return nodes;
     }
 
-    /// Finds the application + window accessible whose accessible window
-    /// node carries `title`. Matches by accessible name of a window/frame
-    /// child of each application (the honest v1 window mapping, M2-03).
+    /// Finds the `occurrence`-th window accessible named `title` under an
+    /// application named `application` (occurrence 0 = first), walking the
+    /// desktop in the same enumeration order the window provider assigns "#N"
+    /// id suffixes in. Matches by accessible name of a window/frame child of
+    /// each application (the honest v1 window mapping, M2-03); the
+    /// occurrence index keeps same-title windows (multi-window Electron
+    /// shells) individually addressable instead of refusing the id as
+    /// ambiguous.
     std::optional<std::pair<std::string, AtspiAccessible *>>
-    find_window_by_title(AtspiAccessible *desktop, const std::string &title) {
-        for (auto *application : children(desktop)) {
-            for (auto *window : children(application)) {
+    find_window_by_title(AtspiAccessible *desktop, const std::string &application,
+                         const std::string &title, std::size_t occurrence) {
+        std::size_t seen = 0;
+        for (auto *candidate : children(desktop)) {
+            const std::string candidate_name = application_name(candidate);
+            for (auto *window : children(candidate)) {
                 gchar *name = atspi_accessible_get_name(window, nullptr);
                 const std::string window_name = name != nullptr ? name : "";
                 g_free(name);
                 const AtspiRole role = atspi_accessible_get_role(window, nullptr);
                 const bool window_like = role == ATSPI_ROLE_WINDOW || role == ATSPI_ROLE_FRAME ||
                                          role == ATSPI_ROLE_DIALOG;
-                if (window_like && window_name == title) {
-                    auto found = std::make_pair(application_name(application), window);
-                    adopt(application);
-                    return found;
+                if (window_like && window_name == title && listable_window(window) &&
+                    (application.empty() || candidate_name == application)) {
+                    if (seen == occurrence) {
+                        adopt(candidate);
+                        return std::make_pair(candidate_name, window);
+                    }
+                    ++seen;
                 }
                 adopt(window);
             }
-            adopt(application);
+            adopt(candidate);
         }
         return std::nullopt;
     }
@@ -469,6 +512,20 @@ std::unique_ptr<AtspiBackend> AtspiBackend::open(WindowProvider *windows) {
     return backend;
 }
 
+namespace {
+/// Parses the application segment of a WindowProvider id ("atspi:<app>/<title>[#N]").
+/// Returns an empty string for foreign or malformed ids.
+std::string window_id_application(const std::string &window_id) {
+    constexpr std::string_view prefix = "atspi:";
+    if (window_id.rfind(prefix, 0) != 0)
+        return {};
+    const auto slash = window_id.find('/', prefix.size());
+    if (slash == std::string::npos || slash == prefix.size())
+        return {};
+    return window_id.substr(prefix.size(), slash - prefix.size());
+}
+} // namespace
+
 SnapshotOutcome AtspiBackend::semantic_snapshot(const std::string &window_id,
                                                 const SemanticSnapshotLimits &limits,
                                                 const CancelToken &cancel) {
@@ -483,28 +540,70 @@ SnapshotOutcome AtspiBackend::semantic_snapshot(const std::string &window_id,
         outcome.error = error("invalid_argument", "window id must not be empty");
         return outcome;
     }
+    const auto valid_ref = [](const std::string &ref) {
+        return ref.size() > 2 && ref.size() <= 32 && ref.starts_with("@e") &&
+               std::all_of(ref.begin() + 2, ref.end(),
+                           [](unsigned char c) { return c >= '0' && c <= '9'; });
+    };
+    if ((!limits.subtree_ref.empty() && !valid_ref(limits.subtree_ref)) ||
+        limits.subtree_refs.size() > 4 ||
+        (!limits.subtree_refs.empty() &&
+         (!limits.subtree_ref.empty() || limits.base_scope.empty())) ||
+        std::any_of(limits.subtree_refs.begin(), limits.subtree_refs.end(),
+                    [&](const auto &ref) { return !valid_ref(ref); })) {
+        outcome.error = error("invalid_argument", "invalid subtree roots or missing base_scope");
+        return outcome;
+    }
+    if ((!limits.base_scope.empty() && limits.base_scope != impl_->snapshot_scope) ||
+        ((!limits.subtree_ref.empty() || !limits.subtree_refs.empty()) &&
+         window_id != impl_->snapshot_window)) {
+        outcome.error =
+            error("stale_observation", "subtree scope/window changed; refresh snapshot");
+        return outcome;
+    }
     // Map the opaque window id to a title via the environment's window
     // surface (honest v1 mapping: accessibility window name == provider title).
+    // The provider disambiguates same-title windows with "#N" occurrence
+    // suffixes, so the id resolves by (application, title) occurrence index
+    // in listing order instead of requiring a unique title — the earlier
+    // uniqueness refusal made every window of a multi-window same-title app
+    // (Electron shells) unsnapshotable. Titles rename on navigation; when
+    // the exact id no longer resolves, fall back to the application segment
+    // when it identifies exactly one window (DEC-118) so a stale id still
+    // reaches the renamed window.
     std::string title;
+    std::size_t occurrence = 0;
+    std::vector<WindowInfo> listed;
     if (impl_->windows != nullptr) {
         WindowListLimits unlimited;
         unlimited.max_windows = 4096;
-        const auto listed = impl_->windows->list_windows(unlimited, cancel);
-        for (const auto &window : listed.windows) {
-            if (window.id == window_id) {
-                title = window.title;
-                break;
+        listed = impl_->windows->list_windows(unlimited, cancel).windows;
+        const auto matched =
+            std::find_if(listed.begin(), listed.end(),
+                         [&](const WindowInfo &window) { return window.id == window_id; });
+        if (matched != listed.end()) {
+            title = matched->title;
+            const std::string application = window_id_application(window_id);
+            occurrence = static_cast<std::size_t>(
+                std::count_if(listed.begin(), matched, [&](const WindowInfo &window) {
+                    return window.title == matched->title &&
+                           window_id_application(window.id) == application;
+                }));
+        } else {
+            const auto application = window_id_application(window_id);
+            std::vector<const WindowInfo *> matches;
+            if (!application.empty()) {
+                for (const auto &window : listed)
+                    if (window_id_application(window.id) == application && !window.title.empty())
+                        matches.push_back(&window);
             }
-        }
-        if (!title.empty() &&
-            std::count_if(listed.windows.begin(), listed.windows.end(),
-                          [&](const auto &window) { return window.title == title; }) > 1) {
-            outcome.error = error("unsupported_window", "window title mapping is ambiguous");
-            return outcome;
+            if (matches.size() == 1)
+                title = matches.front()->title;
         }
     }
     if (title.empty()) {
-        outcome.error = error("not_found", "no such window");
+        outcome.error = error("not_found", "no such window; the window title may have changed, "
+                                           "re-run desktop.window.list");
         return outcome;
     }
     AtspiAccessible *desktop = atspi_get_desktop(0); // borrowed singleton
@@ -512,14 +611,61 @@ SnapshotOutcome AtspiBackend::semantic_snapshot(const std::string &window_id,
         outcome.error = error("io_error", "accessibility desktop unavailable");
         return outcome;
     }
-    const auto found = impl_->find_window_by_title(desktop, title);
+    const auto found =
+        impl_->find_window_by_title(desktop, window_id_application(window_id), title, occurrence);
     if (!found.has_value()) {
-        outcome.error = error("unsupported_window", "no accessible window carries this title");
+        outcome.error = error("not_found", "no such window; the window list may have changed, "
+                                           "re-run desktop.window.list");
         return outcome;
     }
     auto [application_name, window_object] = *found;
+    // Resolve all roots before replacing the one-generation action registry.
+    std::vector<std::string> roots = limits.subtree_refs;
+    if (!limits.subtree_ref.empty())
+        roots.push_back(limits.subtree_ref);
+    for (std::size_t i = 0; i < roots.size(); ++i) {
+        if (std::find(roots.begin(), roots.begin() + i, roots[i]) != roots.begin() + i) {
+            impl_->adopt(window_object);
+            outcome.error = error("invalid_argument", "duplicate subtree root");
+            return outcome;
+        }
+        if (!impl_->registry.contains(roots[i])) {
+            impl_->adopt(window_object);
+            outcome.error =
+                error("not_found",
+                      "subtree ref is from an older snapshot; take a fresh semantic snapshot");
+            return outcome;
+        }
+    }
     std::vector<AtspiAccessible *> objects;
-    auto nodes = impl_->collect_tree(window_object, limits.max_nodes, objects, cancel);
+    std::optional<std::vector<SemanticNode>> nodes{std::in_place};
+    if (roots.empty()) {
+        nodes =
+            impl_->collect_tree(window_object, limits.max_nodes, limits.max_depth, objects, cancel);
+    } else {
+        impl_->adopt(window_object);
+        for (const auto &ref : roots) {
+            std::vector<AtspiAccessible *> local_objects;
+            // collect_tree takes ownership; the old registry retains its own ref
+            // until all subtrees have succeeded, including refusal/cancellation.
+            auto *root = static_cast<AtspiAccessible *>(g_object_ref(impl_->registry.at(ref)));
+            auto local = impl_->collect_tree(root, limits.max_nodes - nodes->size(),
+                                             limits.max_depth, local_objects, cancel);
+            if (!local) {
+                impl_->adopt_all(objects);
+                nodes.reset();
+                break;
+            }
+            const auto offset = nodes->size();
+            for (auto &node : *local) {
+                node.ref = "@e" + std::to_string(nodes->size() + 1);
+                if (node.parent != mirage::desktop::kNoParent)
+                    node.parent += offset;
+                nodes->push_back(std::move(node));
+            }
+            objects.insert(objects.end(), local_objects.begin(), local_objects.end());
+        }
+    }
     if (!nodes.has_value()) {
         if (cancel.cancelled()) {
             outcome.cancelled = true;
@@ -546,6 +692,7 @@ SnapshotOutcome AtspiBackend::semantic_snapshot(const std::string &window_id,
     }
     impl_->snapshot_scope =
         "atspi:" + window_id + ":" + std::to_string(++impl_->snapshot_generation);
+    impl_->snapshot_window = window_id;
     outcome.scope = impl_->snapshot_scope;
     outcome.ok = true;
     outcome.snapshot.application = std::move(application_name);

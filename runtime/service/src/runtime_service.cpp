@@ -222,16 +222,18 @@ void settle_dialog_turn(const std::shared_ptr<detail::ServiceCore> &core,
                 if (record.status != "pending")
                     return; // terminal settlement is idempotent
                 event.timings = completion.timings.empty() ? record.timings : completion.timings;
-                const bool invalid_parts = !conversation::valid_parts(completion.parts);
+                event.parts = completion.parts;
+                conversation::bound_parts(event.parts);
+                const bool invalid_parts = !conversation::valid_parts(event.parts);
                 if (invalid_parts)
                     std::cerr << "mirage-service: invalid terminal process projection; retaining "
                                  "last valid snapshot\n";
-                event.parts =
-                    completion.parts.empty() || invalid_parts ? record.parts : completion.parts;
+                if (event.parts.empty() || invalid_parts)
+                    event.parts = record.parts;
                 for (auto &part : event.parts)
                     if (part.status == "pending" || part.status == "running")
                         part.status = completion.cancelled ? "cancelled" : "failed";
-                if (!completion.ok && !completion.cancelled && !completion.reply_text.empty())
+                if (!completion.cancelled && !completion.reply_text.empty())
                     conversation::retain_terminal_reply(event.parts, completion.reply_text);
                 record.parts = event.parts;
                 record.timings = event.timings;
@@ -329,48 +331,54 @@ void run_dialog_turn(const std::shared_ptr<detail::ServiceCore> &core, std::stri
             pet_feed->publish(false, request, thinking_text, truncated);
             refresh_pet();
         };
-    integration::DialogProcessSink process = [core, session_id, turn_id, stop,
-                                              refresh_pet](const auto &parts, const auto &timings) {
-        if (stop.stop_requested() || !conversation::valid_parts(parts))
-            return;
-        ipc::ChatTurnUpdatedEvent event;
-        bool phase_changed = false;
-        {
-            std::lock_guard lock(core->dialogs.mutex);
-            const auto found = core->dialogs.sessions.find(session_id);
-            if (found == core->dialogs.sessions.end())
+    integration::DialogProcessSink process =
+        [core, session_id, turn_id, stop, refresh_pet](const auto &raw_parts, const auto &timings) {
+            if (stop.stop_requested())
                 return;
-            auto &log = found->second;
-            const auto record =
-                std::find_if(log.turns.begin(), log.turns.end(),
-                             [&](const auto &turn) { return turn.turn_id == turn_id; });
-            if (record == log.turns.end() || record->status != "pending")
+            auto parts = raw_parts;
+            conversation::bound_parts(parts);
+            if (!conversation::valid_parts(parts)) {
+                std::cerr << "mirage-service: invalid live process projection rejected\n";
                 return;
-            record->parts = parts;
-            record->timings = timings;
-            const auto previous_phase = record->pet_tool_phase;
-            record->pet_tool_phase.clear();
-            for (const auto &part : parts) {
-                if (part.kind == "tool" && part.status == "running") {
-                    record->pet_tool_phase = pet::running_tool_phase(part.name);
-                    break;
-                }
             }
-            phase_changed = previous_phase != record->pet_tool_phase;
-            event.session_id = session_id;
-            event.turn_id = turn_id;
-            event.status = "pending";
-            event.user_text = record->user_text;
-            event.sequence = record->sequence;
-            event.replaces_turn_id = record->replaces_turn_id;
-            event.parts = parts;
-            event.timings = timings;
-            event.process_sequence = ++record->process_sequence;
-        }
-        core->events.publish_chat_turn(std::move(event));
-        if (phase_changed)
-            refresh_pet();
-    };
+            ipc::ChatTurnUpdatedEvent event;
+            bool phase_changed = false;
+            {
+                std::lock_guard lock(core->dialogs.mutex);
+                const auto found = core->dialogs.sessions.find(session_id);
+                if (found == core->dialogs.sessions.end())
+                    return;
+                auto &log = found->second;
+                const auto record =
+                    std::find_if(log.turns.begin(), log.turns.end(),
+                                 [&](const auto &turn) { return turn.turn_id == turn_id; });
+                if (record == log.turns.end() || record->status != "pending")
+                    return;
+                record->parts = parts;
+                record->timings = timings;
+                const auto previous_phase = record->pet_tool_phase;
+                record->pet_tool_phase.clear();
+                for (const auto &part : parts) {
+                    if (part.kind == "tool" && part.status == "running") {
+                        record->pet_tool_phase = pet::running_tool_phase(part.name);
+                        break;
+                    }
+                }
+                phase_changed = previous_phase != record->pet_tool_phase;
+                event.session_id = session_id;
+                event.turn_id = turn_id;
+                event.status = "pending";
+                event.user_text = record->user_text;
+                event.sequence = record->sequence;
+                event.replaces_turn_id = record->replaces_turn_id;
+                event.parts = parts;
+                event.timings = timings;
+                event.process_sequence = ++record->process_sequence;
+            }
+            core->events.publish_chat_turn(std::move(event));
+            if (phase_changed)
+                refresh_pet();
+        };
     integration::DialogModelActivitySink activity = [core, session_id, turn_id, stop,
                                                      refresh_pet](bool active) {
         bool phase_changed = false;
@@ -520,6 +528,10 @@ struct RuntimeService::Impl {
     enum class Lifecycle { New, Running, Terminal };
 
     std::atomic_bool desktop_authorization_pending{false};
+    std::shared_ptr<integration::ResidentDesktopPerception> resident_perception;
+    desktop::CancelToken resident_stop;
+    std::mutex resident_refresh_mutex;
+    std::future<void> resident_refresh;
     ServiceConfig config;
     std::string socket_path;
     /// Fail-closed hook used when the config carries neither the DEC-020
@@ -700,10 +712,61 @@ struct RuntimeService::Impl {
         loop_done_future = loop_done.get_future();
     }
 
+    integration::PerceptionSessionOptions
+    resident_options(desktop::CapturePresentation presentation = {}) const {
+        integration::PerceptionSessionOptions options;
+        options.source_id = "runtime-desktop-" + mira::OperationId::generate().to_string();
+        options.cancelled = resident_stop;
+        options.presentation = std::move(presentation);
+        options.sample_period = std::chrono::milliseconds{config.perception_sample_period_ms};
+        options.authorized = [actions = core->actions, permission = core->permission,
+                              authority = core->actions->authority_epoch()] {
+            return authority && actions->authority_epoch() == authority && permission &&
+                   permission->policy().rule_for(permission::Capability::ScreenCapture) ==
+                       permission::Rule::Allow;
+        };
+        return options;
+    }
+
+    void warm_resident_perception() const {
+        auto *screen = core->environment ? core->environment->screen() : nullptr;
+        if (!resident_perception || !screen || resident_stop.cancelled() ||
+            !resident_options().authorized())
+            return;
+        const auto grant = screen->desktop_authorization(resident_stop);
+        if (!grant.remembered)
+            return; // Never acquire a new grant from a background worker.
+        auto session = screen->create_desktop_interaction_session();
+        if (session)
+            (void)resident_perception->adopt(
+                std::move(session), resident_options(harness_desktop_context().exclude_pet), true);
+    }
+    void queue_resident_refresh() {
+        std::lock_guard lock(resident_refresh_mutex);
+        if (!resident_perception || resident_stop.cancelled())
+            return;
+        try {
+            if (resident_refresh.valid()) {
+                if (resident_refresh.wait_for(std::chrono::milliseconds{0}) !=
+                    std::future_status::ready)
+                    return; // One visible finite refresh at a time.
+                resident_refresh.get();
+            }
+            resident_refresh = core->executor.submit_auto([this] { warm_resident_perception(); });
+        } catch (const std::exception &error) {
+            std::cerr << "mirage-service: resident refresh failed: " << error.what() << '\n';
+        }
+    }
+
     integration::DesktopToolContext harness_desktop_context() const {
         integration::DesktopToolContext desktop;
         desktop.environment = core->environment;
         desktop.reuse_recent_observation = true;
+        desktop.require_task_purpose =
+            desktop.environment &&
+            (desktop.environment->window() || desktop.environment->screen() ||
+             desktop.environment->accessibility() || desktop.environment->input() ||
+             desktop.environment->application());
         desktop.actions = core->actions;
         if (pet_process) {
             desktop.exclude_pet = [this](const desktop::CancelToken &cancel) {
@@ -740,15 +803,19 @@ struct RuntimeService::Impl {
                                                       const auto &cancel, const auto &deadline) {
                     return pipeline->read_image_ocr(image, cancel, deadline, key);
                 };
-            desktop.continuous_session = [pipeline = core->ocr_pipeline.get(),
-                                          executor = &core->executor](auto session, auto options) {
-                return integration::connect_continuous_desktop(
-                    *executor, std::move(session), std::move(options),
-                    [pipeline](const auto &image, const auto &key, const auto &focus,
-                               const auto &cancel, const auto &deadline) {
-                        return pipeline->observe_image(image, key, focus, cancel, deadline);
-                    });
-            };
+            if (resident_perception) {
+                desktop.resident_session = [resident = resident_perception](bool input,
+                                                                            auto options) {
+                    return resident->attach(input, std::move(options));
+                };
+                desktop.continuous_session = [this, resident = resident_perception,
+                                              presentation = desktop.exclude_pet](auto session,
+                                                                                  auto options) {
+                    const bool input = session && session->input_supported();
+                    return resident->connect(std::move(session), resident_options(presentation),
+                                             std::move(options), input);
+                };
+            }
             desktop.query_image_state =
                 [pipeline = core->ocr_pipeline.get()](const auto &key, const auto &cancel,
                                                       const auto &deadline) {
@@ -2234,6 +2301,8 @@ struct RuntimeService::Impl {
                 return;
             }
             screen->configure_desktop_authorization(request->remember);
+            if (!request->remember && resident_perception)
+                resident_perception->invalidate();
         }
         const std::optional<bool> manage =
             request ? std::optional<bool>{request->remember} : std::nullopt;
@@ -2265,6 +2334,8 @@ struct RuntimeService::Impl {
                     }
                 }
                 const auto view = screen->desktop_authorization(cancel);
+                if (manage && *manage && view.remembered)
+                    warm_resident_perception();
                 settled->store(true);
                 pending.finish();
                 respond(connection, correlation,
@@ -2944,6 +3015,7 @@ struct RuntimeService::Impl {
         // authorize() call.
         core->actions->invalidate_authority();
         core->permission->set_policy(std::move(policy));
+        queue_resident_refresh();
         if (request.has_read_roots) {
             core->read_roots = request.read_roots;
         }
@@ -3498,6 +3570,20 @@ struct RuntimeService::Impl {
 
     void teardown() {
         product_stopping.store(true);
+        resident_stop.request_cancel();
+        if (resident_perception)
+            resident_perception->stop();
+        {
+            std::lock_guard lock(resident_refresh_mutex);
+            if (resident_refresh.valid()) {
+                try {
+                    resident_refresh.get();
+                } catch (const std::exception &error) {
+                    std::cerr << "mirage-service: resident refresh drain failed: " << error.what()
+                              << '\n';
+                }
+            }
+        }
         if (pet_refresh)
             pet_refresh->stop();
         if (product_maintenance.valid())
@@ -3686,8 +3772,12 @@ const std::string &RuntimeService::socket_path() const { return impl_->socket_pa
 void RuntimeService::request_shutdown() { impl_->request_loop_stop(); }
 void RuntimeService::request_desktop_takeover() { impl_->core->actions->takeover(); }
 bool RuntimeService::resume_desktop() {
-    return impl_->lifecycle.load(std::memory_order_acquire) == Impl::Lifecycle::Running &&
-           impl_->core->actions->resume();
+    const bool resumed =
+        impl_->lifecycle.load(std::memory_order_acquire) == Impl::Lifecycle::Running &&
+        impl_->core->actions->resume();
+    if (resumed)
+        impl_->queue_resident_refresh();
+    return resumed;
 }
 
 void RuntimeService::register_shutdown_fd(int fd) { impl_->shutdown_fd = fd; }
@@ -3705,6 +3795,16 @@ RuntimeService::start(std::shared_ptr<mirage::integration::DesktopEnvironmentBin
         (!impl_->config.tray_carrier || impl_->config.pet == impl_->config.frontend)) {
         outcome.error = {"invalid_argument",
                          "pet needs a tray owner and a distinct process handle"};
+        impl_->lifecycle.store(Impl::Lifecycle::Terminal, std::memory_order_release);
+        return outcome;
+    }
+    const auto refresh = impl_->config.perception_recognition_refresh_ms;
+    if (refresh < 0 || refresh > 5000 || (refresh > 0 && refresh < 100) ||
+        ((impl_->config.perception_object_tracking || impl_->config.perception_async_recognition) &&
+         refresh == 0)) {
+        outcome.error = {"invalid_argument",
+                         "recognition refresh expects 0 or "
+                         "100..5000 ms; tracking/async recognition requires nonzero"};
         impl_->lifecycle.store(Impl::Lifecycle::Terminal, std::memory_order_release);
         return outcome;
     }
@@ -3813,9 +3913,12 @@ RuntimeService::start(std::shared_ptr<mirage::integration::DesktopEnvironmentBin
         std::string error;
         try {
             auto initialized_ocr = impl_->core->executor.submit_auto([&] {
-                return integration::PpOcrPipeline::create(impl_->core->executor,
-                                                          *impl_->core->environment->screen(),
-                                                          impl_->config.ocr_manifest, error);
+                return integration::PpOcrPipeline::create(
+                    impl_->core->executor, *impl_->core->environment->screen(),
+                    impl_->config.ocr_manifest, error,
+                    impl_->config.perception_recognition_refresh_ms,
+                    impl_->config.perception_object_tracking,
+                    impl_->config.perception_async_recognition);
             });
             impl_->core->ocr_pipeline = initialized_ocr.get();
         } catch (...) {
@@ -3828,6 +3931,29 @@ RuntimeService::start(std::shared_ptr<mirage::integration::DesktopEnvironmentBin
             return outcome;
         }
         impl_->core->visual_registry = &impl_->core->ocr_pipeline->registry();
+        impl_->resident_perception = std::make_shared<integration::ResidentDesktopPerception>(
+            [pipeline = impl_->core->ocr_pipeline.get(), executor = &impl_->core->executor,
+             async = impl_->config.perception_async_recognition,
+             tracking = impl_->config.perception_object_tracking,
+             refresh = std::chrono::milliseconds{impl_->config.perception_recognition_refresh_ms}](
+                auto session, auto options) {
+                if (async)
+                    return integration::connect_layered_desktop(
+                        *executor, std::move(session), std::move(options),
+                        [pipeline](const auto &image, const auto &key, const auto &focus,
+                                   const auto &cancel, auto deadline, auto captured_at,
+                                   auto generation, const auto &work) {
+                            return pipeline->observe_image(image, key, focus, cancel, deadline,
+                                                           captured_at, generation, work);
+                        },
+                        refresh, tracking);
+                return integration::connect_continuous_desktop(
+                    *executor, std::move(session), std::move(options),
+                    [pipeline](const auto &image, const auto &key, const auto &focus,
+                               const auto &cancel, const auto &deadline) {
+                        return pipeline->observe_image(image, key, focus, cancel, deadline);
+                    });
+            });
     }
 
     // Model layer (DEC-027): assembled once the executor is up (its pinned
@@ -4248,6 +4374,16 @@ RuntimeService::start(std::shared_ptr<mirage::integration::DesktopEnvironmentBin
             } catch (const std::exception &error) {
                 std::cerr << "mirage-tray: pet admission failed: " << error.what() << '\n';
             }
+        }
+    }
+    if (impl_->resident_perception) {
+        try {
+            auto warm = impl_->core->executor.submit_auto(
+                [raw = impl_.get()] { raw->warm_resident_perception(); });
+            warm.get();
+        } catch (const std::exception &error) {
+            std::cerr << "mirage-service: resident perception startup failed: " << error.what()
+                      << '\n';
         }
     }
     outcome.ok = true;

@@ -1,3 +1,5 @@
+#include "continuous_recognition_host.hpp"
+#include "layered_visual_sampler.hpp"
 #include "perception_journal.hpp"
 #include <atomic>
 #include <cmath>
@@ -5,6 +7,7 @@
 #include <kairo/comm.hpp>
 #include <mira/model_digest.hpp>
 #include <mirador/resize.hpp>
+#include <mirador/status.hpp>
 #include <mirage/integration/continuous_capture_host.hpp>
 #include <mirage/integration/continuous_desktop_session.hpp>
 #include <mutex>
@@ -17,6 +20,7 @@ struct Command {
     std::string frame;
 };
 struct Core {
+    explicit Core(const std::string &source) : journal(source) {}
     std::unique_ptr<desktop::DesktopCaptureSession> raw;
     PerceptionSessionOptions options;
     std::string frame_prefix;
@@ -24,12 +28,27 @@ struct Core {
     // Serializes a platform resource, never transports work or event payloads.
     std::mutex resource;
     std::atomic<unsigned> paused{0};
+    std::atomic<std::uint64_t> pause_serial{0};
+    std::unique_ptr<detail::ContinuousRecognitionHost> recognition;
+    std::unique_ptr<detail::LayeredVisualSampler> sampler;
+    std::chrono::milliseconds recognition_refresh{0};
+    std::uint64_t cv_samples = 0, seen_pause = 0, owner_discarded = 0;
+    std::uint64_t regional_completed = 0, ocr_completed = 0, detector_completed = 0;
+    std::string analysis_error;
+    std::optional<PerceptionRecognitionWork> last_submitted_work;
+    int source_width = 0, source_height = 0, analysis_width = 0, analysis_height = 0;
+    std::optional<desktop::WindowGeometry> analysis_focus;
     std::atomic<bool> stopped{false};
+    std::atomic<std::uint64_t> observed_sequence{0};
     kairo::comm::LatestMailbox<PerceptionView> reports{"task-perception-report"};
+    kairo::comm::Topic<std::uint64_t> notices{"desktop-perception-change"};
+    std::atomic<unsigned> waiters{0}; // At most 16 bounded Topic subscriptions.
+    std::uint64_t notice_cursor = 0, notice_epoch = 0, notice_dropped = 0;
+    std::string notice_state, notice_error;
     kairo::comm::LatestMailbox<desktop::WindowGeometry> focus{"task-perception-focus"};
     kairo::comm::MpscChannel<Command> commands{{.capacity = 64, .name = "task-perception-ack"}};
     detail::PerceptionJournal journal; // capture worker is its sole owner
-    std::uint64_t frames = 0, analyzed = 0, skipped = 0, failed = 0;
+    std::uint64_t frames = 0, analyzed = 0, skipped = 0, failed = 0, deferred = 0;
     bool valid() const {
         try {
             return !stopped && !options.cancelled.cancelled() &&
@@ -46,7 +65,38 @@ struct Core {
         view.analyzed = analyzed;
         view.skipped = skipped;
         view.analysis_failed = failed;
+        view.deferred_frames = deferred;
+        if (recognition) {
+            const auto r = recognition->stats();
+            view.dispatch =
+                PerceptionDispatch{cv_samples,
+                                   r.admitted,
+                                   r.superseded,
+                                   r.rejected,
+                                   r.cancelled,
+                                   r.timed_out,
+                                   r.discarded_results,
+                                   r.live_pixel_bytes,
+                                   r.running || r.result_pending || r.queued_ticket != 0};
+            view.dispatch->regional = regional_completed;
+            view.dispatch->ocr_completed = ocr_completed;
+            view.dispatch->detector_completed = detector_completed;
+        }
+        if (std::string_view(state) == "failed" || std::string_view(state) == "stopped" ||
+            std::string_view(state) == "degraded")
+            view.scene.reset();
+        const bool changed = view.newest != notice_cursor || view.source_epoch != notice_epoch ||
+                             view.dropped != notice_dropped || view.state != notice_state ||
+                             view.error != notice_error;
+        notice_cursor = view.newest;
+        notice_epoch = view.source_epoch;
+        notice_dropped = view.dropped;
+        notice_state = view.state;
+        notice_error = view.error;
         reports.publish(std::move(view));
+        if (changed)
+            (void)notices.publish(
+                notice_cursor); // Journal owns the events; notices only wake readers.
     }
 };
 bool scaled(const desktop::ImageFrame &src, int max_side, std::size_t budget,
@@ -71,6 +121,222 @@ bool scaled(const desktop::ImageFrame &src, int max_side, std::size_t budget,
     dst.pixels.resize(dst.stride * std::size_t(h));
     std::memcpy(dst.pixels.data(), pixels.data, dst.pixels.size());
     return true;
+}
+
+void append_observation(const std::shared_ptr<Core> &c, PerceptionSample observed,
+                        const desktop::ImageFrame &pixels, int analysis_width, int analysis_height,
+                        int source_width, int source_height, std::uint64_t frame_number,
+                        Clock::time_point captured_at) {
+    for (auto &e : observed.events) {
+        e.x *= double(source_width) / analysis_width;
+        e.y *= double(source_height) / analysis_height;
+        e.width *= double(source_width) / analysis_width;
+        e.height *= double(source_height) / analysis_height;
+    }
+    for (auto &entry : observed.objects) {
+        auto &b = entry.object.bounds;
+        const auto sx = double(source_width) / analysis_width;
+        const auto sy = double(source_height) / analysis_height;
+        b = {int(std::floor(b.x * sx)), int(std::floor(b.y * sy)),
+             std::max(1, int(std::ceil(b.width * sx))), std::max(1, int(std::ceil(b.height * sy)))};
+    }
+    if (observed.tracking) {
+        const auto scale = [&](desktop::WindowGeometry &b) {
+            const auto sx = double(source_width) / analysis_width;
+            const auto sy = double(source_height) / analysis_height;
+            b = {int(std::floor(b.x * sx)), int(std::floor(b.y * sy)),
+                 std::max(1, int(std::ceil(b.width * sx))),
+                 std::max(1, int(std::ceil(b.height * sy)))};
+        };
+        for (auto &track : observed.tracking->tracks)
+            scale(track.bounds);
+        for (auto &candidate : observed.tracking->candidates)
+            scale(candidate);
+    }
+    std::shared_ptr<PerceptionPreview> preview;
+    if (!observed.events.empty()) {
+        preview = std::make_shared<PerceptionPreview>();
+        preview->id = c->frame_prefix + std::to_string(frame_number);
+        preview->observed_at = captured_at;
+        if (!scaled(pixels, 640, 1u << 20, preview->image))
+            preview.reset();
+    }
+    c->journal.append(std::move(observed), std::move(preview), captured_at);
+}
+
+bool same_focus(const std::optional<desktop::WindowGeometry> &a,
+                const std::optional<desktop::WindowGeometry> &b) {
+    return a.has_value() == b.has_value() &&
+           (!a || (a->x == b->x && a->y == b->y && a->width == b->width && a->height == b->height));
+}
+void layered_sample(const std::shared_ptr<Core> &c, desktop::ImageFrame analysis, int source_width,
+                    int source_height, std::optional<desktop::WindowGeometry> focus,
+                    Clock::time_point captured_at, const desktop::CancelToken &cancel) {
+    // Platform focus can be partly outside a resized source. Intersect before
+    // passing a trusted in-image ROI to the recognition dispatcher.
+    if (focus) {
+        const auto x = std::clamp(focus->x, 0, analysis.width);
+        const auto y = std::clamp(focus->y, 0, analysis.height);
+        const auto right = std::clamp(std::int64_t(focus->x) + focus->width, std::int64_t(x),
+                                      std::int64_t(analysis.width));
+        const auto bottom = std::clamp(std::int64_t(focus->y) + focus->height, std::int64_t(y),
+                                       std::int64_t(analysis.height));
+        if (right == x || bottom == y)
+            focus.reset();
+        else
+            focus = desktop::WindowGeometry{x, y, int(right - x), int(bottom - y)};
+    }
+    const auto pause = c->pause_serial.load();
+    if (c->source_width != source_width || c->source_height != source_height ||
+        c->analysis_width != analysis.width || c->analysis_height != analysis.height ||
+        c->seen_pause != pause || !same_focus(c->analysis_focus, focus)) {
+        (void)c->recognition->invalidate();
+        c->sampler->reset();
+        c->journal.clear();
+        c->last_submitted_work.reset();
+        c->analysis_error.clear();
+        c->source_width = source_width;
+        c->source_height = source_height;
+        c->analysis_width = analysis.width;
+        c->analysis_height = analysis.height;
+        c->analysis_focus = focus;
+        c->seen_pause = pause;
+    }
+    mirador::ExecutionContext context;
+    context.is_cancelled = [cancel, c, pause] {
+        return cancel.cancelled() || c->pause_serial.load() != pause;
+    };
+    context.deadline = Clock::now() + std::chrono::milliseconds(100);
+    if (auto result = c->recognition->take()) {
+        using Kind = detail::ContinuousRecognitionHost::Result::Kind;
+        if (result->kind == Kind::completed && result->sample.recognition &&
+            result->sample.recognition->roi && result->input->work.roi) {
+            const auto &original = *result->input;
+            auto frame = detail::sampled_frame(original.image, c->options.source_id,
+                                               original.sampling_sequence, original.captured_at);
+            auto accepted = c->sampler->recognize_region(frame, result->sample, context);
+            if (!accepted) {
+                ++c->failed;
+                c->analysis_error = "regional_commit_failed";
+            } else if (original.cancel.cancelled() || context.is_cancelled()) {
+                ++c->owner_discarded;
+                c->sampler->reset();
+            } else {
+                ++c->analyzed;
+                ++c->regional_completed;
+                c->ocr_completed += result->sample.recognition->ocr;
+                c->detector_completed += result->sample.recognition->detector;
+                c->analysis_error.clear();
+                if (accepted.value())
+                    append_observation(c, result->sample, original.image, original.image.width,
+                                       original.image.height, original.source_width,
+                                       original.source_height, original.sampling_sequence,
+                                       original.captured_at);
+            }
+        } else if (result->kind == Kind::completed && !result->input->work.roi &&
+                   !result->sample.skipped && !result->sample.recognition_deferred &&
+                   result->sample.objects_complete) {
+            const auto &original = *result->input;
+            auto frame = detail::sampled_frame(original.image, c->options.source_id,
+                                               original.sampling_sequence, original.captured_at);
+            auto seeded = c->sampler->recognize(frame, result->sample, context);
+            // Tracking failure cannot erase successful OCR history. It leaves
+            // the recognition baseline uncommitted, requesting a later retry.
+            c->analysis_error.clear();
+            if (!seeded) {
+                ++c->failed;
+                c->analysis_error = "tracking_seed_failed";
+            }
+            if (original.cancel.cancelled() || context.is_cancelled()) {
+                ++c->owner_discarded;
+                ++c->skipped;
+                c->sampler->reset();
+                c->journal.suspend_scene("recognition_retired_before_commit");
+                c->publish("paused");
+                return;
+            }
+            ++c->analyzed;
+            if (result->sample.recognition) {
+                c->ocr_completed += result->sample.recognition->ocr;
+                c->detector_completed += result->sample.recognition->detector;
+            }
+            append_observation(c, result->sample, original.image, original.image.width,
+                               original.image.height, original.source_width, original.source_height,
+                               original.sampling_sequence, original.captured_at);
+        } else if (result->kind == Kind::cancelled || result->sample.skipped)
+            ++c->skipped;
+        else {
+            ++c->failed;
+            c->analysis_error = result->sample.error.code.empty()
+                                    ? "recognition_incomplete"
+                                    : result->sample.error.code.substr(0, 64);
+        }
+    }
+    auto frame = detail::sampled_frame(analysis, c->options.source_id, c->frames, captured_at);
+    auto sampled = c->sampler->sample(frame, c->recognition_refresh, context);
+    if (!sampled) {
+        ++c->failed;
+        c->sampler->reset();
+        c->journal.suspend_scene("cv_failed");
+        c->publish("degraded",
+                   "cv_failed:" + std::string(mirador::error_code_name(sampled.status().code())));
+        return;
+    }
+    ++c->cv_samples;
+    ++c->deferred;
+    auto probe = sampled.take_value();
+    // Recognition events remain tied to their original frame. This later
+    // sample never retags them as a current semantic snapshot or valid reuse.
+    if (probe.tracking) {
+        const double sx = double(source_width) / analysis.width,
+                     sy = double(source_height) / analysis.height;
+        const auto scale = [&](desktop::WindowGeometry &b) {
+            b = {int(std::floor(b.x * sx)), int(std::floor(b.y * sy)),
+                 std::max(1, int(std::ceil(b.width * sx))),
+                 std::max(1, int(std::ceil(b.height * sy)))};
+        };
+        for (auto &t : probe.tracking->tracks)
+            scale(t.bounds);
+        for (auto &b : probe.tracking->candidates)
+            scale(b);
+    }
+    c->journal.suspend_scene(probe.reason, std::move(probe.tracking));
+    const auto dispatch = c->recognition->stats();
+    const bool pending = dispatch.running || dispatch.result_pending || dispatch.queued_ticket;
+    const bool duplicate_pending = pending && c->last_submitted_work && probe.same_as_submitted &&
+                                   c->last_submitted_work->ocr == probe.work.ocr &&
+                                   c->last_submitted_work->detector == probe.work.detector &&
+                                   same_focus(c->last_submitted_work->roi, probe.work.roi);
+    if (probe.recognize && !duplicate_pending && !cancel.cancelled()) {
+        detail::ContinuousRecognitionHost::Input input;
+        input.image = std::move(analysis);
+        input.source_width = source_width;
+        input.source_height = source_height;
+        input.sampling_sequence = c->frames;
+        input.captured_at = captured_at;
+        input.deadline = captured_at + std::chrono::seconds(3);
+        input.generation = c->recognition->stats().generation;
+        input.focus = focus;
+        input.work = probe.work;
+        input.cancel = desktop::CancelToken([weak = std::weak_ptr<Core>(c), pause] {
+            auto owner = weak.lock();
+            return !owner || !owner->valid() || owner->paused.load() ||
+                   owner->pause_serial.load() != pause;
+        });
+        const auto admission = c->recognition->submit(std::move(input));
+        if (!admission.accepted) {
+            c->publish("degraded", admission.error);
+            return;
+        }
+        auto marked = c->sampler->mark_submitted();
+        if (!marked) {
+            c->last_submitted_work.reset();
+            c->publish("degraded", "cv_submission_commit_failed");
+            return;
+        }
+        c->last_submitted_work = probe.work;
+    }
+    c->publish(c->analysis_error.empty() ? "sampling" : "degraded", c->analysis_error);
 }
 desktop::CaptureOutcome sample(const std::shared_ptr<Core> &c, const desktop::CaptureLimits &limits,
                                const desktop::CancelToken &host_cancel) {
@@ -100,7 +366,11 @@ desktop::CaptureOutcome sample(const std::shared_ptr<Core> &c, const desktop::Ca
         std::unique_lock lock(c->resource, std::try_to_lock);
         if (!lock || c->paused.load())
             return {false, false, {}, {"capture_busy", "foreground resource contention"}};
-        captured = c->raw->capture_presented(limits, cancel, c->options.presentation);
+        auto background_limits = limits;
+        background_limits.allow_authorization_prompt = false;
+        captured = c->raw->capture_presented(background_limits, cancel, c->options.presentation);
+        if (captured.ok)
+            c->observed_sequence = captured.frame.source_sequence;
     }
     if (host_cancel.cancelled()) {
         c->stopped = true;
@@ -114,8 +384,16 @@ desktop::CaptureOutcome sample(const std::shared_ptr<Core> &c, const desktop::Ca
             c->publish("paused");
             return {false, false, {}, {"capture_busy", "foreground superseded capture"}};
         }
-        c->journal.clear();
-        c->publish("failed", captured.error.code.substr(0, 64));
+        if (c->recognition) {
+            (void)c->recognition->invalidate();
+            c->sampler->reset();
+            c->journal.suspend_scene("capture_degraded");
+        }
+        // DEC-116: a failed background sample neither ends perception nor the
+        // shared session — the platform layer rebuilds stream or session on
+        // demand. Report degraded; the capture worker's failure budget decides
+        // when sustained failure stops this advisory feed.
+        c->publish("degraded", captured.error.code.substr(0, 64));
         return captured;
     }
     const auto &frame = captured.frame;
@@ -150,6 +428,11 @@ desktop::CaptureOutcome sample(const std::shared_ptr<Core> &c, const desktop::Ca
                                       std::max(1, int(raw_focus.width * sx)),
                                       std::max(1, int(raw_focus.height * sy))};
     }
+    if (c->recognition) {
+        layered_sample(c, std::move(analysis), captured.frame.width, captured.frame.height, roi,
+                       captured_at, cancel);
+        return captured;
+    }
     auto observed = c->observer(analysis, c->options.source_id, roi, cancel,
                                 Clock::now() + std::chrono::seconds(3));
     if (host_cancel.cancelled()) {
@@ -179,22 +462,12 @@ desktop::CaptureOutcome sample(const std::shared_ptr<Core> &c, const desktop::Ca
         ++c->skipped;
         c->publish("sampling");
     } else {
-        ++c->analyzed;
-        for (auto &e : observed.events) {
-            e.x *= double(captured.frame.width) / analysis.width;
-            e.y *= double(captured.frame.height) / analysis.height;
-            e.width *= double(captured.frame.width) / analysis.width;
-            e.height *= double(captured.frame.height) / analysis.height;
-        }
-        std::shared_ptr<PerceptionPreview> preview;
-        if (!observed.events.empty()) {
-            preview = std::make_shared<PerceptionPreview>();
-            preview->id = c->frame_prefix + std::to_string(c->frames);
-            preview->observed_at = captured_at;
-            if (!scaled(captured.frame, 640, 1u << 20, preview->image))
-                preview.reset();
-        }
-        c->journal.append(std::move(observed), std::move(preview), Clock::now());
+        if (observed.recognition_deferred)
+            ++c->deferred;
+        else
+            ++c->analyzed;
+        append_observation(c, std::move(observed), captured.frame, analysis.width, analysis.height,
+                           captured.frame.width, captured.frame.height, c->frames, captured_at);
         c->publish("sampling");
     }
     return captured;
@@ -203,7 +476,10 @@ class Pause final : public PerceptionPause {
     std::shared_ptr<Core> core_;
 
   public:
-    explicit Pause(std::shared_ptr<Core> c) : core_(std::move(c)) { ++core_->paused; }
+    explicit Pause(std::shared_ptr<Core> c) : core_(std::move(c)) {
+        if (core_->paused.fetch_add(1) == 0)
+            ++core_->pause_serial;
+    }
     ~Pause() override { --core_->paused; }
 };
 class Feed final : public DesktopPerceptionFeed {
@@ -219,6 +495,17 @@ class Feed final : public DesktopPerceptionFeed {
             return v;
         }
         (void)c->reports.try_load(v);
+        if (c->recognition && c->paused.load()) {
+            v.scene.reset();
+            v.recognition_deferred = true;
+            v.recognition_reason = "foreground_paused";
+        }
+        if (c->recognition && !c->recognition->stats().accepting && v.state != "failed") {
+            v.state = "stopped";
+            v.scene.reset();
+            v.events.clear();
+            v.previews.clear();
+        }
         const auto stats = c->commands.stats();
         v.ack_rejected = stats.dropped_count + stats.closed_send_count;
         v.ack_depth = stats.current_depth;
@@ -240,6 +527,45 @@ class Feed final : public DesktopPerceptionFeed {
         auto c = core_.lock();
         return c ? std::make_unique<Pause>(std::move(c)) : nullptr;
     }
+    std::string wait(std::uint64_t after, std::chrono::milliseconds timeout,
+                     const desktop::CancelToken &cancel) override {
+        auto c = core_.lock();
+        if (!c || !c->valid())
+            return "unavailable";
+        if (c->waiters.fetch_add(1) >= 16) {
+            --c->waiters;
+            return "wait_capacity_exceeded";
+        }
+        struct Release {
+            std::atomic<unsigned> &count;
+            ~Release() { --count; }
+        } release{c->waiters};
+        auto subscription =
+            c->notices.subscribe({.capacity = 1,
+                                  .drop_policy = kairo::comm::DropPolicy::RejectNewest,
+                                  .name = "desktop-perception-wait"});
+        const auto initial = view();
+        const auto deadline = Clock::now() + std::clamp(timeout, std::chrono::milliseconds{0},
+                                                        std::chrono::milliseconds{30000});
+        for (;;) {
+            if (cancel.cancelled())
+                return "cancelled";
+            const auto current = view();
+            if (!c->valid() || current.state == "failed" || current.state == "stopped")
+                return "unavailable";
+            if (current.source_epoch != initial.source_epoch || current.dropped != initial.dropped)
+                return "gap";
+            if (current.newest > after)
+                return "event";
+            if (Clock::now() >= deadline)
+                return "timeout";
+            std::uint64_t notice = 0;
+            (void)subscription.receive_for(
+                notice, std::min(std::chrono::milliseconds{50},
+                                 std::chrono::duration_cast<std::chrono::milliseconds>(
+                                     deadline - Clock::now())));
+        }
+    }
 };
 class Session final : public desktop::DesktopCaptureSession {
     std::shared_ptr<Core> core_;
@@ -250,20 +576,52 @@ class Session final : public desktop::DesktopCaptureSession {
         : core_(std::move(c)), host_(std::move(host)) {}
     ~Session() override {
         core_->stopped = true;
+        core_->notices.close();
         host_->stop();
+        if (core_->recognition)
+            core_->recognition->stop();
+        if (core_->sampler)
+            core_->sampler->reset();
+        // Settled analysis requests may retain cancellation probes referencing
+        // Core. Retired metadata must not extend the platform session/grant or
+        // journal pixel lifetime beyond this explicit source owner.
+        core_->raw.reset();
+        core_->journal.clear();
+        core_->observer = {};
     }
+    FrameView latest_frame() const override {
+        if (!core_->valid())
+            return {};
+        auto latest = host_->latest();
+        return latest
+                   ? FrameView{std::shared_ptr<const desktop::ImageFrame>(latest, &latest->image),
+                               latest->received_at}
+                   : FrameView{};
+    }
+    std::uint64_t source_sequence() const override { return core_->observed_sequence.load(); }
     desktop::CaptureOutcome capture(const desktop::CaptureLimits &l,
                                     const desktop::CancelToken &c) override {
         Pause priority(core_);
         std::lock_guard lock(core_->resource);
-        return core_->raw->capture(l, c);
+        auto result = core_->raw->capture(l, c);
+        if (result.ok)
+            core_->observed_sequence = result.frame.source_sequence;
+        return result;
     }
     desktop::CaptureOutcome capture_presented(const desktop::CaptureLimits &l,
                                               const desktop::CancelToken &c,
                                               const desktop::CapturePresentation &p) override {
         Pause priority(core_);
+        const auto cached = latest_frame();
+        if (cached.image && Clock::now() - cached.received_at < std::chrono::seconds(1) &&
+            cached.image->pixels.size() <= l.max_bytes &&
+            cached.image->source_sequence > l.newer_than_sequence)
+            return {true, false, *cached.image, {}};
         std::lock_guard lock(core_->resource);
-        return core_->raw->capture_presented(l, c, p);
+        auto result = core_->raw->capture_presented(l, c, p);
+        if (result.ok)
+            core_->observed_sequence = result.frame.source_sequence;
+        return result;
     }
     desktop::SharedPointerQueryOutcome pointer_position(const desktop::CancelToken &c) override {
         Pause priority(core_);
@@ -277,8 +635,10 @@ class Session final : public desktop::DesktopCaptureSession {
         return core_->raw->input(a, l, c);
     }
     bool reusable() const override {
-        std::lock_guard lock(core_->resource);
-        return core_->raw->reusable();
+        const auto state = host_->stats().state;
+        return core_->valid() && (!core_->recognition || core_->recognition->stats().accepting) &&
+               state != ContinuousCaptureStats::State::Failed &&
+               state != ContinuousCaptureStats::State::Stopped;
     }
     bool input_supported() const override {
         std::lock_guard lock(core_->resource);
@@ -289,23 +649,41 @@ class Session final : public desktop::DesktopCaptureSession {
         return core_->raw->timed_press_supported();
     }
 };
-} // namespace
-PerceptionConnection connect_continuous_desktop(kairo::Executor &owner,
-                                                std::unique_ptr<desktop::DesktopCaptureSession> raw,
-                                                PerceptionSessionOptions options,
-                                                ContinuousImageObserver observer) {
-    if (!raw || !observer || options.source_id.empty() || options.source_id.size() > 128)
+PerceptionConnection connect_source(kairo::Executor &owner,
+                                    std::unique_ptr<desktop::DesktopCaptureSession> raw,
+                                    PerceptionSessionOptions options,
+                                    ContinuousImageObserver observer,
+                                    ContinuousImageRecognizer recognizer,
+                                    std::chrono::milliseconds refresh, bool tracking) {
+    if (!raw || (!observer && !recognizer) || options.source_id.empty() ||
+        options.source_id.size() > 128)
         return {std::move(raw), {}};
-    auto core = std::make_shared<Core>();
+    auto core = std::make_shared<Core>(options.source_id);
     core->raw = std::move(raw);
     core->options = std::move(options);
     core->frame_prefix = "event-frame-" +
                          mira::digest_string(core->options.source_id).to_string().substr(0, 24) +
                          "-";
     core->observer = std::move(observer);
+    if (recognizer) {
+        core->recognition_refresh = refresh;
+        core->sampler = std::make_unique<detail::LayeredVisualSampler>(tracking);
+        core->recognition = std::make_unique<detail::ContinuousRecognitionHost>(
+            owner, core->options.source_id,
+            [recognizer = std::move(recognizer)](const auto &input, const auto &source,
+                                                 const auto &cancel) {
+                return recognizer(input.image, source, input.focus, cancel, input.deadline,
+                                  input.captured_at, input.generation, input.work);
+            });
+    }
     ContinuousCaptureConfig config;
     config.max_frame_bytes = 32u << 20;
     config.capture_timeout = std::chrono::seconds(8);
+    // DEC-118: caller-tunable sampling period (0 keeps the 250ms default).
+    if (core->options.sample_period.count() > 0)
+        config.sample_period =
+            std::clamp(core->options.sample_period, std::chrono::milliseconds{100},
+                       std::chrono::milliseconds{1000});
     auto host = std::make_unique<ContinuousCaptureHost>(
         owner, core->options.source_id,
         [core](const auto &l, const auto &c) {
@@ -320,10 +698,31 @@ PerceptionConnection connect_continuous_desktop(kairo::Executor &owner,
         config);
     auto feed = std::make_shared<Feed>(core);
     std::string error;
-    if (!host->start(error) || !host->set_demand(true, error)) {
+    if ((core->recognition &&
+         (refresh.count() < 100 || refresh.count() > 5000 || !core->recognition->start(error))) ||
+        !host->start(error) || !host->set_demand(true, error)) {
         host->stop();
-        core->publish("failed", "capture_admission_rejected");
+        if (core->recognition)
+            core->recognition->stop();
+        core->publish("failed", core->recognition ? "capture_or_recognition_admission_rejected"
+                                                  : "capture_admission_rejected");
     }
     return {std::make_unique<Session>(core, std::move(host)), std::move(feed)};
+}
+} // namespace
+PerceptionConnection connect_continuous_desktop(kairo::Executor &owner,
+                                                std::unique_ptr<desktop::DesktopCaptureSession> raw,
+                                                PerceptionSessionOptions options,
+                                                ContinuousImageObserver observer) {
+    return connect_source(owner, std::move(raw), std::move(options), std::move(observer), {}, {},
+                          false);
+}
+PerceptionConnection connect_layered_desktop(kairo::Executor &owner,
+                                             std::unique_ptr<desktop::DesktopCaptureSession> raw,
+                                             PerceptionSessionOptions options,
+                                             ContinuousImageRecognizer recognize,
+                                             std::chrono::milliseconds refresh, bool tracking) {
+    return connect_source(owner, std::move(raw), std::move(options), {}, std::move(recognize),
+                          refresh, tracking);
 }
 } // namespace mirage::integration

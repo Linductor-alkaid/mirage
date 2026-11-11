@@ -2,7 +2,7 @@
 
 > 状态：Active
 > 负责人：Mirage维护者；处理方：Mirador上游
-> 更新日期：2026-10-22
+> 更新日期：2026-10-28
 > 工作项：源头为 [M7-06](../plans/m7-visual-tools-and-input.md)；维护性收口见
 > [依赖复用整改计划](../plans/dependency-reuse-remediation.md)（REUSE-16）
 > 总入口：[依赖反馈](ledger.md)；维护规则：[工程规范9.4](../project/project-standards.md)
@@ -26,6 +26,72 @@ M7-06 本轮核对 PP-OCR 公开后端、集成指南与 smoke；复现见下表
 | MIRADOR-20261009-003 | PP-OCR 参考预处理偏离参考部署，真实模型 0/4 | Resolved（本地） | fb0dc3f；四语料公开复现 | [mirador#35](https://github.com/Linductor-alkaid/mirador/pull/35) 第 3 提交，随 pin ae8cf87 生效 | Mirage 维护者 |
 
 | MIRADOR-20261018-001 | PP-OCR rec 逐框串行且无批处理/截断，密集桌面帧无法进入交互预算 | Resolved | 上游 M8-01…06 交付（`5565436`）；pin 消费复验见 [M8-07 兼容性报告](../compatibility/mirador-budgeted-ocr-20261021.md) | [mirador#41](https://github.com/Linductor-alkaid/mirador/issues/41) 已提报 | Mirage 维护者 |
+
+| MIRADOR-20261027-001 | 连续周期无法在保留变化比较基线的同时跳过识别阶段 | Open | 原 pin `23f7ed2`；当前 `2a9f4830` 已验证 CV-only；DEC-122 实验未知投影，精确 reuse 仍开放 | 待提报 | Mirage 维护者 |
+
+## MIRADOR-20261027-001：连续周期无法在保留变化比较基线的同时跳过识别阶段
+
+状态：Open（2026-10-27）；负责人 Mirage 维护者，处理方 Mirador 上游；工作项
+[M9-23](../plans/m9-continuous-tasks-and-local-perception.md) / [DEC-118](../decisions/DEC-118-significance-gated-perception-and-scoped-snapshots.md)。
+
+已核对 pinned 公开契约（`third_party/mirador/include/mirador/continuous_perception.hpp`、
+`integration/mirador/src/visual_session_host.cpp:1466-1474` 准入校验）后排除 API
+选型与配置错误：后台连续请求携带 `full_frame_evidence_digest≠0` 时必须执行
+run_ocr 或 run_detector 的全帧刷新阶段，否则被
+"continuous adoption requires completed full-frame refresh stages" 拒绝；改置
+digest=0 提交无识别周期则通过准入，但周期账本以 digest 为周期身份，翻转后的
+下一周期失去 `admission_change` 比较基线——该周期对真实变化不可见（独立验证的
+合成帧序列实证：hold 进入与解除各产生一个盲周期，解除周期的区外 UI 变化事件
+整体丢失）。
+
+影响范围：桌面常驻感知在媒体（视频/动画）活跃期间希望以低成本周期"只做变化
+比较与几何跟踪、跳过全帧 OCR"，Mirage 集成侧（DEC-118 预测式 OCR hold）无法
+同时满足"不识别"与"保持变化可见"。期望语义：允许声明"本周期保留上一周期的
+比较基线与覆盖账本，仅执行 change/continuous 阶段，不重置证据声明"。建议最小
+能力：`VisualContinuousRequest` 增加显式的 evidence-carryover（或等价）标记，
+使无识别周期的 digest 身份保持稳定；或准入契约接受"digest≠0 + 无识别阶段"
+并让覆盖账本如实记录本周期未重识别。延期影响：媒体活跃期间每周期全帧预算化
+OCR 照常执行（p50 ≈0.9s/CPU），识别成本只能靠上游交付或采样周期放宽来降低。
+可验收结果：合成媒体序列上，hold 周期不调用 OCR 后端、区外真实 UI 变化在
+下一个周期照常产出 `admission_change` 与实体事件、无盲周期。
+
+2026-10-27 后续核对（当前 pin `2a9f4830`）：上述 digest 字段和准入拒绝属于
+Mirage `VisualSessionHost` 公开适配契约，不能直接说成 Mirador 底层拒绝
+change-only。当前 Adapter `prepare_continuous` 在证据身份变化时重建周期，
+`execute` 清空比较基线；安全 carryover 仍未接通。下一步先核对公开
+plan/accept/reuse 是否足以分离采样/覆盖基线，如可承载则在 Mirage 适配层解决；
+否则再向上游提出最小缺口。不得删除准入校验或伪造识别覆盖。完整分析见
+[分层感知复盘](../research/2026-10-27-layered-perception-and-video-storyboards.md)。
+
+2026-10-28 本地进展：按 DEC-121/M9-25 在 Adapter 新增显式 sample_only/kSampled，
+独立采样/识别比较基线，无 digest 翻转、无融合/plan/accept/语义推进；累计变化、
+取消失败水位和识别恢复已通过本机专项及 sanitizer，见
+[阶段验证](../compatibility/layered-perception-phase1-20261027.md)。证明 change-only
+可以由现有公开 CV API 承载，不需要直接修改 pin。该条仍 Open：覆盖复用、
+未知区域/证据年龄投影和产品自动识别分频由 M9-26 继续验证，不能把局部能力
+当作全套 evidence-carryover 已交付。
+
+
+2026-10-28（M9-26 / DEC-122）：再次核对公共 `plan_cycle` 契约：frame 必须是
+snapshot 实际融合所用帧；公开 change/patch fingerprint 为降采样表示。不能只
+改旧快照 frame_sequence 或用低清相似度，为新帧签发全帧/ROI 精确复用证明。
+本轮选择 Mirage 产品策略：在同源确认媒体区域内延后识别，保留历史对象并标
+pending/未确认，不推进 plan/accept、覆盖或证据时间；有界期限强制重识别。
+实际 OCR/detector 调用计数、年龄和标签失效的验证见
+[第二阶段记录](../compatibility/layered-perception-phase2-20261028.md)。
+这消化了产品分频/未知投影的一部分需求，但没有交付精确跨帧 evidence-carryover。
+本条仍 Open，尚未向上游发送；最小剩余诉求是公开当前帧 ROI 验证证据与旧识别
+来源/年龄绑定，在无新识别时保持对象并显式标 unknown，明确哪些覆盖可复用、
+哪些需重验。验收需包含单字符/微变化、遮挡/重现与迟到证明拒绝；只有经公开
+契约核对及质量验证后才可关闭。负责人 Mirage 维护者，在 M9-27/28/33 前复核
+现有 reuse API 或提交最小可复现，不直接修改 pinned 代码。
+
+2026-10-28（M9-27 / DEC-123）：通过公开 ObjectTracker、change gate、NCC/PSR验证、
+重捕获/失败账本和geometry模块，在后台原worker实现默认关闭的有界跟踪实验。
+跟踪只给advisory位置，未把CV外观证据冒充文字/覆盖复用；精确reuse诉求保持Open。
+本批消费无需修改依赖；多对象取消后清空私有池，不另造通用事务或跟踪算法。
+[验证](../compatibility/layered-perception-phase3-20261028.md) 与后续运动补偿/结构
+联合身份/远距离重捕获的门禁分别记录。
 
 ## MIRADOR-20261009-001
 

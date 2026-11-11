@@ -17,9 +17,18 @@ class PerceptionJournal {
     };
     std::vector<Entry> entries_;
     std::vector<Frame> frames_;
+    desktop::VisualScene scene_;
+    bool scene_valid_ = false;
+    std::string scene_error_;
+    Clock::time_point scene_at_{};
+    std::uint64_t next_content_ = 0;
     std::optional<desktop::WindowGeometry> focus_;
     bool resync_ = false;
     std::uint64_t next_ = 0, dropped_ = 0, filtered_ = 0, epoch_ = 0, upstream_dropped_ = 0;
+    PerceptionMediaActivity media_;
+    bool recognition_deferred_ = false;
+    std::string recognition_reason_;
+    std::optional<PerceptionTracking> tracking_;
     static std::size_t bytes(const PerceptionEvent &e) {
         return sizeof(Entry) + e.kind.size() + e.text.size() + e.frame_id.size();
     }
@@ -32,10 +41,31 @@ class PerceptionJournal {
     }
 
   public:
+    explicit PerceptionJournal(std::string source_session = "perception")
+        : scene_(std::move(source_session)) {}
+    // A later sampled frame has no recognized coverage. Hide the current scene
+    // instead of advancing its frame sequence with stale objects. Historical
+    // events/previews and their original ages remain available.
+    void suspend_scene(std::string reason, std::optional<PerceptionTracking> tracking = {}) {
+        scene_valid_ = false;
+        scene_error_ = "unrecognized_current_frame";
+        recognition_deferred_ = true;
+        recognition_reason_ = reason.substr(0, 64);
+        if (tracking && tracking->tracks.size() <= 8 && tracking->candidates.size() <= 8)
+            tracking_ = std::move(tracking);
+        else
+            tracking_.reset();
+    }
     void focus(const desktop::WindowGeometry &roi) { focus_ = roi; }
     void clear() {
         entries_.clear();
         frames_.clear();
+        media_ = {};
+        recognition_deferred_ = false;
+        recognition_reason_.clear();
+        tracking_.reset();
+        scene_ = desktop::VisualScene(scene_.snapshot().source_session);
+        scene_valid_ = false;
     }
     void acknowledge(std::uint64_t cursor, Clock::time_point now) {
         if (cursor >= next_)
@@ -90,6 +120,61 @@ class PerceptionJournal {
             resync_ = true;
         }
         epoch_ = sample.source_epoch;
+        media_ = sample.media;
+        recognition_deferred_ = sample.recognition_deferred;
+        recognition_reason_ = sample.recognition_reason.substr(0, 64);
+        const bool tracking_fits =
+            !sample.tracking ||
+            (sample.tracking->tracks.size() <= 8 && sample.tracking->candidates.size() <= 8 &&
+             sample.tracking->error.size() <= 64 &&
+             std::all_of(
+                 sample.tracking->tracks.begin(), sample.tracking->tracks.end(),
+                 [](const auto &t) { return t.state.size() <= 32 && t.evidence.size() <= 64; }));
+        tracking_ = tracking_fits ? std::move(sample.tracking)
+                                  : std::optional<PerceptionTracking>{PerceptionTracking{}};
+        if (!tracking_fits) {
+            tracking_->error = "tracking_projection_budget_exceeded";
+            tracking_->requires_recognition = true;
+        }
+        if (sample.objects_complete && sample.objects.size() <= 256) {
+            std::vector<desktop::VisualSceneObject> objects;
+            const bool gap = sample.resync || sample.dropped > upstream_dropped_;
+            for (auto &entry : sample.objects) {
+                auto object = std::move(entry.object);
+                const auto *old = scene_.find(object.id);
+                const bool same =
+                    scene_valid_ && old && old->object.incarnation == object.incarnation;
+                if (!entry.content_observed) {
+                    if (!same)
+                        continue;
+                    auto previous = old->object;
+                    previous.identity_confirmed = false;
+                    previous.pending = true;
+                    object = std::move(previous);
+                }
+                const bool changed =
+                    !same || gap || entry.invalidate_content || old->object.text != object.text ||
+                    old->object.label != object.label || old->object.source != object.source;
+                object.content_revision = changed ? ++next_content_ : old->object.content_revision;
+                objects.push_back(std::move(object));
+            }
+            const auto baseline = scene_.snapshot();
+            auto applied = scene_.apply({baseline.source_session,
+                                         sample.source_epoch,
+                                         sample.frame_sequence,
+                                         scene_.revision(),
+                                         true,
+                                         objects,
+                                         {}});
+            scene_valid_ = applied.ok;
+            scene_error_ = applied.ok ? std::string{} : applied.error.code;
+            if (!sample.recognition_deferred)
+                scene_at_ = now;
+        } else {
+            scene_valid_ = false;
+            scene_error_ = sample.objects.size() > 256 ? "object_projection_budget_exceeded"
+                                                       : "incomplete_object_projection";
+        }
         if (sample.dropped > upstream_dropped_)
             dropped_ += sample.dropped - upstream_dropped_;
         upstream_dropped_ = sample.dropped;
@@ -131,11 +216,19 @@ class PerceptionJournal {
         out.newest = next_;
         out.oldest = entries_.empty() ? next_ + 1 : entries_.front().event.sequence;
         out.source_epoch = epoch_;
+        out.media = media_;
+        out.recognition_deferred = recognition_deferred_;
+        out.recognition_reason = recognition_reason_;
+        out.tracking = tracking_;
         out.resync = resync_;
         out.dropped = dropped_;
         out.filtered = filtered_;
         out.journal_bytes = journal_bytes();
         out.preview_bytes = preview_bytes();
+        out.scene_error = scene_error_;
+        out.scene_observed_at = scene_at_;
+        if (scene_valid_)
+            out.scene = scene_.snapshot();
         for (const auto &e : entries_)
             out.events.push_back(e.event);
         for (const auto &f : frames_)

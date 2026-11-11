@@ -338,7 +338,7 @@ void click_glide_matrix(kairo::Executor &executor) {
             check(old.failed && f.env->glide.moves.empty() && f.env->glide.click_calls == 0);
         }
         const auto result = f.click(args);
-        const bool success = mode == 0 || mode == 6;
+        const bool success = mode == 0 || mode == 3 || mode == 6;
         check(result.failed != success);
         if (mode == 2)
             expect_honest_receipt(result, "deadline_exceeded", true);
@@ -358,7 +358,7 @@ void click_glide_matrix(kairo::Executor &executor) {
         const auto found = std::find_if(exposed.begin(), exposed.end(), [](const auto &tool) {
             return tool.wire_name == "desktop.vision.click";
         });
-        check(found != exposed.end() && found->version == mira::SemanticVersion{4, 0, 0});
+        check(found != exposed.end() && found->version == mira::SemanticVersion{5, 0, 0});
         check(!found->parameters_schema.root.find("properties")->find("glide_ms"));
     }
 }
@@ -387,7 +387,7 @@ void region_glide_matrix() {
             check(old.failed && f.env->glide.moves.empty() && f.env->glide.click_calls == 0);
         }
         const auto result = f.click(args);
-        const bool success = mode == 0 || mode == 6 || mode == 7;
+        const bool success = mode == 0 || mode == 3 || mode == 6 || mode == 7;
         check(result.failed != success);
         if (mode == 2)
             expect_honest_receipt(result, "deadline_exceeded", true);
@@ -404,7 +404,7 @@ void region_glide_matrix() {
         const auto found = std::find_if(exposed.begin(), exposed.end(), [](const auto &tool) {
             return tool.wire_name == "desktop.vision.click_region";
         });
-        check(found != exposed.end() && found->version == mira::SemanticVersion{4, 0, 0});
+        check(found != exposed.end() && found->version == mira::SemanticVersion{5, 0, 0});
         check(!found->parameters_schema.root.find("properties")->find("glide_ms"));
     }
 }

@@ -225,7 +225,7 @@ void frame_churn_keeps_pixel_storage_bounded() {
     MIRAGE_CHECK(wait_until([&] { return host.stats().live_generations == 0; }));
 }
 
-void timeout_pauses_until_explicit_demand() {
+void timeout_degrades_and_sampling_continues() {
     ExecutorOwner owner;
     std::atomic_int calls{0};
     auto config = options();
@@ -243,16 +243,22 @@ void timeout_pauses_until_explicit_demand() {
     std::string error;
     MIRAGE_CHECK(host.start(error));
     MIRAGE_CHECK(host.set_demand(true, error));
-    MIRAGE_CHECK(wait_until([&] { return host.stats().state == State::TimedOut; }));
-    MIRAGE_CHECK(host.stats().timed_out_frames == 1);
-    MIRAGE_CHECK(!host.latest());
-    std::this_thread::sleep_for(30ms);
-    MIRAGE_CHECK(calls == 1);
-    MIRAGE_CHECK(host.set_demand(true, error));
+    // DEC-116: one timed-out sample only degrades the feed — the host keeps
+    // sampling instead of pausing, reports the real timeout, and the next
+    // cooperative capture publishes. Re-demanding resets the failure budget.
+    MIRAGE_CHECK(wait_until([&] { return host.stats().timed_out_frames == 1; }));
     MIRAGE_CHECK(wait_until([&] { return bool(host.latest()); }));
+    MIRAGE_CHECK(host.stats().state == State::Sampling);
+    MIRAGE_CHECK(host.stats().error.code == "capture_timeout");
+    MIRAGE_CHECK(host.stats().timed_out_frames == 1 && host.stats().published_frames == 1);
+    MIRAGE_CHECK(host.set_demand(false, error));
+    MIRAGE_CHECK(!host.latest());
+    MIRAGE_CHECK(host.set_demand(true, error));
+    MIRAGE_CHECK(wait_until([&] { return host.stats().published_frames >= 2; }));
+    MIRAGE_CHECK(host.stats().state == State::Sampling);
 }
 
-void failure_and_invalid_pixels_pause() {
+void single_failure_degrades_and_budget_stops_feed() {
     ExecutorOwner owner;
     for (int mode = 0; mode < 5; ++mode) {
         ContinuousCaptureHost host(
@@ -276,14 +282,66 @@ void failure_and_invalid_pixels_pause() {
         std::string error;
         MIRAGE_CHECK(host.start(error));
         MIRAGE_CHECK(host.set_demand(true, error));
+        // DEC-116: the first failed sample degrades without stopping the host —
+        // state stays Sampling with the real error reported while the worker
+        // keeps sampling.
+        MIRAGE_CHECK(wait_until([&] { return host.stats().failed_frames == 1; }));
+        MIRAGE_CHECK(host.stats().state == State::Sampling);
+        MIRAGE_CHECK(host.stats().error.code ==
+                     (mode == 0 ? "permission_denied" : "invalid_capture"));
+        MIRAGE_CHECK(wait_until([&] { return host.stats().capture_calls >= 2; }));
+        MIRAGE_CHECK(host.stats().state == State::Sampling); // sampling continues past one failure
+        // A retry may already reserve its bounded in-flight frame budget.
+        // No invalid frame is published; terminal accounting below must be zero.
+        MIRAGE_CHECK(!host.latest());
+        MIRAGE_CHECK(host.stats().live_pixel_bytes <= options().max_frame_bytes);
+        // Sustained failure stops only this advisory feed at the 20-sample
+        // budget; every failed sample before it stays a degraded report.
         MIRAGE_CHECK(wait_until([&] { return host.stats().state == State::Failed; }));
         MIRAGE_CHECK(!host.latest());
-        MIRAGE_CHECK(host.stats().failed_frames == 1);
-        MIRAGE_CHECK(host.stats().capture_calls == 1);
+        MIRAGE_CHECK(host.stats().capture_calls == 20);
+        MIRAGE_CHECK(host.stats().failed_frames == 20);
         MIRAGE_CHECK(host.stats().live_pixel_bytes == 0);
         MIRAGE_CHECK(host.stats().error.code ==
                      (mode == 0 ? "permission_denied" : "invalid_capture"));
     }
+}
+
+// DEC-116: success clears the consecutive-failure budget. Fifteen failures,
+// one success, fifteen more failures: a cumulative count would have crossed
+// the 20-sample stop budget long before the second streak ends.
+void success_resets_consecutive_failure_budget() {
+    ExecutorOwner owner;
+    std::atomic_int calls{0};
+    ContinuousCaptureHost host(
+        owner.executor, "budget-reset",
+        [&](const auto &, const auto &) {
+            const auto n = ++calls;
+            if ((n <= 15) || (n >= 17 && n <= 31))
+                return desktop::CaptureOutcome{false, false, {}, {"source_lost", "transient"}};
+            return pixels(static_cast<std::uint64_t>(n));
+        },
+        options());
+    std::string error;
+    MIRAGE_CHECK(host.start(error));
+    MIRAGE_CHECK(host.set_demand(true, error));
+    MIRAGE_CHECK(wait_until([&] { return host.stats().failed_frames == 15; }));
+    MIRAGE_CHECK(host.stats().state == State::Sampling);
+    MIRAGE_CHECK(host.stats().error.code == "source_lost");
+    std::shared_ptr<const SharedCaptureFrame> recovered;
+    MIRAGE_CHECK(wait_until([&] {
+        recovered = host.latest();
+        return bool(recovered);
+    }));
+    MIRAGE_CHECK(recovered && recovered->image.source_sequence == 16);
+    MIRAGE_CHECK(host.stats().published_frames == 1);
+    // The second streak runs to 15 consecutive failures — 30 cumulative — and
+    // the host is still sampling: only consecutive failures count.
+    MIRAGE_CHECK(wait_until([&] { return host.stats().failed_frames == 30; }));
+    MIRAGE_CHECK(host.stats().state == State::Sampling);
+    MIRAGE_CHECK(host.stats().capture_calls >= 31);
+    MIRAGE_CHECK(wait_until([&] { return host.stats().published_frames == 2; }));
+    MIRAGE_CHECK(host.stats().state == State::Sampling);
 }
 
 void exception_visible_to_executor() {
@@ -432,8 +490,9 @@ int main() {
     retained_generations_backpressure_before_capture();
     slow_capture_coalesces_and_revoke_discards_late_result();
     frame_churn_keeps_pixel_storage_bounded();
-    timeout_pauses_until_explicit_demand();
-    failure_and_invalid_pixels_pause();
+    timeout_degrades_and_sampling_continues();
+    single_failure_degrades_and_budget_stops_feed();
+    success_resets_consecutive_failure_budget();
     exception_visible_to_executor();
     stop_and_executor_shutdown_cancel_in_flight();
     admission_and_shared_view_validation();

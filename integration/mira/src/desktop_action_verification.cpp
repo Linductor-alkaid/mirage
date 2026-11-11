@@ -107,7 +107,7 @@ JsonValue DesktopActionVerification::summary(const Record &r) const {
         {"window_id", r.window},
         {"application_id", r.application_id},
         {"status", r.status},
-        {"policy_version", 3},
+        {"policy_version", 4},
         {"recovery_status", !r.uncertain                                  ? "not_required"
                             : r.status == "verified"                      ? "condition_observed"
                             : r.recovery_observed && r.recovery_replanned ? "replanned"
@@ -487,7 +487,7 @@ void DesktopActionVerification::observe(Record &r, const mira::OperationContext 
                 r.reason = "semantic_unavailable";
                 return;
             }
-            const auto tree = accessibility->semantic_snapshot(r.window, {4096}, bounded);
+            const auto tree = accessibility->semantic_snapshot(r.window, {4096, 0, {}}, bounded);
             if (!tree.ok || tree.cancelled || tree.snapshot.nodes.size() > 4096) {
                 r.reason = "semantic_unavailable";
                 return;
@@ -968,6 +968,9 @@ DesktopActionVerification::execute(const std::string &name, const JsonValue &arg
             parsed ? parsed.value().find("side_effect_may_have_occurred") : nullptr;
         r.uncertain = r.uncertain || !effects || !effects->as_boolean() || *effects->as_boolean() ||
                       !flag(parsed.value(), "input_released");
+        const auto *press = parsed ? parsed.value().find("press_dispatched") : nullptr;
+        if (press && press->as_boolean() == false && r.input_released)
+            r.uncertain = false; // Movement is observable; the requested press was not dispatched.
         r.status = r.uncertain ? "uncertain" : "rejected";
         auto code = parsed ? field(parsed.value(), "error_code") : "";
         conversation::truncate_text(code, 64);
@@ -1231,9 +1234,6 @@ bool DesktopActionVerification::settle() {
            });
 }
 void DesktopActionVerification::project(std::vector<conversation::Part> &parts) const {
-    std::size_t total = 0;
-    for (const auto &part : parts)
-        total += part.text.size() + part.input.size() + part.output.size();
     for (auto &part : parts) {
         if (!mutation(part.name) || part.output.empty())
             continue;
@@ -1259,15 +1259,20 @@ void DesktopActionVerification::project(std::vector<conversation::Part> &parts) 
             if (key == "verified")
                 value = JsonValue{record->status == "verified"};
         }
-        total -= part.output.size();
         part.output = mira::to_json_string(JsonValue{std::move(object)});
-        const auto available =
-            total < conversation::max_content_bytes ? conversation::max_content_bytes - total : 0;
-        part.truncated = conversation::truncate_text(
-                             part.output, std::min(available, conversation::max_part_text)) ||
-                         part.truncated;
-        total += part.output.size();
+        if (part.output.size() > conversation::max_part_text) {
+            // Keep the receipt parseable: cutting JSON would hide the owned
+            // verification precisely when a large tool output fills its row.
+            part.output = mira::to_json_string(
+                JsonValue{JsonValue::Object{{"action_id", record->id},
+                                            {"window_id", record->window},
+                                            {"verification", summary(*record)},
+                                            {"verified", record->status == "verified"},
+                                            {"omitted_for_display_budget", true}}});
+            part.truncated = part.omitted_for_display_budget = true;
+        }
     }
+    conversation::bound_parts(parts);
 }
 mira::Result<void> DesktopActionVerification::validate_request(const mira::ModelRequest &request,
                                                                const mira::OperationContext &ctx) {

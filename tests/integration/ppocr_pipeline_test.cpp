@@ -153,6 +153,38 @@ void yolo_contract(kairo::Executor &executor, const std::filesystem::path &dir) 
     MIRAGE_CHECK(!pipeline->mark({}, {}, std::chrono::steady_clock::now() - std::chrono::seconds(1))
                       .analyzed);
     pipeline->stop();
+    // DEC-126: actual NCNN backends are selected independently in async mode.
+    auto adaptive = Pipeline::create(executor, *env.screen(), manifest, error, 1000, false, true);
+    MIRAGE_CHECK(adaptive);
+    if (adaptive) {
+        mirage::desktop::ImageFrame image;
+        image.width = image.height = 64;
+        image.stride = 64 * 4;
+        image.pixels.assign(64 * 64 * 4, 100);
+        const auto observe = [&](const mirage::integration::PerceptionRecognitionWork &work) {
+            return adaptive->observe_image(
+                image, "adaptive-native", {}, {}, deadline(),
+                std::chrono::steady_clock::now() - std::chrono::milliseconds(1), 1, work);
+        };
+        const auto bootstrap = observe({});
+        MIRAGE_CHECK(bootstrap.ok && bootstrap.objects_complete && bootstrap.recognition &&
+                     bootstrap.recognition->detector);
+        MIRAGE_CHECK(adaptive->backend_calls() == 1 && adaptive->detector_calls() == 1);
+        mirage::integration::PerceptionRecognitionWork work;
+        work.roi = mirage::desktop::WindowGeometry{16, 16, 32, 32};
+        work.detector = false;
+        const auto text_only = observe(work);
+        MIRAGE_CHECK(text_only.ok && !text_only.objects_complete && text_only.objects.empty());
+        MIRAGE_CHECK(adaptive->backend_calls() == 2 && adaptive->detector_calls() == 1);
+        work.ocr = false;
+        work.detector = true;
+        const auto detect_only = observe(work);
+        MIRAGE_CHECK(detect_only.ok && !detect_only.objects_complete &&
+                     detect_only.events.size() == 1 && !detect_only.events.front().confirmed);
+        MIRAGE_CHECK(adaptive->backend_calls() == 2 && adaptive->detector_calls() == 2);
+        adaptive->stop();
+    }
+
     MIRAGE_CHECK(!pipeline->running() && pipeline->registry().size() == 0);
     pipeline.reset();
     // Explicit ROI capture maps local results to ROI origin, including negative x.
@@ -461,14 +493,15 @@ class OcrScript final : public mira::IModelProvider {
 };
 void service_contract(const std::filesystem::path &dir, const std::filesystem::path &manifest) {
     using namespace mirage;
-    for (const int mode : {0, 1, 2, 3, 4}) {
+    for (const int mode : {0, 1, 2, 3, 4, 5}) {
         const bool deny = mode == 1;
         runtime::ServiceConfig config;
         const auto base = dir / (mode == 0   ? "allowed"
                                  : mode == 1 ? "denied"
                                  : mode == 2 ? "failed"
                                  : mode == 3 ? "invalid-model"
-                                             : "native");
+                                 : mode == 4 ? "native"
+                                             : "native-layered");
         std::filesystem::create_directories(base);
         config.socket_path = (base / "service.sock").string();
         config.recovery_directory = base / "recovery";
@@ -495,8 +528,14 @@ void service_contract(const std::filesystem::path &dir, const std::filesystem::p
         env->failures.capture_error = mode == 2;
         auto native = std::make_shared<NativeOcrEnvironment>();
         std::shared_ptr<desktop::DesktopEnvironment> bound =
-            mode == 4 ? std::static_pointer_cast<desktop::DesktopEnvironment>(native)
+            mode >= 4 ? std::static_pointer_cast<desktop::DesktopEnvironment>(native)
                       : std::static_pointer_cast<desktop::DesktopEnvironment>(env);
+        // Mode 5 exercises Linux production defaults without experimental flags.
+        // The other scenarios explicitly cover the legacy rollback path.
+        if (mode != 5) {
+            config.perception_recognition_refresh_ms = 0;
+            config.perception_async_recognition = config.perception_object_tracking = false;
+        }
         runtime::RuntimeService service(config);
         const auto started =
             service.start(std::make_shared<integration::MiraEnvironmentBinding>(bound));
@@ -532,11 +571,11 @@ void service_contract(const std::filesystem::path &dir, const std::filesystem::p
             if (const auto *view = std::get_if<runtime::ipc::DialogHistory>(&history.payload);
                 history.ok && view && !view->turns.empty() &&
                 view->turns.back().status != "pending") {
-                if (view->turns.back().status != (mode == 0 || mode == 4 ? "ok" : "failed"))
+                if (view->turns.back().status != (mode == 0 || mode >= 4 ? "ok" : "failed"))
                     std::cerr << "mode=" << mode << " status=" << view->turns.back().status
                               << " error=" << view->turns.back().error << '\n';
                 MIRAGE_CHECK(view->turns.back().status ==
-                             (mode == 0 || mode == 4 ? "ok" : "failed"));
+                             (mode == 0 || mode >= 4 ? "ok" : "failed"));
                 for (const auto &part : view->turns.back().parts)
                     if (part.kind == "tool" && part.name == "desktop.vision.ocr")
                         MIRAGE_CHECK(part.output.find("中A") == std::string::npos);
@@ -548,19 +587,116 @@ void service_contract(const std::filesystem::path &dir, const std::filesystem::p
         MIRAGE_CHECK(settled);
         service.request_shutdown();
         MIRAGE_CHECK(service.run().clean);
-        MIRAGE_CHECK(env->capture_calls == (mode == 4 || deny ? 0 : 2));
-        if (mode == 4) {
+        MIRAGE_CHECK(env->capture_calls == (mode >= 4 || deny ? 0 : 2));
+        if (mode >= 4) {
             // DEC-115 can sample the authorized session in the background.
             // Preserve the single session/close contract without fixing the
             // number of captures to the foreground OCR request alone.
             MIRAGE_CHECK(native->captured >= 1);
+            if (native->opened != 1 || native->closed != 1)
+                std::cerr << "native lifecycle mode=" << mode << " opened=" << native->opened
+                          << " closed=" << native->closed << " captures=" << native->captured
+                          << '\n';
             MIRAGE_CHECK(native->opened == 1 && native->closed == 1);
         }
         MIRAGE_CHECK(script && script->exposed && script->saw_result);
-        MIRAGE_CHECK(script->result_failed == (mode != 0 && mode != 4));
-        MIRAGE_CHECK(script->saw_text == (mode == 0 || mode == 4));
+        MIRAGE_CHECK(script->result_failed == (mode != 0 && mode < 4));
+        MIRAGE_CHECK(script->saw_text == (mode == 0 || mode >= 4));
     }
 }
+// Exercise the actual product create/configuration boundary with small NCNN
+// fixture networks. This proves wiring and backend counts, not model quality.
+void deferred_product_recognition(kairo::Executor &executor, const std::filesystem::path &dir) {
+    using namespace std::chrono_literals;
+    mirage::testing::FakeDesktopEnvironment env;
+    auto manifest = fixture(dir, false);
+    for (const auto &[refresh, tracking] :
+         {std::pair{0, false}, std::pair{5000, false}, std::pair{5000, true}}) {
+        std::string error;
+        auto pipeline = mirage::integration::PpOcrPipeline::create(
+            executor, *env.screen(), manifest, error, refresh, tracking);
+        MIRAGE_CHECK(pipeline && error.empty());
+        if (!pipeline)
+            continue;
+        mirage::desktop::ImageFrame frame;
+        frame.width = frame.height = 320;
+        frame.stride = 1280;
+        frame.pixels.assign(frame.stride * frame.height, 10);
+        const auto observe = [&](int luma) {
+            if (luma >= 0)
+                for (int y = 0; y < 320; ++y)
+                    for (int x = 200; x < 320; ++x) {
+                        auto *p = frame.pixels.data() + y * frame.stride + x * 4;
+                        p[0] = p[1] = p[2] = static_cast<std::uint8_t>(luma);
+                    }
+            ++frame.source_sequence;
+            return pipeline->observe_image(frame, "product-deferred", {}, {},
+                                           std::chrono::steady_clock::now() + 3s);
+        };
+        MIRAGE_CHECK(observe(-1).ok);
+        MIRAGE_CHECK(observe(100).ok);
+        const auto active = observe(140);
+        MIRAGE_CHECK(active.ok && active.media.active);
+        MIRAGE_CHECK(active.tracking.has_value() == tracking);
+        const auto count = pipeline->backend_calls();
+        MIRAGE_CHECK(count == 3);
+        for (int luma : {180, 220}) {
+            const auto s = observe(luma);
+            MIRAGE_CHECK(s.ok && !s.skipped && s.recognition_deferred == (refresh != 0));
+            MIRAGE_CHECK(s.tracking.has_value() == tracking);
+        }
+        MIRAGE_CHECK(pipeline->backend_calls() == count + (refresh ? 0 : 2));
+        MIRAGE_CHECK(env.capture_calls == 0); // recovery/sampling use already-owned pixels
+        MIRAGE_CHECK(pipeline
+                         ->read_image_ocr(frame, {}, std::chrono::steady_clock::now() + 3s,
+                                          "explicit-product-read")
+                         .ok);
+        MIRAGE_CHECK(pipeline->backend_calls() == count + (refresh ? 1 : 3));
+        pipeline->stop();
+    }
+}
+void externally_sampled_product_recognition(kairo::Executor &executor,
+                                            const std::filesystem::path &dir) {
+    using namespace std::chrono_literals;
+    using Clock = std::chrono::steady_clock;
+    mirage::testing::FakeDesktopEnvironment env;
+    const auto manifest = fixture(dir, false);
+    std::string error;
+    auto pipeline = mirage::integration::PpOcrPipeline::create(executor, *env.screen(), manifest,
+                                                               error, 5000, true, true);
+    MIRAGE_CHECK(pipeline && error.empty());
+    if (!pipeline)
+        return;
+    mirage::desktop::ImageFrame frame;
+    frame.width = frame.height = 320;
+    frame.stride = 1280;
+    frame.pixels.assign(frame.stride * frame.height, 10);
+    std::uint64_t epoch = 0;
+    for (int luma : {10, 100, 140, 180, 220}) {
+        for (int y = 0; y < 320; ++y)
+            for (int x = 200; x < 320; ++x)
+                for (int c = 0; c < 3; ++c)
+                    frame.pixels[y * frame.stride + x * 4 + c] = static_cast<std::uint8_t>(luma);
+        ++frame.source_sequence;
+        const auto captured = Clock::now() - 10ms;
+        const auto sample =
+            pipeline->observe_image(frame, "external", {}, {}, Clock::now() + 2s, captured, 1);
+        MIRAGE_CHECK(sample.ok && !sample.skipped && !sample.recognition_deferred);
+        MIRAGE_CHECK(!sample.tracking); // Tracker belongs only to capture owner.
+        for (const auto &event : sample.events)
+            MIRAGE_CHECK(event.observed_at == captured);
+        epoch = sample.source_epoch;
+    }
+    MIRAGE_CHECK(pipeline->backend_calls() == 5);
+    const auto reset =
+        pipeline->observe_image(frame, "external", {}, {}, Clock::now() + 2s, Clock::now(), 2);
+    MIRAGE_CHECK(reset.ok && reset.source_epoch > epoch);
+    MIRAGE_CHECK(pipeline->backend_calls() == 6);
+    MIRAGE_CHECK(pipeline->read_image_ocr(frame, {}, Clock::now() + 2s, "foreground-external").ok);
+    MIRAGE_CHECK(pipeline->backend_calls() == 7 && env.capture_calls == 0);
+    pipeline->stop();
+}
+
 } // namespace
 int main(int argc, char **argv) {
     kairo::Executor executor;
@@ -594,6 +730,21 @@ int main(int argc, char **argv) {
         };
     }
     std::string error;
+    MIRAGE_CHECK(!mirage::integration::PpOcrPipeline::create(executor, *env.screen(), manifest,
+                                                             error, 0, true));
+    MIRAGE_CHECK(error.find("requires") != std::string::npos);
+    MIRAGE_CHECK(!mirage::integration::PpOcrPipeline::create(executor, *env.screen(), manifest,
+                                                             error, 0, false, true));
+    MIRAGE_CHECK(error.find("requires") != std::string::npos);
+    for (const int refresh : {-1, 99, 5001}) {
+        MIRAGE_CHECK(!mirage::integration::PpOcrPipeline::create(executor, *env.screen(), manifest,
+                                                                 error, refresh));
+        MIRAGE_CHECK(error.find("0 or 100..5000") != std::string::npos);
+    }
+    if (argc == 1 && mirage::integration::PpOcrPipeline::supported()) {
+        deferred_product_recognition(executor, dir / "deferred-product");
+        externally_sampled_product_recognition(executor, dir / "external-product");
+    }
     auto pipeline =
         mirage::integration::PpOcrPipeline::create(executor, *env.screen(), manifest, error);
     if (!mirage::integration::PpOcrPipeline::supported()) {

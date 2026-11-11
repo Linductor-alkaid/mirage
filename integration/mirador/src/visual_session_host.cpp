@@ -1,5 +1,7 @@
 #include "image_ocr_validation.hpp"
+#include "layered_visual_sampler.hpp"
 #include "visual_mark_renderer.hpp"
+#include "visual_object_tracking.hpp"
 #include <mirage/integration/visual_session_host.hpp>
 
 #include <kairo/comm/mailbox.hpp>
@@ -34,6 +36,7 @@ struct RequestState {
 
     // Producers inspect this while settlement releases mutable payloads.
     const bool background;
+    std::atomic<bool> settled{false}; // published before promise readiness
     VisualAnalysisRequest request;
     std::optional<VisualContinuousQuery> query;
     desktop::CancelToken cancel; ///< latest-wins / stop cancellation channel
@@ -48,6 +51,7 @@ void settle(RequestState &state, VisualAnalysisResult result) {
     state.request.frame = {};
     state.request.continuous.reset();
     state.query.reset();
+    state.settled.store(true, std::memory_order_release);
     try {
         state.done.set_value(std::move(result));
     } catch (...) {
@@ -171,6 +175,9 @@ struct detail::VisualSessionCore {
     VisualTemplateIndex templates;
     /// Experimental coordination remains on this same worker. It stores no pixels.
     std::optional<mirador::ContinuousPerception> coordinator;
+    // DEC-123: worker-only state, private Experimental dependency boundary.
+    detail::VisualObjectTracking tracking;
+    std::uint64_t tracking_policy_revision = 0;
     std::uint64_t source_revision = 0, last_continuous_sequence = 0;
     std::int32_t last_width = 0, last_height = 0;
     mirador::Rotation last_rotation = mirador::Rotation::k0;
@@ -185,6 +192,11 @@ struct detail::VisualSessionCore {
     };
     // One 64x64 grayscale signature (4096 bytes), serial worker only.
     std::optional<BackgroundBaseline> background_baseline;
+    // Opt-in adjacent-CV baseline, independent of recognition/coverage state.
+    std::optional<BackgroundBaseline> sampling_baseline;
+    std::optional<mirador::ChangeReport> presented_change;
+    int cv_source_width = 0, cv_source_height = 0;
+    mirador::Rotation cv_source_rotation = mirador::Rotation::k0;
     bool assets_enrolled = false; // Only touched by this source worker.
 
     std::mutex mutex;
@@ -204,6 +216,38 @@ struct detail::VisualSessionCore {
 
 namespace {
 
+mirador::Result<mirador::ChangeSignature> source_signature(const mirador::Frame &source,
+                                                           const mirador::ImageView &cv) {
+    mirador::ChangeDetectionParams params;
+    params.fingerprint_early_exit = false;
+    auto signature = mirador::make_change_signature(cv, params);
+    if (!signature)
+        return signature.status();
+    // Public signature metadata maps its compact comparison grid back to the
+    // recognition source. This signature NEVER enters capability cache keys.
+    auto result = signature.take_value();
+    result.frame_width = source.image.width;
+    result.frame_height = source.image.height;
+    return result;
+}
+void map_change(mirador::ChangeReport &change, const mirador::ImageView &from,
+                const mirador::ImageView &to) {
+    for (auto &r : change.changed_regions) {
+        const auto b = detail::map_image_bounds({r.x, r.y, r.width, r.height}, from.width,
+                                                from.height, to.width, to.height);
+        r = {b.x, b.y, b.width, b.height};
+    }
+}
+void map_tracks(PerceptionTracking &tracking, const mirador::ImageView &from,
+                const mirador::ImageView &to) {
+    for (auto &track : tracking.tracks)
+        track.bounds =
+            detail::map_image_bounds(track.bounds, from.width, from.height, to.width, to.height);
+    for (auto &candidate : tracking.candidates)
+        candidate =
+            detail::map_image_bounds(candidate, from.width, from.height, to.width, to.height);
+}
+
 void publish_request(detail::VisualSessionCore &core, const std::shared_ptr<RequestState> &state) {
     std::shared_ptr<RequestState> superseded;
     bool accepted = false, foreground_priority = false;
@@ -212,12 +256,15 @@ void publish_request(detail::VisualSessionCore &core, const std::shared_ptr<Requ
         // Keep the transport order and queued identity identical across producers.
         // A failed bounded publication leaves the previous command untouched.
         const auto is_background = [](const auto &item) { return item && item->background; };
-        const bool foreground_busy = (!is_background(core.queued) && bool(core.queued)) ||
-                                     (!is_background(core.in_flight) && bool(core.in_flight));
+        const auto active = [](const auto &item) {
+            return item && !item->settled.load(std::memory_order_acquire);
+        };
+        const bool foreground_busy = (!is_background(core.queued) && active(core.queued)) ||
+                                     (!is_background(core.in_flight) && active(core.in_flight));
         foreground_priority = is_background(state) && foreground_busy;
         if (core.accepting && !foreground_priority && core.mailbox.try_publish(state)) {
             superseded = std::move(core.queued);
-            if (core.in_flight)
+            if (active(core.in_flight))
                 core.in_flight->cancel.request_cancel();
             core.queued = state;
             accepted = true;
@@ -454,6 +501,114 @@ plan_spatial(detail::VisualSessionCore &core, const VisualAnalysisRequest &reque
     return output;
 }
 
+// CV-only product scheduling boundary. No PerceptionSession/coordinator call:
+// an empty fusion/plan would incorrectly turn unrecognized pixels into state.
+void execute_sample(detail::VisualSessionCore &core, RequestState &state,
+                    const mirador::ExecutionContext &context) {
+    const auto &request = state.request;
+    const auto &input = *request.continuous;
+    const auto interrupted = [&] {
+        if (context.is_cancelled && context.is_cancelled()) {
+            settle_cancelled(state, "CV sample cancelled");
+            return true;
+        }
+        if (context.deadline && std::chrono::steady_clock::now() >= *context.deadline) {
+            VisualAnalysisResult result;
+            result.outcome.kind = VisualAnalysisOutcome::Kind::kTimedOut;
+            result.outcome.message = "CV sample expired";
+            settle(state, std::move(result));
+            return true;
+        }
+        return false;
+    };
+    if (interrupted())
+        return;
+    if (!core.coordinator || !core.background_baseline || !core.last_analyzed_frame ||
+        core.source_revision != input.source_revision ||
+        request.frame.sequence <= core.last_continuous_sequence ||
+        request.frame.image.width != core.last_width ||
+        request.frame.image.height != core.last_height ||
+        request.frame.image.rotation != core.last_rotation ||
+        request.analysis_policy_revision != core.background_baseline->policy_revision ||
+        !core.importance || *core.importance != input.importance || core.spatial_mode ||
+        core.evidence_digest == 0 || core.evidence_digest != input.full_frame_evidence_digest ||
+        !core.coordinator->has_attention_policy() ||
+        input.attention.conditions.size() >
+            static_cast<std::size_t>(core.config.continuous->max_focus_conditions) ||
+        !query_policy_fits(input.attention, *core.config.continuous) ||
+        core.coordinator->attention_policy() != input.attention) {
+        settle_rejected(state, "CV sample requires matching completed full-frame bootstrap");
+        return;
+    }
+    mirador::ChangeDetectionParams params;
+    params.fingerprint_early_exit = false;
+    auto compact = detail::cv_work_image(request.frame.image);
+    if (!compact) {
+        settle_failed(state, compact.status());
+        return;
+    }
+    auto cv_frame = request.frame;
+    cv_frame.image = compact.value().view();
+    auto signature = source_signature(request.frame, cv_frame.image);
+    if (!signature) {
+        settle_failed(state, signature.status());
+        return;
+    }
+    const auto &baseline =
+        core.sampling_baseline ? *core.sampling_baseline : *core.background_baseline;
+    auto adjacent = mirador::detect_change(baseline.signature, signature.value(), params);
+    auto cumulative =
+        mirador::detect_change(core.background_baseline->signature, signature.value(), params);
+    if (!adjacent || !cumulative) {
+        settle_failed(state, !adjacent ? adjacent.status() : cumulative.status());
+        return;
+    }
+    VisualAnalysisResult result;
+    result.change = adjacent.take_value();
+    result.sampled = VisualAnalysisResult::SampledFrame{
+        core.source_revision, core.coordinator->source_epoch(), request.frame.sequence,
+        request.analysis_policy_revision, request.frame.timestamp};
+    result.sampling_baseline_sequence = baseline.sequence;
+    result.admission_change = cumulative.take_value();
+    result.admission_baseline_sequence = core.background_baseline->sequence;
+    result.cache_stats.background_signature_bytes =
+        core.background_baseline->signature.thumbnail.byte_size();
+    result.cache_stats.sampling_signature_bytes = signature.value().thumbnail.byte_size();
+    result.cache_stats.frame_cache_bytes = core.session.frame_cache().byte_size();
+    result.cache_stats.frame_cache_entries = core.session.frame_cache().entry_count();
+    result.cache_stats.result_cache_bytes = core.session.result_cache().byte_size();
+    result.cache_stats.result_cache_entries = core.session.result_cache().entry_count();
+    result.cache_stats.template_index_bytes = core.templates.byte_size();
+    result.cache_stats.template_index_entries = core.templates.entry_count();
+    result.cache_stats.continuous_coordination_bytes = core.coordinator->coordination_owned_bytes();
+    result.outcome.kind = VisualAnalysisOutcome::Kind::kSampled;
+    result.outcome.message = "CV sampled; recognition and semantic state not advanced";
+    if (interrupted())
+        return;
+    if (core.config.enable_object_tracking) {
+        auto cv_change = result.change;
+        map_change(cv_change, request.frame.image, cv_frame.image);
+        auto tracked = core.tracking.sample(cv_frame, cv_change, context);
+        if (!tracked) {
+            settle_failed(state, tracked.status());
+            return;
+        }
+        result.tracking = tracked.take_value();
+        map_tracks(*result.tracking, cv_frame.image, request.frame.image);
+        result.tracking->source_epoch = core.coordinator->source_epoch();
+    }
+    if (interrupted()) {
+        core.tracking.reset();
+        return;
+    }
+    // No allocating work after this commit point. Cancellation/failure above
+    // leaves both baseline and admission sequence untouched.
+    core.sampling_baseline = detail::VisualSessionCore::BackgroundBaseline{
+        signature.take_value(), request.frame.sequence, request.analysis_policy_revision};
+    core.last_continuous_sequence = request.frame.sequence;
+    settle(state, std::move(result));
+}
+
 /// Runs the requested capabilities serially on the session: template
 /// enrollment, change gating, geometry proposals, OCR, detection (optionally
 /// ROI-split per geometry proposal), template probes at the detection
@@ -476,11 +631,85 @@ void execute(detail::VisualSessionCore &core, RequestState &state) {
         return internal.cancelled() || external.cancelled();
     };
 
+    if (request.sample_only) {
+        execute_sample(core, state, context);
+        return;
+    }
+
+    if (request.regional_only) {
+        VisualAnalysisResult result;
+        if (request.run_ocr) {
+            auto text =
+                core.session.run_ocr(request.frame, core.config.ocr_backend, request.ocr, context);
+            if (!text) {
+                settle_failed(state, text.status());
+                return;
+            }
+            result.text = text.take_value();
+            if (result.text.size() > 32) {
+                settle_failed(state, {mirador::ErrorCode::kBudgetExceeded,
+                                      "regional text count budget exceeded"});
+                return;
+            }
+        }
+        if (request.run_detector) {
+            auto detections = core.session.run_detector(request.frame, core.config.detector_backend,
+                                                        request.detector, context);
+            if (!detections) {
+                settle_failed(state, detections.status());
+                return;
+            }
+            result.detections = detections.take_value();
+        }
+        if (result.text.size() + result.detections.size() > 32) {
+            settle_failed(state, {mirador::ErrorCode::kBudgetExceeded,
+                                  "regional evidence count budget exceeded"});
+            return;
+        }
+        if (mirador::is_cancelled(context) ||
+            (context.deadline && std::chrono::steady_clock::now() >= *context.deadline)) {
+            settle_failed(state, {mirador::is_cancelled(context) ? mirador::ErrorCode::kCancelled
+                                                                 : mirador::ErrorCode::kTimeout,
+                                  "regional recognition interrupted before publication"});
+            return;
+        }
+        result.outcome.kind = VisualAnalysisOutcome::Kind::kCompleted;
+        result.cache_stats.frame_cache_bytes = core.session.frame_cache().byte_size();
+        result.cache_stats.frame_cache_entries = core.session.frame_cache().entry_count();
+        result.cache_stats.result_cache_bytes = core.session.result_cache().byte_size();
+        result.cache_stats.result_cache_entries = core.session.result_cache().entry_count();
+        result.cache_stats.template_index_bytes = core.templates.byte_size();
+        result.cache_stats.template_index_entries = core.templates.entry_count();
+        if (core.background_baseline)
+            result.cache_stats.background_signature_bytes =
+                core.background_baseline->signature.thumbnail.byte_size();
+        if (core.sampling_baseline)
+            result.cache_stats.sampling_signature_bytes =
+                core.sampling_baseline->signature.thumbnail.byte_size();
+        if (core.coordinator)
+            result.cache_stats.continuous_coordination_bytes =
+                core.coordinator->coordination_owned_bytes();
+        settle(state, std::move(result));
+        return;
+    }
+
     auto baseline = std::move(core.background_baseline);
     core.background_baseline.reset();
     std::optional<mirador::ChangeSignature> current_signature;
     std::optional<VisualContinuousResult> continuous_result;
     VisualAnalysisResult result;
+    std::optional<mirador::ImageBuffer> cv_pixels;
+    const auto prepare_cv = [&]() -> mirador::Result<mirador::Frame> {
+        if (!cv_pixels) {
+            auto pixels = detail::cv_work_image(request.frame.image);
+            if (!pixels)
+                return pixels.status();
+            cv_pixels = pixels.take_value();
+        }
+        auto frame = request.frame;
+        frame.image = cv_pixels->view();
+        return frame;
+    };
     // Cancellation lands before the first side effect (enrollments mutate
     // session state), never silently swallowed.
     if (context.is_cancelled && context.is_cancelled()) {
@@ -541,8 +770,14 @@ void execute(detail::VisualSessionCore &core, RequestState &state) {
             settle_failed(state, prepared.status());
             return;
         }
-        if (prepared.value())
+        if (prepared.value()) {
             baseline.reset();
+            core.sampling_baseline.reset();
+        }
+        if (prepared.value() || core.tracking_policy_revision != request.analysis_policy_revision) {
+            core.tracking.reset();
+            core.tracking_policy_revision = request.analysis_policy_revision;
+        }
     }
     if (request.probe_geometry_templates) {
         if (!core.assets_enrolled) {
@@ -602,14 +837,32 @@ void execute(detail::VisualSessionCore &core, RequestState &state) {
 
     // ---- change gating
     if (request.analyze_change) {
+        auto cv = prepare_cv();
+        if (!cv) {
+            settle_failed(state, cv.status());
+            return;
+        }
         mirador::Result<mirador::ChangeReport> change =
-            core.session.analyze_change(request.frame, {}, context);
+            core.session.analyze_change(cv.value(), {}, context);
         if (!change.ok()) {
             result.outcome = map_status(change.status());
             settle(state, std::move(result));
             return;
         }
         result.change = change.take_value();
+        map_change(result.change, cv.value().image, request.frame.image);
+        if (core.cv_source_width && (core.cv_source_width != request.frame.image.width ||
+                                     core.cv_source_height != request.frame.image.height ||
+                                     core.cv_source_rotation != request.frame.image.rotation)) {
+            result.change.classification = mirador::ChangeClassification::kGlobal;
+            result.change.reason = mirador::ChangeReason::kBlockDiff;
+            result.change.changed_area_ratio = 1;
+            result.change.changed_regions = {{0, 0, extent.width, extent.height}};
+        }
+        core.cv_source_width = request.frame.image.width;
+        core.cv_source_height = request.frame.image.height;
+        core.cv_source_rotation = request.frame.image.rotation;
+        core.presented_change = result.change;
     }
 
     // Compare optional background work to its last completed analysis, rather
@@ -617,7 +870,12 @@ void execute(detail::VisualSessionCore &core, RequestState &state) {
     if (request.admission == VisualAnalysisAdmission::when_changed || request.background_session) {
         mirador::ChangeDetectionParams params;
         params.fingerprint_early_exit = false;
-        auto signature = mirador::make_change_signature(request.frame.image, params);
+        auto cv = prepare_cv();
+        if (!cv) {
+            settle_failed(state, cv.status());
+            return;
+        }
+        auto signature = source_signature(request.frame, cv.value().image);
         if (!signature) {
             settle_failed(state, signature.status());
             return;
@@ -643,9 +901,16 @@ void execute(detail::VisualSessionCore &core, RequestState &state) {
             result.admission_change->classification == mirador::ChangeClassification::kNone) {
             if (interrupted())
                 return;
+            if (core.sampling_baseline)
+                core.sampling_baseline = detail::VisualSessionCore::BackgroundBaseline{
+                    std::move(*current_signature), request.frame.sequence,
+                    request.analysis_policy_revision};
             core.background_baseline = std::move(baseline);
             result.cache_stats.background_signature_bytes =
                 core.background_baseline->signature.thumbnail.byte_size();
+            if (core.sampling_baseline)
+                result.cache_stats.sampling_signature_bytes =
+                    core.sampling_baseline->signature.thumbnail.byte_size();
             result.outcome.kind = VisualAnalysisOutcome::Kind::kSkippedUnchanged;
             result.outcome.message = "unchanged background screen; no current analysis evidence";
             result.cache_stats.frame_cache_bytes = core.session.frame_cache().byte_size();
@@ -1015,6 +1280,8 @@ void execute(detail::VisualSessionCore &core, RequestState &state) {
             return;
         }
         mirador::SemanticSnapshot enriched = fused.take_value();
+        if (core.presented_change)
+            enriched.change = *core.presented_change;
         for (mirador::VisualRegion &region : enriched.regions) {
             if (!mirador::has_source(region.source_mask, mirador::RegionSource::kTemplate)) {
                 continue;
@@ -1173,19 +1440,50 @@ void execute(detail::VisualSessionCore &core, RequestState &state) {
 
     if (!continuous_result && interrupted())
         return;
-    if (current_signature)
+    if (current_signature) {
+        // The recognition baseline is also the latest successful sample now.
+        // Reset the optional override instead of copying Mirador's move-only
+        // ImageBuffer; the next CV sample compares directly with this baseline.
+        core.sampling_baseline.reset();
         core.background_baseline = detail::VisualSessionCore::BackgroundBaseline{
             std::move(*current_signature), request.frame.sequence,
             request.analysis_policy_revision};
+    }
     if (core.background_baseline)
         result.cache_stats.background_signature_bytes =
             core.background_baseline->signature.thumbnail.byte_size();
+    if (core.sampling_baseline)
+        result.cache_stats.sampling_signature_bytes =
+            core.sampling_baseline->signature.thumbnail.byte_size();
     result.outcome.kind = VisualAnalysisOutcome::Kind::kCompleted;
     if (core.coordinator) {
         core.last_analyzed_frame = request.frame.sequence;
         core.last_analyzed_at = std::chrono::steady_clock::now();
     }
     result.continuous = std::move(continuous_result);
+    if (core.config.enable_object_tracking && result.continuous && result.snapshot) {
+        auto cv = prepare_cv();
+        if (!cv) {
+            core.tracking.reset();
+            result.tracking = PerceptionTracking{};
+            result.tracking->requires_recognition = true;
+            result.tracking->error = mirador::error_code_name(cv.status().code());
+        } else {
+            auto snapshot = *result.snapshot;
+            const auto transform = mirador::make_scale(
+                double(cv.value().image.width) / request.frame.image.width,
+                double(cv.value().image.height) / request.frame.image.height,
+                mirador::CoordinateSpaceId::kOriented, mirador::CoordinateSpaceId::kOriented);
+            for (auto &region : snapshot.regions)
+                region.bounds = mirador::transform_rect(transform, region.bounds);
+            std::erase_if(snapshot.regions,
+                          [](const auto &r) { return r.bounds.width < 8 || r.bounds.height < 8; });
+            result.tracking = core.tracking.seed(cv.value(), snapshot, result.continuous->temporal,
+                                                 result.continuous->events, context);
+            map_tracks(*result.tracking, cv.value().image, request.frame.image);
+        }
+        result.tracking->source_epoch = result.continuous->source_epoch;
+    }
     settle(state, std::move(result));
 }
 
@@ -1296,6 +1594,12 @@ bool VisualSessionHost::start(std::string &error) {
         error = "background analysis requires an image companion";
         return false;
     }
+    if (config_.enable_object_tracking && !config_.continuous &&
+        !config_.enable_background_session) {
+        lifecycle_.store(Lifecycle::New, std::memory_order_release);
+        error = "object tracking requires continuous/background state";
+        return false;
+    }
     if (config_.continuous) {
         const auto &limits = *config_.continuous;
         if (!config_.template_assets.empty() || limits.max_coordination_bytes <= 0 ||
@@ -1389,6 +1693,7 @@ bool VisualSessionHost::start(std::string &error) {
             auto image_config = config_;
             image_config.enable_image_session = false;
             image_config.enable_background_session = false;
+            image_config.enable_object_tracking = companion != 0 && config_.enable_object_tracking;
             image_config.continuous = VisualContinuousConfig{};
             image_config.template_assets.clear();
             image_config.frame_cache_bytes = 1 << 20;
@@ -1444,26 +1749,75 @@ std::future<VisualAnalysisResult> VisualSessionHost::submit(VisualAnalysisReques
     // frame in oriented coordinates, which is only the view's own pixel
     // space for the adapter's rotation-k0 capture form.
     const VisualAnalysisRequest &analysis = state->request;
+    if (analysis.sample_only &&
+        (!analysis.continuous || !analysis.analyze_change || analysis.fuse || analysis.run_ocr ||
+         analysis.run_detector || analysis.geometry.run || analysis.ocr_budget ||
+         analysis.render_marks || !analysis.enrollments.empty() || analysis.probe_templates ||
+         analysis.probe_geometry_templates || analysis.analysis_policy_revision == 0 ||
+         analysis.frame.image.width <= 0 || analysis.frame.image.height <= 0 ||
+         analysis.frame.image.width > 1600 || analysis.frame.image.height > 1600 ||
+         analysis.continuous->full_frame_evidence_digest == 0 ||
+         analysis.continuous->spatial_evidence_digest != 0)) {
+        settle_rejected(*state, "CV sample must disable recognition, fusion and adoption stages");
+        return future;
+    }
     if ((analysis.background_session &&
          (!analysis.image_session || !config_.enable_background_session)) ||
         (analysis.image_session && !config_.enable_image_session)) {
         settle_rejected(*state, "image companion is unavailable");
         return future;
     }
-    if (analysis.continuous.has_value() !=
-        (analysis.image_session || config_.continuous.has_value())) {
+    if (analysis.regional_only) {
+        const auto valid_roi = [&](const auto &r) {
+            return r && std::isfinite(r->x) && std::isfinite(r->y) && std::isfinite(r->width) &&
+                   std::isfinite(r->height) && r->x >= 0 && r->y >= 0 && r->width > 0 &&
+                   r->height > 0 && std::trunc(r->x) == r->x && std::trunc(r->y) == r->y &&
+                   std::trunc(r->width) == r->width && std::trunc(r->height) == r->height &&
+                   double(r->x) + r->width <= analysis.frame.image.width &&
+                   double(r->y) + r->height <= analysis.frame.image.height &&
+                   double(r->width) * r->height <=
+                       double(analysis.frame.image.width) * analysis.frame.image.height / 4;
+        };
+        if (!analysis.background_session || analysis.continuous || analysis.sample_only ||
+            analysis.fuse || analysis.analyze_change || analysis.geometry.run ||
+            analysis.ocr_budget || analysis.render_marks || !analysis.enrollments.empty() ||
+            analysis.probe_templates || analysis.probe_geometry_templates ||
+            !(analysis.run_ocr || analysis.run_detector) || analysis.frame.image.width <= 0 ||
+            analysis.frame.image.height <= 0 || analysis.frame.image.width > 1600 ||
+            analysis.frame.image.height > 1600 ||
+            analysis.frame.image.rotation != mirador::Rotation::k0 ||
+            analysis.admission != VisualAnalysisAdmission::always ||
+            (analysis.run_ocr &&
+             (!valid_roi(analysis.ocr.roi) ||
+              analysis.ocr.roi_space != mirador::CoordinateSpaceId::kOriented ||
+              analysis.ocr.output_space != mirador::CoordinateSpaceId::kOriented ||
+              analysis.ocr.cache_policy != mirador::CachePolicy::kRefresh)) ||
+            (analysis.run_detector &&
+             (!valid_roi(analysis.detector.roi) ||
+              analysis.detector.roi_space != mirador::CoordinateSpaceId::kOriented ||
+              analysis.detector.output_space != mirador::CoordinateSpaceId::kOriented ||
+              analysis.detector.cache_policy != mirador::CachePolicy::kRefresh)) ||
+            (analysis.run_ocr && analysis.run_detector &&
+             analysis.ocr.roi != analysis.detector.roi)) {
+            settle_rejected(*state, "regional recognition requires bounded raw ROI stages");
+            return future;
+        }
+    }
+    if (!analysis.regional_only && analysis.continuous.has_value() !=
+                                       (analysis.image_session || config_.continuous.has_value())) {
         settle_rejected(*state, "continuous requests require a dedicated continuous host");
         return future;
     }
     if (analysis.continuous &&
-        (!analysis.fuse || analysis.continuous->source_revision == 0 ||
+        ((!analysis.fuse && !analysis.sample_only) || analysis.continuous->source_revision == 0 ||
          analysis.frame.sequence == 0 || !std::isfinite(analysis.continuous->importance.priority) ||
          analysis.render_marks || !analysis.enrollments.empty() || analysis.probe_templates ||
          analysis.probe_geometry_templates)) {
         settle_rejected(*state, "continuous background request identity/stages invalid");
         return future;
     }
-    if (analysis.continuous && evidence_digest(*analysis.continuous) != 0 &&
+    if (!analysis.sample_only && analysis.continuous &&
+        evidence_digest(*analysis.continuous) != 0 &&
         (!(analysis.run_ocr || analysis.run_detector) || analysis.ocr_budget ||
          analysis.geometry.run ||
          (analysis.run_ocr &&
@@ -1640,6 +1994,15 @@ void VisualSessionHost::stop() {
         // Requests stop, wakes the worker and joins run(); nothing of the
         // host is touched by the worker after this returns.
         worker_.stop();
+    }
+    // Executor may retain a stopped worker registration. Release new tracking
+    // pools after join, while no source context can touch them again.
+    if (core_) {
+        core_->tracking.reset();
+        if (core_->image_core)
+            core_->image_core->tracking.reset();
+        if (core_->background_core)
+            core_->background_core->tracking.reset();
     }
     for (std::shared_ptr<RequestState> &state : to_settle) {
         settle_cancelled(*state, "visual session host stopped");

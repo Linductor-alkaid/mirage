@@ -267,8 +267,20 @@ desktop::CaptureOutcome capture_cast_frame(CastSession &state, const desktop::Ca
                                    ? "portal_unavailable"
                                : std::chrono::steady_clock::now() >= deadline ? "portal_timeout"
                                                                               : code;
+        // DEC-116: the suffix states the session's actual fate per outcome —
+        // a cancelled or timed-out frame keeps the established sharing for
+        // the next capture instead of claiming a closed session.
+        const auto fate = effective == "portal_session_closed" ? "; sharing session closed"
+                          : effective == "portal_unavailable"  ? "; portal bus unavailable"
+                          : effective == "portal_timeout"
+                              ? "; frame deadline elapsed; the established session stays for "
+                                "the next capture"
+                          : effective == "cancelled"
+                              ? "; capture cancelled; the established session stays for the "
+                                "next capture"
+                              : "; the established session stays for the next capture";
         return failure(effective, std::string("ScreenCast capture failed; stage=") + stage + "; " +
-                                      detail + "; session closed, no reauthorization");
+                                      detail + fate);
     };
     if (bounded.cancelled())
         return rejected("cancelled");
@@ -369,11 +381,14 @@ screencast(Connection connection, const char *sender, const std::string &identit
                                    ? "portal_unavailable"
                                : std::chrono::steady_clock::now() >= deadline ? "portal_timeout"
                                                                               : code;
-        return failure(
-            effective,
-            std::string(interaction ? "RemoteDesktop" : "ScreenCast") +
-                " request failed; stage=" + stage + "; " + detail +
-                "; session closed; check desktop unlock and system sharing authorization");
+        // DEC-116: state the actual outcome. Creation failed, so no sharing
+        // session was established; a cancelled request may simply be retried
+        // by the next capture under the remembered grant.
+        const char *fate = effective == "cancelled" || effective == "portal_timeout"
+                               ? "; no sharing session was established"
+                               : "; check desktop unlock and system sharing authorization";
+        return failure(effective, std::string(interaction ? "RemoteDesktop" : "ScreenCast") +
+                                      " request failed; stage=" + stage + "; " + detail + fate);
     };
     GVariantBuilder options;
     g_variant_builder_init(&options, G_VARIANT_TYPE_VARDICT);
@@ -551,9 +566,9 @@ desktop::InputOutcome shared_input(CastSession &s, const desktop::SharedInputAct
         pointer.x = input.pointer_x;
         pointer.y = input.pointer_y;
     }
-    if (!out.ok && out.side_effect_may_have_occurred &&
-        !(out.error.code == "input_lag" && out.input_released))
-        s.closed = true;
+    // DEC-116: an uncertain input outcome blocks the input route through the
+    // owner's recovery state; it must not close the shared session, which the
+    // task still needs for fresh observation and verification.
     return out;
 }
 #endif
@@ -592,6 +607,9 @@ struct NativeObservation {
     bool attempted = false;
     bool interaction = false;
     bool authorization_only = false;
+    // DEC-116: consecutive session-creation failures; bounds silent
+    // re-establishment churn without ending the task's recovery ability.
+    unsigned creation_failures = 0;
     std::shared_ptr<PortalAuthorization> authorization;
     std::shared_ptr<PresentationContext> presentation;
     std::shared_ptr<PortalPointerState> pointer;
@@ -600,6 +618,20 @@ struct NativeObservation {
     std::unique_ptr<CastSession> cast;
 #endif
 };
+
+// DEC-116: capture-failure classification. "Session fatal" means the portal
+// session or its bus is gone; "stream fatal" means only the PipeWire stream
+// died and can be reopened inside the same authorized session. Everything
+// else — caller cancellation, frame deadlines, single-frame decode failures —
+// leaves the established sharing completely untouched.
+[[maybe_unused]] bool session_fatal(const std::string &code) {
+    return code == "portal_session_closed" || code == "portal_unavailable" ||
+           code == "desktop_authorization_changed";
+}
+[[maybe_unused]] bool stream_fatal(const std::string &code) {
+    return code == "pipewire_unavailable" || code == "invalid_stream_frame" ||
+           code == "unsupported_stream_format";
+}
 
 desktop::CaptureOutcome capture_portal(const desktop::CaptureLimits &limits,
                                        const desktop::CancelToken &cancel,
@@ -614,14 +646,33 @@ desktop::CaptureOutcome capture_portal(const desktop::CaptureLimits &limits,
         auto frame = capture_cast_frame(*retained->cast, limits, cancel,
                                         std::chrono::steady_clock::now() + std::chrono::seconds(5),
                                         retained->presentation, retained->acquire);
-        if (!frame.ok)
-            retained->cast.reset();
+        if (!frame.ok) {
+            // DEC-116: a failed capture is not a dead authorization. Only the
+            // portal session itself is discarded on session-level death; a
+            // broken PipeWire stream is rebuilt inside the same session, and
+            // every other failure keeps the established sharing untouched.
+            if (session_fatal(frame.error.code))
+                retained->cast.reset();
+            else if (stream_fatal(frame.error.code))
+                retained->cast->stream.reset();
+        }
         return frame;
     }
 #endif
-    if (retained && retained->attempted)
-        return failure("portal_session_closed",
-                       "No reusable shared session; no reauthorization in this task");
+    if (retained && retained->attempted) {
+        // DEC-116: inside a running task a lost session is re-established only
+        // through the remembered grant, which replays silently. Anything else
+        // would raise the system sharing dialog mid-task and stays forbidden
+        // (DEC-015). The failure budget bounds repeated re-establishment.
+        auto remembered = retained->authorization && retained->authorization->enabled() &&
+                                  retained->creation_failures < 3
+                              ? retained->authorization->view().remembered
+                              : false;
+        if (!remembered)
+            return failure("portal_session_closed",
+                           "Desktop sharing ended and autonomous re-establishment is unavailable; "
+                           "the user must re-grant desktop sharing outside this task");
+    }
 #ifdef MIRAGE_LINUX_PIPEWIRE
     if (retained)
         retained->attempted = true;
@@ -678,6 +729,9 @@ desktop::CaptureOutcome capture_portal(const desktop::CaptureLimits &limits,
             return failure(consumed.code, consumed.message);
     }
     const bool remote = retained && (retained->interaction || !restore_token.empty());
+    if (!limits.allow_authorization_prompt && restore_token.empty())
+        return failure("desktop_authorization_required",
+                       "Resident capture requires an existing remembered grant");
     if (authorization && remote) {
         const auto property = call(connection.get(), root, "org.freedesktop.DBus.Properties", "Get",
                                    g_variant_new("(ss)", remote_desktop_interface, "version"),
@@ -699,13 +753,24 @@ desktop::CaptureOutcome capture_portal(const desktop::CaptureLimits &limits,
         Variant boxed(g_variant_get_child_value(capability.get(), 0));
         Variant version(g_variant_get_variant(boxed.get()));
         if (g_variant_is_of_type(version.get(), G_VARIANT_TYPE_UINT32) &&
-            g_variant_get_uint32(version.get()) >= 1)
-            return screencast(std::move(connection), sender, identity, limits, cancel, deadline,
-                              retained ? &retained->cast : nullptr, remote,
-                              authorization && remote ? authorization : nullptr, restore_token,
-                              retained && retained->authorization_only,
-                              retained ? retained->presentation : nullptr,
-                              retained ? retained->acquire : desktop::CapturePresentation{});
+            g_variant_get_uint32(version.get()) >= 1) {
+            auto outcome =
+                screencast(std::move(connection), sender, identity, limits, cancel, deadline,
+                           retained ? &retained->cast : nullptr, remote,
+                           authorization && remote ? authorization : nullptr, restore_token,
+                           retained && retained->authorization_only,
+                           retained ? retained->presentation : nullptr,
+                           retained ? retained->acquire : desktop::CapturePresentation{});
+            // DEC-116: a success re-opens the re-establishment budget; each
+            // failure consumes one of the bounded silent attempts.
+            if (retained) {
+                if (outcome.ok)
+                    retained->creation_failures = 0;
+                else
+                    ++retained->creation_failures;
+            }
+            return outcome;
+        }
         return failure("portal_protocol_error",
                        "ScreenCast capability returned an invalid version");
     }
@@ -814,14 +879,12 @@ class PortalObservation final : public desktop::DesktopCaptureSession {
         if (input_supported()) {
             const desktop::CancelToken bounded([&] { return cancel.cancelled() || revoked(); });
             auto out = shared_input(*state_.cast, action, limits, bounded, *state_.pointer);
-            if (out.side_effect_may_have_occurred && !out.ok) {
-                if (out.error.code == "input_lag" && out.input_released) {
-                    input_recovery_.failed(out, state_.cast->observed_pointer_sequence);
-                } else {
-                    failed_ = true;
-                    state_.cast.reset();
-                }
-            }
+            if (out.side_effect_may_have_occurred && !out.ok)
+                // DEC-116: an uncertain input side effect blocks the input
+                // route until fresh observation (input_lag) or for this
+                // session (other transports). It must never destroy the
+                // capture/OCR channel the task still needs to observe with.
+                input_recovery_.failed(out, state_.cast->observed_pointer_sequence);
             if (out.ok && action.kind != desktop::SharedInputAction::Kind::Move)
                 input_recovery_.completed();
             return out;
@@ -835,8 +898,14 @@ class PortalObservation final : public desktop::DesktopCaptureSession {
     }
     desktop::CaptureOutcome capture(const desktop::CaptureLimits &limits,
                                     const desktop::CancelToken &cancel) override {
-        if (failed_)
-            return failure("portal_session_closed", "Sharing session ended; no reauthorization");
+        if (revoked()) {
+#ifdef MIRAGE_LINUX_PIPEWIRE
+            state_.cast.reset();
+#endif
+            return failure("desktop_authorization_changed",
+                           "Desktop authorization changed; the user must re-grant desktop "
+                           "sharing");
+        }
         const desktop::CancelToken bounded([&] { return cancel.cancelled() || revoked(); });
         auto requested = limits;
         if (input_recovery_.awaiting_frame())
@@ -847,12 +916,11 @@ class PortalObservation final : public desktop::DesktopCaptureSession {
             input_recovery_.observe(out.frame.source_sequence);
         if (revoked())
             out = failure("desktop_authorization_changed",
-                          "Desktop authorization changed; start a new task");
-        failed_ = !out.ok;
-#ifdef MIRAGE_LINUX_PIPEWIRE
-        if (!out.ok)
-            state_.cast.reset();
-#endif
+                          "Desktop authorization changed; the user must re-grant desktop "
+                          "sharing");
+        // DEC-116: capture failure is not authorization loss. The portal layer
+        // rebuilds the stream or the session on demand from the remembered
+        // grant; nothing here may end observation for the rest of the task.
         return out;
     }
     desktop::CaptureOutcome
@@ -877,7 +945,6 @@ class PortalObservation final : public desktop::DesktopCaptureSession {
   private:
     NativeObservation state_;
     std::uint64_t generation_ = 0;
-    bool failed_ = false;
     desktop::InputRecovery input_recovery_;
 };
 } // namespace

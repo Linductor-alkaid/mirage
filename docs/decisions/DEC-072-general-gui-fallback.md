@@ -1,5 +1,8 @@
 # DEC-072：通用 GUI 回退与截图区域点击
 
+> **2026-10-27 失效说明：** 本决定中与常驻感知/普通动作执行冲突的条款已被替代。以 [DEC-117](DEC-117-runtime-resident-perception-and-autonomous-input.md) 的“旧决策失效范围”为准；下文冲突原文仅供历史追溯，不再作为实现或测试要求。
+
+
 > 状态：Accepted
 > 日期：2026-10-11
 > 负责人：Mirage 维护者

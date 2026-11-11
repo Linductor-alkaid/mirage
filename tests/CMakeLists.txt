@@ -497,6 +497,23 @@ if(ATSPI_TEST_FOUND AND X11_FOUND)
     )
 endif()
 
+# DEC-118 scoped semantic snapshots: max_depth / subtree_ref drill-down and
+# the stale-window-id application fallback, over the fake AT-SPI desktop on
+# a private D-Bus with a scripted window surface (no display server needed;
+# same fixture topology as atspi_backend_test).
+if(ATSPI_TEST_FOUND)
+    mirage_add_test(atspi_scoped_snapshot_test
+        SOURCES platform/atspi_scoped_snapshot_test.cpp
+        LIBS Mirage::platform Mirage::desktop PkgConfig::ATSPI_TEST
+        LABELS "integration"
+        TIMEOUT 120
+        )
+    # Same system-glib TSan suppression discipline as atspi_backend_test.
+    set_tests_properties(atspi_scoped_snapshot_test PROPERTIES
+        ENVIRONMENT "TSAN_OPTIONS=suppressions=${CMAKE_SOURCE_DIR}/tests/support/tsan-glib.supp"
+    )
+endif()
+
 # M2-06 observation end-to-end (DEC-015 topology, M2 exit condition): the
 # MiraEnvironmentBinding observe() loop over the real Linux backends —
 # private D-Bus session with the wire-exact AT-SPI2 fixture desktop plus a
@@ -1063,6 +1080,51 @@ mirage_add_test(task_perception_test
     TIMEOUT 60
     )
 
+# DEC-118 significance gating: the media-activity state machine and the
+# bare-ROI significance classification of the continuous observation pipeline,
+# driven directly with synthetic frames and deterministic thresholds.
+mirage_add_test(significance_gating_test
+    SOURCES integration/significance_gating_test.cpp
+    LIBS Mirage::integration_mirador mirador::fusion Mirage::kairo_consumer
+    LABELS "integration;perception"
+    TIMEOUT 60
+    )
+
+mirage_add_test(visual_object_tracking_test
+    SOURCES integration/visual_object_tracking_test.cpp
+    LIBS Mirage::integration_mirador mirador::fusion Mirage::kairo_consumer
+    LABELS "integration;perception"
+    TIMEOUT 60
+    )
+
+mirage_add_test(perception_semantics_test
+    SOURCES integration/perception_semantics_test.cpp
+    LIBS Mirage::integration_mira Mira::core
+    LABELS "integration;perception"
+    TIMEOUT 30
+    )
+
+mirage_add_test(perception_storyboard_test
+    SOURCES integration/perception_storyboard_test.cpp
+    LIBS Mirage::integration_mira Mira::core
+    LABELS "integration;perception"
+    TIMEOUT 30
+    )
+
+mirage_add_test(layered_perception_test
+    SOURCES integration/layered_perception_test.cpp
+    LIBS Mirage::integration_mirador mirador::fusion Mirage::kairo_consumer
+    LABELS "integration;perception"
+    TIMEOUT 60
+    )
+
+mirage_add_test(continuous_recognition_test
+    SOURCES integration/continuous_recognition_test.cpp
+    LIBS Mirage::integration_mirador Mirage::kairo_consumer
+    LABELS "integration;perception"
+    TIMEOUT 60
+    )
+
 mirage_add_test(continuous_capture_test
     SOURCES integration/continuous_capture_test.cpp
     LIBS Mirage::integration_mirador mirador::fusion Mirage::kairo_consumer
@@ -1395,10 +1457,15 @@ mirage_add_test(desktop_image_supply_test
     LABELS "integration;runtime"
     TIMEOUT 30
     )
+# DEC-135: separate the automatic-supply cases to keep bounded PNG suites focused.
+add_test(NAME content_visual_supply_test
+    COMMAND $<TARGET_FILE:desktop_image_supply_test> --automatic-content)
+set_tests_properties(content_visual_supply_test PROPERTIES
+    LABELS "integration;runtime;perception" TIMEOUT 30)
 if(CMAKE_CXX_FLAGS MATCHES "fsanitize=thread")
     # The full PNG/content matrix is much slower under instrumentation; this
     # only bounds the test process, never the production acquisition deadline.
-    set_tests_properties(desktop_image_supply_test PROPERTIES TIMEOUT 120)
+    set_tests_properties(desktop_image_supply_test content_visual_supply_test PROPERTIES TIMEOUT 120)
 endif()
 
     # DEC-088 capability 2/3: DesktopContextBuilder compaction mapping and its
@@ -1761,6 +1828,19 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND MIRAGE_WITH_PPOCR)
     target_link_libraries(ppocr_budget_acceptance PRIVATE Mirage::platform
         Mirage::integration_mirador $<TARGET_FILE:kairo::kairo>)
     mirage_enable_warnings(ppocr_budget_acceptance)
+    # M9-28/33: explicit local real-weight replay; never runs in default CTest.
+    add_executable(layered_perception_acceptance EXCLUDE_FROM_ALL
+        manual/layered_perception_acceptance.cpp)
+    target_include_directories(layered_perception_acceptance SYSTEM PRIVATE
+        "${CMAKE_SOURCE_DIR}/third_party/mira/third_party/kairo/include")
+    target_link_libraries(layered_perception_acceptance PRIVATE Mirage::integration_mirador
+        mirador::fusion $<TARGET_FILE:kairo::kairo>)
+    mirage_enable_warnings(layered_perception_acceptance)
+    add_executable(layered_production_acceptance EXCLUDE_FROM_ALL
+        manual/layered_production_acceptance.cpp)
+    target_link_libraries(layered_production_acceptance PRIVATE Mirage::integration_mirador
+        mirador::fusion Mirage::kairo_consumer)
+    mirage_enable_warnings(layered_production_acceptance)
     # MIRADOR-20261016-001 evidence: no-model repro of the thin outline recall.
     add_executable(mirador_outline_repro EXCLUDE_FROM_ALL
         ../docs/dependency_feedback/repro/mirador-outlined-rectangle.cpp)

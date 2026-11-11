@@ -135,6 +135,26 @@ struct ServiceConfig {
     /// DEC-057: explicit local PP-OCR artifact manifest. Empty disables OCR;
     /// unavailable build/resources fail start instead of claiming perception.
     std::filesystem::path ocr_manifest;
+    /// DEC-118: continuous perception sampling period in milliseconds.
+    /// Linux defaults to 200ms (DEC-128); explicit 0 retains the legacy
+    /// 250ms fallback. Accepted periods are 100–1000ms. Target rates are
+    /// configuration, not a platform-independent realtime guarantee.
+#ifdef _WIN32
+    int perception_sample_period_ms = 0;
+#else
+    int perception_sample_period_ms = 200;
+#endif
+    /// DEC-128: production Linux profile; Windows retains the legacy default
+    /// pending its target-platform gate. 0 disables deferral on the legacy route.
+#ifdef _WIN32
+    int perception_recognition_refresh_ms = 0;
+    bool perception_object_tracking = false;
+    bool perception_async_recognition = false;
+#else
+    int perception_recognition_refresh_ms = 5000;
+    bool perception_object_tracking = true;
+    bool perception_async_recognition = true;
+#endif
     /// Model layer configuration (DEC-027, M5-06): when `enabled` and valid,
     /// start() assembles the pinned model stack and the session.chat dialog
     /// face is served (hello `chat` = true). An enabled-but-invalid config

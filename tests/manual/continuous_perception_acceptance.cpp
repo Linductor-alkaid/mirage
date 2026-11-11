@@ -1,5 +1,7 @@
 // Private Xvfb/GTK/real PP-OCR sampling. Does not authorize or exercise Portal.
+#include "../../integration/mira/src/perception_semantics.hpp"
 #include "../../integration/mirador/src/ppocr_pipeline.hpp"
+#include <algorithm>
 #include <cstdlib>
 #include <fstream>
 #include <iostream>
@@ -32,8 +34,9 @@ class Session final : public d::DesktopCaptureSession {
 };
 } // namespace
 int main(int argc, char **argv) {
-    if (argc != 4)
+    if (argc != 4 && argc != 5)
         return 2;
+    const bool semantic_mode = argc == 5 && std::string_view(argv[4]) == "semantic";
     kairo::Executor executor;
     kairo::ExecutorConfig config;
     config.min_threads = 2;
@@ -59,24 +62,70 @@ int main(int argc, char **argv) {
         i::PerceptionSessionOptions options;
         options.source_id = "private-transient-fixture";
         std::string last_analysis_error;
-        auto connection = i::connect_continuous_desktop(
-            executor, std::move(raw), options,
-            [&](const auto &image, const auto &key, const auto &focus, const auto &cancel,
-                const auto &deadline) {
-                auto out = pipeline->observe_image(image, key, focus, cancel, deadline);
-                if (!out.ok && !out.error.message.empty()) {
-                    last_analysis_error = out.error.code + ":" + out.error.message;
-                    std::cerr << last_analysis_error << "\n";
-                }
-                return out;
-            });
+        i::ResidentDesktopPerception resident([&](auto source, auto lifetime) {
+            return i::connect_continuous_desktop(
+                executor, std::move(source), std::move(lifetime),
+                [&](const auto &image, const auto &key, const auto &focus, const auto &cancel,
+                    const auto &deadline) {
+                    auto out = pipeline->observe_image(image, key, focus, cancel, deadline);
+                    if (!out.ok && !out.error.message.empty()) {
+                        last_analysis_error = out.error.code + ":" + out.error.message;
+                        std::cerr << last_analysis_error << "\n";
+                    }
+                    return out;
+                });
+        });
+        if (!resident.adopt(std::move(raw), options))
+            throw std::runtime_error("resident perception admission failed");
+        auto connection = resident.attach(false, {});
+        if (!connection.session || !connection.feed)
+            throw std::runtime_error("resident consumer admission failed");
         std::cout << "READY\n" << std::flush;
         const auto end = Clock::now() + std::chrono::milliseconds(std::stoi(argv[2]));
         J::Array events;
+        J::Array semantic_samples;
+        i::detail::PerceptionSemantics semantics;
+        std::string previous_semantics;
+        std::uint64_t annotated = 0, annotation_failed = 0;
         std::uint64_t seen = 0;
         std::size_t peak_journal = 0, peak_previews = 0;
         while (Clock::now() < end) {
             const auto view = connection.feed->view();
+            if (semantic_mode) {
+                semantics.sync(view);
+                const auto projection = semantics.project();
+                J::Array objects;
+                for (const auto &object : *projection.find("objects")->as_array()) {
+                    J record = object;
+                    record.set("object_ref", "");
+                    objects.push_back(std::move(record));
+                }
+                // Projection order rotates for fairness; it is not a scene change.
+                std::sort(objects.begin(), objects.end(), [](const auto &a, const auto &b) {
+                    return a.find("entity")->as_integer() < b.find("entity")->as_integer();
+                });
+                const auto serialized = mira::to_json_string(J{objects});
+                if (serialized != previous_semantics && semantic_samples.size() < 256) {
+                    semantic_samples.emplace_back(J::Object{
+                        {"observed_s",
+                         std::chrono::duration<double>(Clock::now().time_since_epoch()).count()},
+                        {"objects", J{std::move(objects)}},
+                        {"error", projection.find("error") ? *projection.find("error") : J{}}});
+                    previous_semantics = serialized;
+                }
+                semantics.consumed("private-scripted-annotation");
+                for (const auto &object : *projection.find("objects")->as_array()) {
+                    const auto &ref = *object.find("object_ref")->as_string();
+                    if (!ref.empty() && *object.find("semantic_state")->as_string() != "active") {
+                        const auto annotation =
+                            semantics.annotate(ref, "task:" + *object.find("text")->as_string());
+                        if (annotation.ok)
+                            ++annotated;
+                        else
+                            ++annotation_failed;
+                    }
+                }
+            }
             peak_journal = std::max(peak_journal, view.journal_bytes);
             peak_previews = std::max(peak_previews, view.preview_bytes);
             for (const auto &e : view.events) {
@@ -106,20 +155,40 @@ int main(int argc, char **argv) {
         struct rusage usage {};
         getrusage(RUSAGE_SELF, &usage);
         connection.session.reset();
-        J report{J::Object{{"last_analysis_error", last_analysis_error},
-                           {"events", J{std::move(events)}},
-                           {"state", view.state},
-                           {"error", view.error},
-                           {"frames", static_cast<std::int64_t>(view.frames)},
-                           {"analyzed", static_cast<std::int64_t>(view.analyzed)},
-                           {"skipped", static_cast<std::int64_t>(view.skipped)},
-                           {"analysis_failed", static_cast<std::int64_t>(view.analysis_failed)},
-                           {"dropped", static_cast<std::int64_t>(view.dropped)},
-                           {"peak_journal_bytes", static_cast<std::int64_t>(peak_journal)},
-                           {"peak_preview_bytes", static_cast<std::int64_t>(peak_previews)},
-                           {"process_peak_rss_kib", static_cast<std::int64_t>(usage.ru_maxrss)},
-                           {"vlm_calls", std::int64_t{0}},
-                           {"png_encodes", std::int64_t{0}}}};
+        connection.feed.reset();
+        std::this_thread::sleep_for(std::chrono::milliseconds(300));
+        auto next_task = resident.attach(false, {});
+        const auto continuation_deadline = Clock::now() + std::chrono::seconds(4);
+        while (next_task.feed && next_task.feed->view().frames <= view.frames &&
+               Clock::now() < continuation_deadline)
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        const auto resident_frames = next_task.feed ? next_task.feed->view().frames : 0;
+        const bool continued = resident_frames > view.frames;
+        if (!continued)
+            result = 1;
+        next_task.session.reset();
+        next_task.feed.reset();
+        resident.stop();
+        J report{
+            J::Object{{"last_analysis_error", last_analysis_error},
+                      {"resident_continued_after_task", continued},
+                      {"resident_frames_after_task", static_cast<std::int64_t>(resident_frames)},
+                      {"semantic_samples", J{std::move(semantic_samples)}},
+                      {"scripted_annotations", static_cast<std::int64_t>(annotated)},
+                      {"annotation_failed", static_cast<std::int64_t>(annotation_failed)},
+                      {"events", J{std::move(events)}},
+                      {"state", view.state},
+                      {"error", view.error},
+                      {"frames", static_cast<std::int64_t>(view.frames)},
+                      {"analyzed", static_cast<std::int64_t>(view.analyzed)},
+                      {"skipped", static_cast<std::int64_t>(view.skipped)},
+                      {"analysis_failed", static_cast<std::int64_t>(view.analysis_failed)},
+                      {"dropped", static_cast<std::int64_t>(view.dropped)},
+                      {"peak_journal_bytes", static_cast<std::int64_t>(peak_journal)},
+                      {"peak_preview_bytes", static_cast<std::int64_t>(peak_previews)},
+                      {"process_peak_rss_kib", static_cast<std::int64_t>(usage.ru_maxrss)},
+                      {"vlm_calls", std::int64_t{0}},
+                      {"png_encodes", std::int64_t{0}}}};
         std::ofstream output(argv[3]);
         output << mira::to_json_string(report);
         if (!output)

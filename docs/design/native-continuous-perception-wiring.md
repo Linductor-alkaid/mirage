@@ -1,5 +1,10 @@
 # 原生任务的连续感知接线
 
+> 2026-10-27 当前契约：按 [DEC-117](../decisions/DEC-117-runtime-resident-perception-and-autonomous-input.md)
+> 将已有生产者提升为 Runtime owner，独立任务租约、共享最新帧、本地事件等待及
+> text_only 保留输入意图见[常驻设计](runtime-resident-perception.md)。下文旧的单任务
+> 源生命周期、OCR 退休输入图和普通像素重验仅保留历史，不再约束当前实现。
+
 > 状态：In Progress
 > 日期：2026-10-22
 > 负责人：Mirage 维护者
@@ -111,3 +116,15 @@ input_actionable=false 与年龄。过期/已消费/容量淘汰为正常 availa
 可自动选择其他已授权路线，不放开系统授权、接管或释放屏障。
 
 实际证明和未完成门禁见[验收记录](../compatibility/task-continuous-perception-20261023.md)。
+
+## 2026-10-26：M9-13 单标签语义接线
+
+后台完整 temporal 对象状态进入采集 owner 的 VisualScene，与通知筛选独立；
+每次完成分析维护内容版本，经原 reports mailbox 发布有界快照。任务串行 owner
+消费快照并维护 LLM 绑定，自动观察块增加 semantic_scene；仍使用 8 KiB 总预算。
+新工具 desktop.vision.annotate 只接受实际供给且成功响应的对象引用，宿主回填
+request_id。位置变化保留识别文字/类别依赖标签，内容/全局布局/gap 使其挂起。
+工具不产生 action reference，不调用模型，不增加 worker/队列/授权。
+契约、示例与验证分别见[状态层](visual-scene-incremental-state.md)、
+[操作示例](../examples/continuous-object-semantics.md)、
+[本轮验收](../compatibility/continuous-object-semantics-20261026.md)。

@@ -58,6 +58,62 @@ void test_recent_thinking_and_timing() {
     MIRAGE_CHECK(!decode_timings(R"({"other":{"calls":1,"duration_ms":3}})", restored, error));
 }
 
+// DEC-137: verification may enlarge a tool after its initial output was bounded.
+void test_projection_after_verification() {
+    std::size_t publishes = 0;
+    integration::detail::ConversationCapture capture([&](const auto &parts, const auto &) {
+        ++publishes;
+        MIRAGE_CHECK(valid_parts(parts));
+    });
+    for (int i = 0; i < 60; ++i) {
+        Part part;
+        part.id = "receipt-" + std::to_string(i);
+        part.kind = "tool";
+        part.name = "desktop.input.click";
+        part.status = "pending";
+        capture.add(std::move(part));
+        auto *running = capture.start_tool("desktop.input.click");
+        const auto receipt = mira::JsonValue{mira::JsonValue::Object{
+            {"action_id", std::to_string(i)}, {"message", std::string(900, 'x')}}};
+        capture.finish_tool(running, receipt, [](auto &parts) {
+            // Same boundary as DesktopActionVerification::project: enlarge an
+            // already bounded output without changing its execution state.
+            parts.back().output += std::string(600, 'v');
+        });
+    }
+    Part failed;
+    failed.id = "newest-error";
+    failed.kind = "tool";
+    failed.name = "desktop.accessibility.semantic_snapshot";
+    failed.status = "pending";
+    capture.add(std::move(failed));
+    mira::Error error;
+    error.safe_message = "not_found: refresh the snapshot";
+    capture.finish_tool(capture.start_tool("desktop.accessibility.semantic_snapshot"), error);
+    MIRAGE_CHECK(publishes == 122);
+    MIRAGE_CHECK(capture.parts.back().status == "failed");
+    MIRAGE_CHECK(capture.parts.back().output == error.safe_message);
+    MIRAGE_CHECK(std::any_of(capture.parts.begin(), capture.parts.end(),
+                             [](const auto &part) { return part.omitted_for_display_budget; }));
+    MIRAGE_CHECK(valid_parts(capture.parts));
+    std::vector<Part> crowded;
+    for (std::size_t n = 0; n < max_parts; ++n) {
+        Part row;
+        row.id = std::to_string(n);
+        row.kind = "tool";
+        row.name = "fixture";
+        row.output = std::string(max_part_text, 'x');
+        crowded.push_back(std::move(row));
+    }
+    crowded.back().input = std::string(max_part_text, 'i');
+    bound_parts(crowded);
+    MIRAGE_CHECK(valid_parts(crowded));
+    MIRAGE_CHECK(crowded.back().output.size() == max_part_text);
+    const auto once = crowded;
+    bound_parts(crowded);
+    MIRAGE_CHECK(crowded == once);
+}
+
 void test_category_budgets() {
     // Verify the budget constants match DEC-093.
     MIRAGE_CHECK(max_tool_budget == 40 * 1024);
@@ -265,6 +321,7 @@ int main() {
     }
 
     std::printf("[TEST] Category budgets\n");
+    test_projection_after_verification();
     test_category_budgets();
     test_recent_thinking_and_timing();
 

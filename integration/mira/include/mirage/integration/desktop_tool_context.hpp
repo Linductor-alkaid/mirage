@@ -147,6 +147,8 @@ struct DesktopToolContext {
         query_image_state;
     /// DEC-115: composition-root-owned continuous observer, opt-in backend seam.
     PerceptionSessionFactory continuous_session;
+    /// DEC-117: task-authorized access to the service's already-running producer.
+    std::function<PerceptionConnection(bool, PerceptionSessionOptions)> resident_session;
     /// DEC-058: same-frame SoM/crop. Caller authorizes capture before invoking.
     std::function<EnvironmentVisualRefresh(
         const std::optional<desktop::WindowGeometry> &, const desktop::CancelToken &,
@@ -169,6 +171,9 @@ struct DesktopToolContext {
     /// exec preview-only; when set, exec admits retention before spawn and
     /// read resolves output_ref arguments through it.
     BasicOutputRetention *output_retention = nullptr;
+    /// DEC-137: product requires explicit navigation/content purpose before
+    /// desktop observation/actions. Embeddings retain the legacy opt-in API.
+    bool require_task_purpose = false;
 };
 
 } // namespace mirage::integration

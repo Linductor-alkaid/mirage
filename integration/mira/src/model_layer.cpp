@@ -986,7 +986,8 @@ DialogCompletion ModelLayer::complete_harness_turn(
     const auto screen_capability = turn_desktop.environment
                                        ? turn_desktop.environment->screen_capability()
                                        : mirage::desktop::ScreenCapability::Unavailable;
-    bool tools_attempted = false;
+    bool tools_attempted = false, desktop_task_used = false;
+    std::unique_ptr<detail::DesktopImageTurn> image_turn;
     auto finish = [&] {
         const auto input_error = controlled_input.finish();
         if (!input_error.code.empty()) {
@@ -1005,7 +1006,7 @@ DialogCompletion ModelLayer::complete_harness_turn(
         // DEC-085: the classified tool failures ride the completion for the
         // runtime service's `session.tool_error` projection.
         completion.tool_failures = impl_->failure_tracker.failures(session_key);
-        if (!completion.ok && !completion.reply_text.empty())
+        if (!completion.cancelled && !completion.reply_text.empty())
             conversation::retain_terminal_reply(completion.parts, completion.reply_text);
         return completion;
     };
@@ -1013,16 +1014,41 @@ DialogCompletion ModelLayer::complete_harness_turn(
     const DesktopAtomToolset::Decorator decorate = [&capture, &verification, &controlled_input,
                                                     &tracker = impl_->failure_tracker, session_key,
                                                     screen_capability, &tools_attempted,
+                                                    &image_turn, &desktop_task_used,
                                                     &desktop_context = turn_desktop,
                                                     cancel](const std::string &name,
                                                             mira::BuiltinToolHandler handler) {
         return [name, handler = std::move(handler), &capture, &verification, &controlled_input,
-                &tracker, session_key, screen_capability, &tools_attempted, &desktop_context,
+                &tracker, session_key, screen_capability, &tools_attempted, &image_turn,
+                &desktop_task_used, &desktop_context,
                 cancel](const auto &arguments, const auto &ctx) -> mira::Result<mira::JsonValue> {
             tools_attempted = true;
+            const bool release = name == "desktop.input_session.release" ||
+                                 name == "desktop.window_switch.release" ||
+                                 name == "desktop.input_session.observe" ||
+                                 name == "desktop.window_switch.observe";
+            if (name.starts_with("desktop.") && !release)
+                desktop_task_used = true;
             bool refused = false;
             auto *part = capture.start_tool(name);
             auto result = [&]() -> mira::Result<mira::JsonValue> {
+                if (desktop_context.require_task_purpose && name.starts_with("desktop.") &&
+                    !release && name != "desktop.vision.content" &&
+                    name != "desktop.application.list" && name != "desktop.window.list" &&
+                    name != "desktop.window.front" &&
+                    (!image_turn || !image_turn->task_purpose_declared())) {
+                    refused = true; // A policy refusal is not a backend failure/retry signal.
+                    mira::Error error;
+                    error.code =
+                        cancel.cancelled() || ctx.cancelled_or_expired(mira::Timestamp::now())
+                            ? mira::ErrorCode::Cancelled
+                            : mira::ErrorCode::InvalidArgument;
+                    error.safe_message =
+                        "task_purpose_required: call desktop.vision.content with action=navigation "
+                        "for navigation only, or action=begin with actual content scope before "
+                        "observing/acting";
+                    return error;
+                }
                 if (auto blocked = (name == "desktop.input_session.release" ||
                                     name == "desktop.input_session.observe" ||
                                     name == "desktop.window_switch.release" ||
@@ -1090,7 +1116,6 @@ DialogCompletion ModelLayer::complete_harness_turn(
     }
     if (tools_allowed)
         verification.register_tool(*registry, decorate);
-    std::unique_ptr<detail::DesktopImageTurn> image_turn;
     const bool native_ocr = turn_desktop.ocr_image && turn_desktop.environment &&
                             turn_desktop.environment->screen() &&
                             turn_desktop.environment->screen()->desktop_observation_only();
@@ -1098,7 +1123,7 @@ DialogCompletion ModelLayer::complete_harness_turn(
     // capability at all, capture-dependent tools are not registered instead
     // of being exposed to fail at every call.
     const bool screen_usable = screen_capability != mirage::desktop::ScreenCapability::Unavailable;
-    if ((impl_->images && screen_usable) || native_ocr) {
+    if ((impl_->images && screen_usable) || native_ocr || turn_desktop.require_task_purpose) {
         auto source =
             impl_->images ? impl_->images : std::make_shared<detail::DesktopImageSource>();
         image_turn = std::make_unique<detail::DesktopImageTurn>(source, turn_desktop, turn_context,
@@ -1314,6 +1339,11 @@ DialogCompletion ModelLayer::complete_harness_turn(
         "are exposed. Never retry "
         "uncertain input blindly. Reobserve current state and replan instead of replaying it. "
         "Only semantic_snapshot issues actionable @e refs; window.list and screenshots do not. "
+        "Continuous semantic_scene objects may carry task labels from earlier model requests. "
+        "Use active labels as historical interpretation, inspect their age, and never use "
+        "suspended labels as current facts or object_ref as an input reference. When the "
+        "desktop.vision.annotate tool is exposed, label useful missing meanings from supplied "
+        "recognized text/category; reuse unchanged labels instead of annotating every frame. "
         "Native Wayland input is available ONLY when image-bound session tools are listed and "
         "capture "
         "returns input_actionable=true. For GUI work request interaction=true on the first "
@@ -1424,21 +1454,117 @@ DialogCompletion ModelLayer::complete_harness_turn(
     }
     if (native_ocr && turn_desktop.ocr_image_contextual)
         spec.goal +=
-            "\nFor native text-reading tasks prefer desktop.vision.ocr with text_only=true: "
+            "\nFor native text-reading tasks first reuse relevant recognized text already "
+            "supplied by the continuous semantic_scene. If its coverage or age is insufficient, "
+            "prefer desktop.vision.ocr with text_only=true: "
             "it supplies untrusted text without PNG or image tokens. Use an explicit capture for "
-            "visual layout or to establish fresh input references. desktop.vision.state only reads "
-            "advisory history and its age; it never observes current pixels or verifies an "
-            "action.\n";
+            "visual layout or to establish an input reference. Text-only reads preserve the "
+            "existing input intent. desktop.vision.state reads the resident state and journal "
+            "without acquiring or encoding a frame; do not poll it.\n";
     if (image_turn && native_ocr && turn_desktop.continuous_session)
         spec.goal +=
-            "\nAfter the first successful native desktop capture, a bounded background Mirador "
+            "\nThe Runtime Service maintains an authorized resident desktop observer independently "
+            "of this task. An existing remembered grant starts it silently; a first explicit "
+            "desktop authorization can establish it. Its bounded Mirador "
             "feed supplies untrusted appeared/disappeared/text/position events automatically. "
+            "Event rows may batch consecutive position_or_appearance_changed observations: "
+            "prior_samples contains each earlier cursor/frame/age/box in order; the row itself "
+            "is the last sample, and shared identity/type/text fields apply to every sample. "
+            "These are retained observations, not proof that intermediate appearance was "
+            "unchanged. "
+            "For multiple object interests, desktop.vision.focus accepts targets with "
+            "object_ref and priority wake or observe (1-4, at least one wake). Set observe "
+            "only when that object's position/appearance changes may wait until the next "
+            "request. All events remain supplied; other changes still wake, and any invalid "
+            "target revokes the whole group. Timeout can include deferred changes. "
             "Use their text and age instead of polling screenshots or vision.state. Unconfirmed "
             "observations can report brief transients but never establish confirmed lifecycle. "
             "Missing/filtered/dropped events do not prove nothing happened. If a historical "
             "event-frame tool is exposed in the closed set below, use it only when needed; it "
             "never authorizes input or verifies current state. Capture for a new actionable "
-            "target or necessary visual verification, not just to poll.\n";
+            "target or necessary visual verification, not just to poll. Ordinary input has no "
+            "pixel-similarity or arrival-screenshot veto. Omit verify_kind for routine "
+            "intermediate "
+            "actions; request a fixed postcondition only at a real state dependency or task "
+            "boundary. Inspect approach_completed/press_dispatched/release_confirmed separately; "
+            "moving the pointer does not mean a click was sent. Use desktop.vision.wait for "
+            "a local event subscription when waiting for desktop progress, rather than repeated "
+            "wait/capture/model cycles.\n";
+    if (turn_desktop.require_task_purpose && image_turn)
+        spec.goal +=
+            "\nBefore desktop observation/actions declare purpose using desktop.vision.content: "
+            "action=navigation for finding/opening/operating only; action=begin for watching, "
+            "summarizing or answering content questions, with actual scope/requires_audio. "
+            "Product content default auto_storyboard=true. Do not downgrade the user's goal. "
+            "Discovery lists can precede declaration. Navigation is never evidence of watching. "
+            "A missing declaration prevents successful completion. A content declaration requires "
+            "delivered images and assessment. Batch sibling semantic expansions using subtrees "
+            "and the source backend_scope as base_scope; every snapshot retires ALL old refs.\n";
+    if (image_turn && turn_desktop.continuous_session)
+        spec.goal +=
+            "\nSignificance gating (DEC-118): the observer heuristically suppresses repeated "
+            "media-region and tiny pixel-change events; the media member of the observation "
+            "summary tracks the active media region and media_playback/keyframe events carry "
+            "scene changes at a bounded rate. For watch/media tasks: set desktop.vision.focus to "
+            "the region of interest, then rely on desktop.vision.wait plus event text and "
+            "event_frame keyframes instead of repeated captures; a capture only grounds a new "
+            "input target. DEC-129: focus can alternatively bind an object_ref from the supplied "
+            "semantic_scene; it follows only a confirmed unchanged version. attention_invalidated "
+            "restores global observations; re-declare from current evidence or clear focus. Use a "
+            "rectangle for persistent spatial interest across unknown content. "
+            "When desktop.vision.storyboard is exposed, batch 2-4 retained frame_ids "
+            "into one chronological image for a temporal overview. Prefer window_ms with optional "
+            "max_frames to choose temporally spread, undelivered frames from a recent observer "
+            "window without manually enumerating IDs. Fewer than two new frames is insufficient; "
+            "wait for new events instead of polling window selection. This does not infer "
+            "semantic importance or player time. Inspect individual frames "
+            "only for missing details. Pixel-change gating is heuristic, not a guarantee that "
+            "all meaningful content was retained. Do not treat an opened-but-unwatched page as "
+            "task completion: a title, description, playback status or elapsed time is not "
+            "content understanding. Describe what you actually observed over time and the "
+            "observation interval; disclose sparse/missing coverage and lack of audio. Never "
+            "claim to have watched the whole video without evidence of its content and coverage. "
+            "For a content-watching question, call desktop.vision.content begin with the user's "
+            "actual scope (observed_samples or entire_video), requires_audio and "
+            "auto_storyboard=true "
+            "before observing. Automatic mode attaches low-resolution temporal images to existing "
+            "requests without screenshot/storyboard calls, at least 5 seconds apart; it stops "
+            "after assessment. Read content_visual_supply for insufficient/cooldown/budget state. "
+            "When awaiting new visual content use desktop.vision.wait with until=content_ready "
+            "and a bounded timeout (up to 30000ms); it combines temporal wakes until images can "
+            "be supplied while other events still return promptly. Honor retry_after_ms, not "
+            "repeated "
+            "capture/status/window requests. Critical events still require attention. "
+            "Automatic publication retires prior input references; obtain a fresh input source "
+            "only when later interaction actually needs one. Explicit capture/ROI is for missing "
+            "detail or input grounding, not a routine refresh. "
+            "After viewing actual evidence, assess with content_ref citations from delivered "
+            "event/storyboard metadata, a bounded answer and explicit limitations. Do not "
+            "downgrade a full-video/audio requirement to sampled visuals. Declared content tasks "
+            "cannot finish without assessment; insufficient/interrupted evidence is a failure "
+            "to complete that goal. Only the assessed sampled answer is published, with scope "
+            "disclosure. Use status only if reference context was lost, never as a polling loop. "
+            "retained_visual_evidence counts only retained event/storyboard frames actually "
+            "presented in completed requests of this turn; text events, tool receipts and "
+            "playback status do not increase it. Its observer span and sample gaps are not "
+            "player time or continuous coverage. Zero does not exclude other direct captures. "
+            "Interrupted/truncated evidence is incomplete; even nonzero counts do not verify "
+            "understanding, audio, playback end or whole-video completion. "
+            "The semantic_scene already "
+            "contains automatically recognized text for its objects; consult it before calling "
+            "desktop.vision.ocr. If recognition_deferred is true, those objects contain historical "
+            "content with its original age and pending identity, not fresh recognition; use an "
+            "explicit text-only OCR read only when current content is required by the task. "
+            "Deferred CV samples cannot confirm text changes or absence. Regional text/detection "
+            "events are raw unconfirmed observations on their original frame; they carry no "
+            "entity identity or full-screen coverage. An empty regional result never proves "
+            "disappearance or absence of an unexecuted capability. The optional tracking "
+            "member only reports advisory appearance/position continuity, never current text or "
+            "actionable references. A lost track does not confirm disappearance; reacquired does "
+            "not restore an old task label. For very large windows, "
+            "prefer "
+            "desktop.accessibility.semantic_snapshot with max_depth and subtree=@eN drill-down "
+            "over screenshots.\n";
     // DEC-081: current registry facts outrank examples and prior tool history.
     spec.goal += "\nAvailable tools for THIS turn (closed set):";
     bool shared_click_available = false;
@@ -1718,6 +1844,46 @@ DialogCompletion ModelLayer::complete_harness_turn(
             mira::ModelResponse response;
             response.usage = value.last_usage;
             capture_context_usage(completion, response, impl_->config, capture.last_input_estimate);
+        }
+    }
+    // DEC-137: required purpose is a product evidence contract, not intent inference.
+    if (!completion.cancelled && turn_desktop.require_task_purpose && desktop_task_used) {
+        if (!image_turn || !image_turn->task_purpose_declared()) {
+            completion.ok = false;
+            completion.failed = true;
+            completion.error = "桌面任务未完成：尚未声明导航或内容观察用途。";
+            completion.reply_text = completion.error;
+        } else if (completion.ok && image_turn->navigation_task()) {
+            completion.reply_text =
+                "已按仅导航/交互范围收口；这不证明观看或理解内容。模型说明：\n\n" + value.answer;
+        }
+    }
+    // DEC-133: keep the Mira loop/lifecycle intact; apply the product's domain
+    // evidence policy at its existing settlement boundary. Free terminal prose
+    // cannot broaden the declared/assessed content scope.
+    if (!completion.cancelled && image_turn) {
+        const auto content = image_turn->settle_content_task();
+        if (content.active) {
+            if (completion.ok && content.satisfied) {
+                completion.reply_text = "以下仅基于已观察的稀疏片段，不代表完整观看：\n\n" +
+                                        content.answer + "\n\n限制：" + content.limitations;
+            } else if (completion.ok) {
+                completion.ok = false;
+                completion.failed = true;
+                const auto reason = content.reason == "whole_video_coverage_unavailable"
+                                        ? "尚无完整视频的播放时间、起止与覆盖证据。"
+                                    : content.reason == "audio_evidence_unavailable"
+                                        ? "尚无任务要求的声音证据。"
+                                    : content.reason == "content_evidence_retired"
+                                        ? "来源或内容证据已失效，需要重新观察和评估。"
+                                        : "内容证据尚未完成评估或不足以回答当前问题。";
+                completion.error = std::string("内容任务未完成：") + reason;
+                if (!content.limitations.empty())
+                    completion.error += " 限制：" + content.limitations;
+                completion.reply_text = completion.error;
+            } else {
+                completion.reply_text = completion.error; // no unsupported terminal success claim
+            }
         }
     }
     // Later overrides (supply failure, verification rejection, cancel) own the
