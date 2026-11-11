@@ -8,7 +8,8 @@
 
 维护者要求将本地 native-release 更新到工作分支集成后的 master，包含 Mira
 `68a8bf1` 及注册拒绝诊断。本轮只重建和交付现有产品，不更改产品代码、依赖 pin、
-模型、配置默认值或既有平台验收结论。
+模型、配置默认值或既有平台验收结论。交付后的 Windows CI 夹具修复见下节，
+该修改只影响 Windows 测试，不改变本轮 Linux 产物。
 
 ## 环境与方法
 
@@ -50,7 +51,7 @@ python3 out/native-package-20261026/deliver_package.py
 
 完整构建与产品聚合目标通过，包含 launcher、service、tray、native 和本地 pet。
 native-release 全量 **123/123 通过，0 failed、0 skipped，147.93 s**。
-本轮没有修改或禁用测试，也未复现 `BUG-20261026-001` 的注册拒绝；该问题根因
+Linux 构建交付没有修改或禁用测试，也未复现 `BUG-20261026-001` 的注册拒绝；该问题根因
 仍按[分支集成记录](../plans/branch-integration-20261026.md)保持待定位。
 
 新 DEB 的 4 个产品 ELF、18 项 UI 资源、17 项视觉资源与构建源逐字节匹配；
@@ -71,3 +72,25 @@ SHA-256：`012d60e944b89b92dba9936e14fb89286f0c9b982f19a927301af77ae733d79a`。
 保存在 `out/native-package-20261026/previous-6373615d252f.deb`。
 源码 PR #121 的 ASAN/UBSAN/TSAN CI 已成功；本轮未重新运行完整 OCR/YOLO
 sanitizer 矩阵，不能将普通 Release 结果作为其完成证明。
+
+## 交付后的 Windows CI 夹具修复
+
+PR #122 首轮 [Windows job](https://github.com/Linductor-alkaid/mirage/actions/runs/40327290321/job/121587169348)
+全树编译成功，受控测试 17/18：`win32_application_test` 的 250 条断言中，
+仅最终 Start Menu 夹具目录不存在的断言失败，应用发现、启动、状态和终止断言均通过。
+`remove_all` 只执行一次且丢弃错误，旧日志无法确定当时的系统错误；不将其归因为
+特定 shell、杀毒进程或产品资源泄漏。失败记录保留，原 Linux 123/123 结论不变。
+
+`BUG-20261026-002`：清理过程允许最多 10 秒文件系统收敛，保留首次和终态错误
+及尝试次数；成功仍必须验证整个目录消失，预算耗尽仍使测试失败。增加真实
+Win32 非共享删除句柄的负向验证：持有期间清理必须失败，关闭句柄后必须成功，
+重复清理须幂等。没有增加后台线程、禁用断言、重跑测试逻辑或改变产品行为。
+相关 Windows 语义依据 [DeleteFileW 文档](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-deletefilew)。
+
+本机没有 Windows 编译器，Windows 修复的编译和执行由 PR 最新 head 的 MSVC CI
+验收，未以 Linux 测试冒充。负责人 Mirage 维护者；若再次失败，按新增系统错误
+定位并补根因证据。修复了清理缺少收敛和诊断的问题，原始单次删除的系统错误仍未知。
+
+主工作树后续另有 `feat/continuous-semantic-binding` 的并行未提交改动。本轮
+发布的 Linux 包在这些改动出现前完成源码摘要复核，仍以 `8779844` 为基线，
+不包含该分支的新实现；Windows 测试修复及本记录在隔离工作树完成。

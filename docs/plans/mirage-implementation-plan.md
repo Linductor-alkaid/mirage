@@ -172,10 +172,18 @@ M9-25/27/28/33及平台/资源/视频门禁保持开放，不切生产默认。
 三轮私有 X11/真实 OCR 的移动继承与内容失效通过。范围与剩余平台门禁见
 [本轮验收](../compatibility/continuous-object-semantics-20261026.md)，M9-13 保持 In Progress。
 
+2026-10-27：维护者要求将 `feat/continuous-semantic-binding` 工作区的连续对象
+语义与桌面共享恢复更新一并纳入 native-release 和 DEB，
+[构建交付验收](../compatibility/native-package-refresh-20261027.md)已完成：
+完整 native-release 与 DEB、124/124 测试（0 skip，148.64 s）、资源/摘要验证通过。
+产物以工作区源码摘要追溯，功能分支和原有里程碑/平台门禁保持原状态。
+
 2026-10-26：维护者要求将 native-release 与 DEB 更新到集成主干 `8779844`，
 保留完整 OCR/YOLO 配置；[构建交付验收](../compatibility/native-package-refresh-20261026.md)
 已完成：native-release 123/123（0 skip）、DEB 校验与交付通过；
 M7-35/M9-21 的功能与真机门禁保持原状态。
+后续 PR #122 的 Windows CI 暴露夹具目录单次清理失败，`BUG-20261026-002`
+补充有界清理、系统错误诊断和真实锁句柄负向验证；目标平台验收以该 PR 最新 CI 为准。
 
 2026-10-26：[全部工作分支集成与清理](branch-integration-20261026.md)完成：
 七条工作分支分别通过 8 项 CI 后按 PR #114～120 合入 master，原未提交 IME/连续感知

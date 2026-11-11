@@ -141,5 +141,14 @@
     "session_restart": "not executed",
     "Windows/Wayland/long_tasks": "not executed for this package refresh; feature gates remain open",
     "sanitizers": "latest source PR #121 passed ASAN, UBSAN and TSAN in CI; full OCR/YOLO sanitizer matrix not rerun locally"
+  },
+  "ci_followup": {
+    "bug": "BUG-20261026-002",
+    "first_failure_job": "https://github.com/Linductor-alkaid/mirage/actions/runs/40327290321/job/121587169348",
+    "failed_assertion": "win32_application_test final Start Menu fixture directory cleanup",
+    "fix": "bounded cleanup with first/final error diagnostics; real deny-delete handle regression; directory absence remains required",
+    "linux_product_changed": false,
+    "local_windows_validation": "not executed: no Windows compiler; latest PR head MSVC CI is required",
+    "owner": "Mirage maintainers"
   }
 }
