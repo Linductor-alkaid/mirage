@@ -2,7 +2,7 @@
 
 > 状态：Active
 > 负责人：Mirage维护者；处理方：Mira上游
-> 更新日期：2026-10-27
+> 更新日期：2026-11-11
 > 工作项：台账维护性收口见[依赖复用整改计划](../plans/dependency-reuse-remediation.md)
 > （REUSE-16/17/18）；既有条目分别溯源至 M6-10、M7、M8/M9 各工作项。
 > 总入口：[依赖反馈](ledger.md)；维护规则：[工程规范9.4](../project/project-standards.md)
@@ -1071,3 +1071,46 @@ Failed + MaxOutputTokens，删除 summary 锚点；其它原因不误报 output_
 复核未解决项：MIRA-20260922-001、20261008-002、20261012-002、20261013-001、
 20261016-003/004 在 `a29374a..68a8bf1` 无对应接口或嵌套依赖变更；维持 Open，
 编译告警抑制、熔断测试重建及 Result 使用纪律保留。不能因其他上游修复关闭。
+
+<a id="mira-20261111-001"></a>
+
+## MIRA-20261111-001：普通 Agent 执行事实到成功轨迹的公开提取能力
+
+- 状态：Open（本地登记，未发送上游）；日期：2026-11-11；负责人：Mirage 维护者；
+  处理方：Mira 上游。关联：Mira DEC-038 / 其文档引用的 Issue #56，Mirage
+  [M15-03](../plans/m15-supervised-rpa-experience.md)、
+  [专项设计](../design/supervised-rpa-experience-and-visual-memory.md)。
+- 核对版本：pinned Mira `be44e36044eaf8e5ab09bc0a22f134a3c8545111`。
+  公开 `workflow_compiler.hpp` 支持宿主构造 `WorkflowTrajectory`；
+  `workflow_runtime.hpp::capture_trajectory` 只接受本 Runtime 运行表中的成功 Run。
+  API `workflow-contracts.md` 与 M11 范围明确：自动抽取 Agent 工具调用轨迹不在
+  已交付范围。DEC-038 冻结通用 L0/L1/L2 方向并明确“实现未开始”。
+  `tests/m11/m11_compile_test.cpp` 验证的是已存在 Workflow Run 的捕获/编译，
+  没有普通 Agent 事件提取入口。
+- 复现/核对方法：
+  `rg -n 'capture_trajectory|compile_workflow|BehaviorTrace|behavior_trace'
+  third_party/mira/include/mira`，再对照上述 API/DEC 和 m11 测试。先完成一个普通
+  Mira Task，再将它的 ID 传给 Run 捕获不能得到该 Task 的执行轨迹。Mirage 本轮
+  `mira_host_test` 增加普通已完成 Task 的拒绝用例；静态 API 缺口不等于已运行
+  上游所有测试。补充真实历史证据样本由 M15-03 跟踪。
+- 影响：普通 native Agent 的既有成功任务无法仅凭公开 Task/会话 ID 自动转换为
+  有来源的 `WorkflowTrajectory`。当前 Host 能独立推进成功 Workflow Run -> 候选，
+  但不能宣称“所有历史任务自动学习”。有界聊天摘要也可能已失去实参、配对结果、
+  任务边界与验证事实，不能还原为真实成功轨迹。
+- 职责排除：桌面目标/权限/应用与页面匹配、截图供给和产品审阅属 Mirage；通用
+  Agent 事件配对、顺序/终态/验证判定和可重建行为投影属于 Mira DEC-038 的已规划
+  责任。`WorkflowTrajectory` 宿主构造入口能承载结果，但不提供通用事实提取本身。
+  不要求 Mira 识别平台 UI 或替 Mirage 生成模板资源。
+- 最小期望能力：在 DEC-038 路线内提供有界、可取消的事实投影/成功轨迹提取公开
+  接口，输入为有权限的 Task/Session 事件范围，输出已存在的 `WorkflowTrajectory`
+  候选及来源事件/验证证据、缺失/截断/不支持原因。相同事实前缀确定性重建，失败、
+  取消、中间态、迟到结果不能被提升为成功，模型生成解释保留派生标记。
+- 延期影响与临时处置：M15-03 保持未实现；只接已交付 Run 编译接口，不私建通用
+  Trace、不修改第三方、不补造历史。不新增线程、队列或调度器。没有需要未来删除
+  的临时编译器；上游交付后直接装配公开提取接口。
+- 可验收结果：同任务配对工具执行/验证产生带来源候选；多任务混合、前缀缺失、
+  截断、未知工具、失败/取消、重放及迟到结果返回明确结果；回放零副作用，预算、
+  执行中取消、接纳拒绝、超时、shutdown 可观察。Mirage 在获准 pin 消费后以真实
+  原生历史样本验证提取 -> 审阅 -> 编译，旧证据不足时明确拒绝。
+- 补跑负责人/条件：Mira/Mirage 维护者；上游契约与实现交付、依赖升级获准，随后
+  执行契约/生命周期矩阵和 native 样本验收。登记不代表上游接受或排期。

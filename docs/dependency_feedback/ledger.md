@@ -9,6 +9,12 @@
 
 ## 分依赖台账
 
+2026-11-11（M15）：新增本地登记
+[MIRA-20261111-001](mira.md#mira-20261111-001)（Open）：pinned `be44e36`
+具备 Workflow Run 捕获/编译，但普通 Agent 事件流到成功轨迹的提取仍是上游
+DEC-038 未实现方向。M15-02 先复用已交付接口提供 Host 只读候选；不能宣称普通
+历史任务已可自动学习。不修改依赖、不自建通用 Trace；未向上游发送新消息。
+
 2026-11-11：同步 Mira master `be44e36`（PR#112～127，嵌套 kairo v0.7.0→v0.7.4）。
 [MIRA-20261016-003](mira.md#mira-20261016-003) 保持 Open：v0.7.4 交付 keyed
 admission、TaskResult/submit_task_result、CpuGpuTask 与空 cpu_affinity 自由调度
@@ -138,7 +144,7 @@ DEC-088 能力 4 新增 [MIRA-20261015-001](mira.md#mira-20261015-001)：部分�
 
 | 依赖 | 详细台账 | 已确认问题 | 说明 |
 | --- | --- | --- | --- |
-| Mira | [Mira台账](mira.md) | 既有状态见详细台账；Open 6 项：MIRA-20260922-001（MinGW 构建）、MIRA-20261008-002（-Wuseless-cast）、MIRA-20261012-002（ProviderCircuit cooldown）、MIRA-20261013-001（`Result::value()` 防线）、MIRA-20261016-003（kairo 0.7.0 延期能力跟踪）、MIRA-20261016-004（PNG 编码缝）；20261016-001 为 Accepted（部分交付）、20261022-001 为 Resolved；MIRA-20261016-002 为追记 Resolved | Runtime/模型/工具/workflow及随Mira交付的Executor；PR#86 已消费，三方言 fixture 与 MiniMax 截图工具在线 2/2 |
+| Mira | [Mira台账](mira.md) | 既有状态见详细台账；Open 7 项：MIRA-20260922-001（MinGW 构建）、MIRA-20261008-002（-Wuseless-cast）、MIRA-20261012-002（ProviderCircuit cooldown）、MIRA-20261013-001（`Result::value()` 防线）、MIRA-20261016-003（kairo 0.7.0 延期能力跟踪）、MIRA-20261016-004（PNG 编码缝）、MIRA-20261111-001（Agent 成功轨迹提取）；20261016-001 为 Accepted（部分交付）、20261022-001 为 Resolved；MIRA-20261016-002 为追记 Resolved | Runtime/模型/工具/workflow及随Mira交付的Executor；PR#86 已消费，三方言 fixture 与 MiniMax 截图工具在线 2/2 |
 | Mirador | [Mirador台账](mirador.md) | 既有 M7-06 三项 Resolved；20261016-001 Proposed、20261016-002 In Progress；20261018-001 Open、20261019-001 Proposed | PR#35 三项本地消费已收口；#41 的密集 OCR 性能及连续感知/注意契约分别跟踪，其他状态及平台/权重限制见详细台账 |
 
 executor经pinned Mira传递引入，编号使用`MIRA-YYYYMMDD-NNN`，不直接向Executor提交。

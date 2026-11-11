@@ -1810,6 +1810,12 @@ if(MIRAGE_WITH_YOLO AND TARGET ppocr_pipeline_test)
     target_compile_definitions(ppocr_pipeline_test PRIVATE MIRAGE_TEST_WITH_YOLO=1)
 endif()
 find_package(Python3 COMPONENTS Interpreter QUIET)
+if(UNIX AND Python3_Interpreter_FOUND)
+    add_test(NAME workflow_experience_cli_test
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/runtime/workflow_experience_cli_test.py"
+            --cli $<TARGET_FILE:mirage> --service $<TARGET_FILE:mirage-service>)
+    set_tests_properties(workflow_experience_cli_test PROPERTIES LABELS "integration;protocol" TIMEOUT 120)
+endif()
 if(Python3_Interpreter_FOUND)
     add_test(NAME yolo_bundle_test COMMAND "${Python3_EXECUTABLE}"
         "${CMAKE_CURRENT_SOURCE_DIR}/integration/yolo_bundle_test.py" "${CMAKE_SOURCE_DIR}")

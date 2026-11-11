@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <memory>
 #include <string>
+#include <vector>
 
 #include <mirage/integration/desktop_atom_toolset.hpp>
 #include <mirage/integration/mira_adapter.hpp>
@@ -207,6 +208,31 @@ struct WorkflowDefinitionResult {
     HostError error;
 };
 
+/// Provenance of one completed execution, never a repeatability guarantee.
+struct WorkflowExperienceSource {
+    std::string source_run_id;
+    std::string source_workflow_id;
+    std::string source_digest;
+};
+
+/// A review-only experience candidate (DEC-138/140). The definition and
+/// parameter review may contain sensitive data; use only for trusted review,
+/// never diagnostic logging. Compilation creates no library or memory record.
+struct WorkflowExperienceDraftResult {
+    bool ok = false;
+    std::string source_run_id;
+    std::string source_workflow_id;
+    std::string source_digest;
+    std::string workflow_id;
+    std::string digest;
+    std::string definition_json;
+    HostError error;
+    /// DEC-140: induction only, anchor first. Observation values live only
+    /// in the bounded review JSON, not in logs or executable IR metadata.
+    std::vector<WorkflowExperienceSource> sources{};
+    std::string parameter_candidates_json{};
+};
+
 /// Result of start_workflow_run() (DEC-023): the new run's identity.
 struct WorkflowRunStartResult {
     bool ok = false;
@@ -362,6 +388,12 @@ class MiraHost {
     WorkflowDefinitionResult save_workflow_definition(const std::string &definition_json,
                                                       const std::string &reason);
 
+    /// DEC-141: check the IR identity and canonical digest before appending
+    /// a NotValidated draft. Provenance is an imported claim, not a restored Run.
+    WorkflowDefinitionResult import_workflow_experience(const std::string &definition_json,
+                                                        const std::string &workflow_id,
+                                                        const std::string &expected_digest);
+
     /// Runs the pinned publish gate on the definition (DEC-023): structural
     /// validation, the empty-parameter DryRun drive (synchronous on the
     /// calling context) and a DryRunPassed library record with
@@ -369,6 +401,29 @@ class MiraHost {
     /// Requires the workflow surface.
     WorkflowDefinitionResult publish_workflow_definition(const std::string &definition_json,
                                                          const std::string &reason);
+
+    /// Captures a completed, actually executed Workflow Run and delegates
+    /// literal compilation to pinned Mira (DEC-138, M15-02). Returns an IR
+    /// draft plus source provenance, without saving, publishing, executing
+    /// or writing memory. DryRun/non-completed/unknown runs fail closed.
+    /// The target must be a non-nil workflow identity distinct from
+    /// the source. Repeating the same request gives the same draft digest.
+    /// This bounded synchronous operation follows the host's owner-thread
+    /// discipline; it creates no asynchronous task. Normal Agent Task IDs
+    /// and conversation history are not supported by this entry point.
+    WorkflowExperienceDraftResult
+    compile_workflow_experience(const std::string &source_run_id,
+                                const std::string &target_workflow_id, const std::string &name,
+                                const std::string &summary = "") const;
+
+    /// DEC-140: 2..16 distinct successful runs of one version and effective
+    /// policy; first is the anchor. Delegates induction and parameterized
+    /// compilation to Mira. Review metadata is capped at 64 KiB; failure
+    /// returns no partial artifact. No save, publish, execution or memory write.
+    WorkflowExperienceDraftResult
+    induce_workflow_experience(const std::vector<std::string> &source_run_ids,
+                               const std::string &target_workflow_id, const std::string &name,
+                               const std::string &summary = "") const;
 
     /// Starts one asynchronous run from the library (DEC-023): the version is
     /// pinned by `digest_hex` (W-03) and must be runnable (W-04);
@@ -404,6 +459,10 @@ class MiraHost {
     ShutdownResult shutdown();
 
   private:
+    WorkflowExperienceDraftResult
+    compile_workflow_experience_impl(const std::vector<std::string> &source_run_ids,
+                                     const std::string &target_workflow_id, const std::string &name,
+                                     const std::string &summary, bool parameterize) const;
     struct Impl;
     /// Shared body of pause_task() / resume_task() (M5-10, DEC-030): the
     /// pinned pause-family command with cancel_task()'s Running guard,

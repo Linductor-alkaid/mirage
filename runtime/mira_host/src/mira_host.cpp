@@ -3,9 +3,11 @@
 #include <mira/core_contracts.hpp>
 #include <mira/runtime.hpp>
 #include <mira/version.hpp>
+#include <mira/workflow_compiler.hpp>
 #include <mira/workflow_ir.hpp>
 #include <mira/workflow_runtime.hpp>
 
+#include <algorithm>
 #include <atomic>
 #include <utility>
 
@@ -649,6 +651,44 @@ WorkflowDefinitionResult MiraHost::save_workflow_definition(const std::string &d
     return result;
 }
 
+WorkflowDefinitionResult MiraHost::import_workflow_experience(const std::string &definition_json,
+                                                              const std::string &workflow_id,
+                                                              const std::string &expected_digest) {
+    if (!impl_->workflow_surface_active()) {
+        return WorkflowDefinitionResult{
+            false,
+            {},
+            {},
+            {},
+            {},
+            false,
+            host_error("invalid_state", "workflow surface is not attached")};
+    }
+    const auto parsed = mira::parse_workflow_definition(definition_json);
+    if (!parsed) {
+        return WorkflowDefinitionResult{
+            false,
+            {},
+            {},
+            {},
+            {},
+            false,
+            host_error("invalid_argument", "invalid workflow experience definition")};
+    }
+    if (parsed.value().workflow_id.to_string() != workflow_id ||
+        mira::workflow_definition_digest(parsed.value()).to_string() != expected_digest) {
+        return WorkflowDefinitionResult{
+            false,
+            {},
+            {},
+            {},
+            {},
+            false,
+            host_error("invalid_argument", "workflow experience content identity mismatch")};
+    }
+    return save_workflow_definition(definition_json, "workflow experience imported draft");
+}
+
 WorkflowDefinitionResult MiraHost::publish_workflow_definition(const std::string &definition_json,
                                                                const std::string &reason) {
     if (!impl_->workflow_surface_active()) {
@@ -681,6 +721,136 @@ WorkflowDefinitionResult MiraHost::publish_workflow_definition(const std::string
     result.name = parsed.value().name;
     result.dry_run_id = outcome.value().dry_run_id.to_string();
     result.idempotent = outcome.value().idempotent;
+    return result;
+}
+
+WorkflowExperienceDraftResult
+MiraHost::compile_workflow_experience(const std::string &source_run_id,
+                                      const std::string &target_workflow_id,
+                                      const std::string &name, const std::string &summary) const {
+    return compile_workflow_experience_impl({source_run_id}, target_workflow_id, name, summary,
+                                            false);
+}
+
+WorkflowExperienceDraftResult
+MiraHost::induce_workflow_experience(const std::vector<std::string> &source_run_ids,
+                                     const std::string &target_workflow_id, const std::string &name,
+                                     const std::string &summary) const {
+    return compile_workflow_experience_impl(source_run_ids, target_workflow_id, name, summary,
+                                            true);
+}
+
+WorkflowExperienceDraftResult MiraHost::compile_workflow_experience_impl(
+    const std::vector<std::string> &source_run_ids, const std::string &target_workflow_id,
+    const std::string &name, const std::string &summary, bool parameterize) const {
+    WorkflowExperienceDraftResult result;
+    if (!impl_->workflow_surface_active()) {
+        result.error = host_error("invalid_state", "workflow surface is not attached");
+        return result;
+    }
+    if (source_run_ids.empty() || source_run_ids.size() > 16 ||
+        (parameterize && source_run_ids.size() < 2)) {
+        result.error = host_error("invalid_argument", "experience source count is outside limits");
+        return result;
+    }
+    const auto target_id = mira::WorkflowId::parse(target_workflow_id);
+    if (!target_id || target_id->is_nil()) {
+        result.error = host_error("invalid_argument", "malformed run or target workflow identity");
+        return result;
+    }
+    if (name.size() > mira::kDefaultWorkflowLimits.max_string_bytes ||
+        summary.size() > mira::kDefaultWorkflowLimits.max_string_bytes) {
+        result.error =
+            host_error("invalid_argument", "experience metadata exceeds workflow limits");
+        return result;
+    }
+    std::vector<mira::WorkflowRunId> run_ids;
+    for (const auto &source : source_run_ids) {
+        const auto run_id = mira::WorkflowRunId::parse(source);
+        if (!run_id || run_id->is_nil() ||
+            std::find(run_ids.begin(), run_ids.end(), *run_id) != run_ids.end()) {
+            result.error =
+                host_error("invalid_argument", "malformed or duplicate experience source");
+            return result;
+        }
+        run_ids.push_back(*run_id);
+    }
+    std::vector<mira::WorkflowTrajectory> trajectories;
+    for (const auto &run_id : run_ids) {
+        auto captured = impl_->workflow_runtime->capture_trajectory(run_id);
+        if (!captured) {
+            result.error = pinned_error(captured.error());
+            return result;
+        }
+        if (*target_id == captured.value().workflow_id) {
+            result.error =
+                host_error("invalid_argument", "experience target must differ from source");
+            return result;
+        }
+        if (!trajectories.empty() &&
+            (captured.value().workflow_id != trajectories.front().workflow_id ||
+             captured.value().source_digest != trajectories.front().source_digest ||
+             captured.value().effective_policy != trajectories.front().effective_policy)) {
+            result.error = host_error(
+                "invalid_argument", "experience sources must share a workflow version and policy");
+            return result;
+        }
+        trajectories.push_back(std::move(captured.value()));
+    }
+    const auto &anchor = trajectories.front();
+    std::vector<mira::WorkflowParameterCandidate> candidates;
+    std::string review_json;
+    if (parameterize) {
+        auto induced = mira::induce_parameters(trajectories);
+        if (!induced) {
+            result.error = pinned_error(induced.error());
+            return result;
+        }
+        candidates = std::move(induced.value());
+        mira::JsonValue::Array review;
+        for (const auto &candidate : candidates) {
+            review.emplace_back(mira::JsonValue::Object{
+                {"name", candidate.name},
+                {"step_index", static_cast<std::int64_t>(candidate.step_index)},
+                {"pointer", candidate.pointer},
+                {"provenance", mira::workflow_candidate_provenance_name(candidate.provenance)},
+                {"observed_values", mira::JsonValue{candidate.observed_values}}});
+        }
+        review_json = mira::canonical_json_string(mira::JsonValue{std::move(review)});
+        if (review_json.size() > 64 * 1024) {
+            result.error = host_error("unavailable", "experience parameter review exceeds budget");
+            return result;
+        }
+    }
+    mira::WorkflowCompileOptions options;
+    options.workflow_id = *target_id;
+    options.name = name;
+    options.summary = summary;
+    const auto compiled = parameterize ? mira::compile_workflow(anchor, options, candidates)
+                                       : mira::compile_workflow(anchor, options);
+    if (!compiled) {
+        result.error = pinned_error(compiled.error());
+        return result;
+    }
+    // The compiler returns a definition, not an executable library version.
+    // Keep this path observational: no publish/save, DryRun, memory mutation
+    // or event append. Later review and admission remain separate operations.
+    result.source_run_id = run_ids.front().to_string();
+    result.source_workflow_id = anchor.workflow_id.to_string();
+    result.source_digest = anchor.source_digest.to_string();
+    result.workflow_id = target_id->to_string();
+    result.digest = mira::workflow_definition_digest(compiled.value()).to_string();
+    result.definition_json =
+        mira::canonical_json_string(mira::workflow_definition_to_json(compiled.value()));
+    if (parameterize) {
+        for (std::size_t index = 0; index < trajectories.size(); ++index) {
+            result.sources.push_back({run_ids[index].to_string(),
+                                      trajectories[index].workflow_id.to_string(),
+                                      trajectories[index].source_digest.to_string()});
+        }
+        result.parameter_candidates_json = std::move(review_json);
+    }
+    result.ok = true;
     return result;
 }
 

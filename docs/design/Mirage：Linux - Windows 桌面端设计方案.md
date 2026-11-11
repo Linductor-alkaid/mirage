@@ -1437,6 +1437,22 @@ Platform Backend 可选链接系统 XRes，按下前保存有界可见根窗口�
 分别见 [IPC 契约](mirage-ipc-protocol-v1.md)和[原生指南](../../apps/native/README.md)。
 本项提供 Linux Xorg 产品预览入口，任意应用、其他平台及本地知识/workflow 组合另验。
 
+## 任务经验、视觉记忆与监督 RPA 的恢复推进
+
+2026-11-11：维护者要求恢复早期 Workflow 方向，独立以
+[M15](../plans/m15-supervised-rpa-experience.md) 推进；目标、历史证据与职责见
+[专项设计](supervised-rpa-experience-and-visual-memory.md)。
+[DEC-138](../decisions/DEC-138-workflow-experience-draft.md) 首先冻结成功 Workflow
+Run 到只读候选 IR 的 Host 接口，复用 Mira 捕获/编译，不自动发布/执行或写记忆。
+[DEC-139](../decisions/DEC-139-workflow-experience-export.md) 继续提供候选 IPC/CLI
+导出，用户显式取得正文并审阅后经既有 publish 门禁使用；候选与已发布定义分别编码。
+[DEC-140](../decisions/DEC-140-workflow-experience-parameter-induction.md) 提供同版本/
+策略下多次成功 Run 的参数归纳；[DEC-141](../decisions/DEC-141-workflow-experience-archive-import.md)
+提供用户候选文件跨服务重启导入，核对内容身份后创建 NotValidated 草稿，须再次发布。
+自动资产目录、旧 Run/验证等级恢复仍未实现。
+原生 Agent 历史自动提取仍依赖 Mira DEC-038 的未交付能力，长期视觉保存与监督恢复
+继续按专项计划设计验证。既有 M7/M9 临时引用、新观察、权限和动作后核验约束保持适用。
+
 ## M7-11 本地语义 Workflow 首增量
 
 [DEC-067](../decisions/DEC-067-local-semantic-workflow-grounding.md)通过现有 DesktopAtomToolset

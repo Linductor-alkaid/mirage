@@ -10,9 +10,25 @@ native-release 与 DEB 交付完成；Release 120/120、真实推理与包校验
 > 版本：0.1
 > 负责人：Mirage 维护者
 > 依据：[《Mirage：Linux - Windows 桌面端设计方案》](../design/Mirage：Linux%20-%20Windows%20桌面端设计方案.md)（下称"设计文档"）
-> 更新日期：2026-10-29（M9 Linux分层视觉生产配置；其他里程碑门禁保留）
+> 更新日期：2026-11-11（新增 M15 经验/视觉记忆/监督 RPA；既有门禁保留）
 
 ## 当前状态
+
+2026-11-11：维护者要求重新推进早期成功任务经验、视觉记忆与 Agent 监督 RPA，
+建立 [M15 专项计划](m15-supervised-rpa-experience.md)（In Progress）和
+[目标/公开能力核对](../design/supervised-rpa-experience-and-visual-memory.md)。
+首增量 M15-01/02 按 [DEC-138](../decisions/DEC-138-workflow-experience-draft.md) 完成
+成功 Workflow Run 的只读草稿接口及本机契约/sanitizer 验证；普通 Agent 历史提取的通用能力缺口登记
+[MIRA-20261111-001](../dependency_feedback/mira.md#mira-20261111-001)。
+后续 M15-10 按 [DEC-139](../decisions/DEC-139-workflow-experience-export.md) 将草稿
+接到现有 IPC/CLI，导出不改变库/Run，审阅后单独发布；本机验证记录见专项计划。
+M15-11 继续按 [DEC-140](../decisions/DEC-140-workflow-experience-parameter-induction.md)
+复用多次成功 Run 的参数归纳与 review；M15-05 进入 In Progress，持久保存/native
+审阅与完整经验闭环仍未交付。
+M15-12 按 [DEC-141](../decisions/DEC-141-workflow-experience-archive-import.md) 提供
+候选文件跨重启导入为草稿，校验 IR 身份、预检冲突/容量；自动受管资产恢复仍未交付。
+长期视觉记忆、native 入口和在线监督恢复仍待后续实施，不将短期视觉缓存或上游
+模块交付视为产品闭环完成。
 
 2026-10-30：[DEC-137](../decisions/DEC-137-session-evidence-and-task-purpose.md)修复最新
 会话暴露的投影分类预算、同代子树展开与产品用途声明；复用完整产品构建目标。
@@ -738,6 +754,7 @@ Executor 由 pinned `third_party/mira/third_party/executor` 提供，能力路�
 | [M8](m8-mira-pet.md) | mira_pet 独立置顶状态窗口、逐动作循环片段与真实执行投影 | Linux X11 桌宠预览版（标签未定） | In Progress | M1 IPC、M6 Runtime owner、M7 动作/观察执行缝 |
 | [M9](m9-continuous-tasks-and-local-perception.md) | 持续任务、请求级 compact、文本观察、变化/跟踪与本地动作/等待闭环 | Linux 持续任务与文本观察预览（标签未定） | In Progress | M1/M3/M6/M7 已交付能力；M9-02 Linux pin 消费已完成，产品接线另列 M9-03 |
 | [M10](m10-basic-agent-tools.md) | exec/read/write/edit、文件版本/提交、cwd/输出、会话与产品接线 | Linux 基础工具预览 → Windows 四工具预览（标签未定） | Proposed | M1/M5/M6/M7 已交付能力；不等待 M8/M9 整体关闭 |
+| [M15](m15-supervised-rpa-experience.md) | 已执行任务经验候选、视觉记忆与 Agent 监督 RPA；Run 草稿、参数归纳与候选文件导出/导入 | 经验候选文件预览，标签未定 | In Progress | 已交付 M5/M7 面与 Mira 编译/学习/恢复；普通 Agent 提取待上游，后续方案 Proposed |
 
 拆分与合并顺序：先契约后实现（Desktop Environment 接口先于任何 Backend）、先骨架后
 功能（每个 Backend 先以最小动作打通 Observation -> Action -> Observation 闭环）、

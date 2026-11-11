@@ -237,6 +237,16 @@ owner 可为后条件装配局部 OCR，保留物理显示器身份与原预算�
 实际原生 MiniMax-M3 OCR/编号图任务已完成，产品检查 23/23；完整结果见
 [产品启用验收](docs/compatibility/product-desktop-vision-20261011.md)。
 
+2026-11-11（M15-10）：`mirage workflow experience` 可从当前服务已完成的真实
+Workflow Run 导出候选 IR，stdout 为审阅正文，stderr 为来源和内容摘要。
+导出不入库或重复执行；审阅后单独调用既有 publish 门禁。普通 Agent 历史提取、
+长期视觉记忆与 native 审阅仍待实现，见[经验候选示例](docs/examples/workflow-experience-draft.md)。
+M15-11 增加 `--also-run`（同版本/策略的 2～16 个成功 Run）和 `--review`，
+导出参数提议、全部观测与来源；默认仍输出参数化 IR，审阅后独立发布。
+M15-12 增加 `workflow import --file candidate.review.json`：支持用户文件跨服务重启
+导入，核对内容身份后只生成不可运行的草稿，再单独发布。目标冲突明确拒绝；自动资产
+保存/恢复、历史 Run 与验证等级恢复仍未接入。
+
 2026-10-11（M7-11 首增量）：产品 workflow 目录新增 `desktop.knowledge.activate`，
 IR 保存应用/页面/目标语义，执行时重新解析引用、权限判定、一次激活并验证新后条件，
 已知步骤无需模型请求。可通过现有 CLI/IPC 发布运行；原生会话选知识

@@ -1522,6 +1522,14 @@ struct RuntimeService::Impl {
             handle_workflow_get(connection_id, correlation_id, std::move(request->workflow_id));
             return;
         }
+        if (auto *request = std::get_if<ipc::CompileWorkflowExperienceRequest>(&decoded.body)) {
+            handle_workflow_experience(connection_id, correlation_id, *request);
+            return;
+        }
+        if (auto *request = std::get_if<ipc::ImportWorkflowExperienceRequest>(&decoded.body)) {
+            handle_workflow_experience_import(connection_id, correlation_id, *request);
+            return;
+        }
         if (auto *request = std::get_if<ipc::DesktopObserveRequest>(&decoded.body)) {
             handle_desktop_observe(connection_id, correlation_id, *request);
             return;
@@ -3350,6 +3358,85 @@ struct RuntimeService::Impl {
         ipc::WorkflowRunCancelled payload;
         payload.run_id = std::move(run_id);
         payload.state = cancelled.state;
+        respond(connection_id, correlation_id, std::move(payload));
+    }
+
+    /// DEC-141: preflight before mutating Mira; imported history is never
+    /// promoted to current-service Run evidence. All catalog writers use
+    /// this same serial request context.
+    void handle_workflow_experience_import(std::uint64_t connection_id,
+                                           std::uint64_t correlation_id,
+                                           const ipc::ImportWorkflowExperienceRequest &request) {
+        const auto archive = ipc::decode_response(request.archive_json);
+        const auto *draft = std::get_if<ipc::WorkflowExperienceDraft>(&archive.response.payload);
+        if (!archive.ok || !archive.response.ok || !draft ||
+            request.archive_json.size() > ipc::kWorkflowExperienceArchiveBytes) {
+            fail(connection_id, correlation_id, "invalid_argument",
+                 "invalid workflow experience archive");
+            return;
+        }
+        {
+            std::lock_guard lock(core->workflows.mutex);
+            if (core->workflows.contains(draft->workflow_id)) {
+                fail(connection_id, correlation_id, "invalid_state", "workflow already exists");
+                return;
+            }
+            if (core->workflows.full()) {
+                fail(connection_id, correlation_id, "unavailable",
+                     "workflow registry capacity exhausted");
+                return;
+            }
+        }
+        const auto saved = core->host.import_workflow_experience(draft->definition_json,
+                                                                 draft->workflow_id, draft->digest);
+        if (!saved.ok) {
+            fail(connection_id, correlation_id, saved.error.code, saved.error.message);
+            return;
+        }
+        WorkflowCatalogEntry entry;
+        entry.name = saved.name;
+        entry.head_digest = saved.digest;
+        entry.validation = "not_validated";
+        entry.runnable = false;
+        entry.updated_at_ms = wall_now_ms();
+        entry.definition_json = draft->definition_json;
+        {
+            std::lock_guard lock(core->workflows.mutex);
+            core->workflows.workflows.emplace(saved.workflow_id, std::move(entry));
+        }
+        respond(connection_id, correlation_id, ipc::WorkflowSaved{saved.workflow_id, saved.digest});
+    }
+
+    /// DEC-139: bounded capture/compile on the existing serial request
+    /// context. The sensitive IR goes only to this requesting connection.
+    void handle_workflow_experience(std::uint64_t connection_id, std::uint64_t correlation_id,
+                                    const ipc::CompileWorkflowExperienceRequest &request) {
+        auto source_ids = request.additional_run_ids;
+        source_ids.insert(source_ids.begin(), request.source_run_id);
+        const auto draft =
+            request.additional_run_ids.empty()
+                ? core->host.compile_workflow_experience(request.source_run_id,
+                                                         request.target_workflow_id, request.name,
+                                                         request.summary)
+                : core->host.induce_workflow_experience(source_ids, request.target_workflow_id,
+                                                        request.name, request.summary);
+        if (!draft.ok) {
+            fail(connection_id, correlation_id, draft.error.code, draft.error.message);
+            return;
+        }
+        if (draft.definition_json.size() > ipc::kWorkflowExperienceDefinitionBytes) {
+            fail(connection_id, correlation_id, "unavailable",
+                 "workflow experience exceeds wire budget");
+            return;
+        }
+        ipc::WorkflowExperienceDraft payload{draft.source_run_id, draft.source_workflow_id,
+                                             draft.source_digest, draft.workflow_id,
+                                             draft.digest,        draft.definition_json};
+        for (const auto &source : draft.sources) {
+            payload.sources.push_back(
+                {source.source_run_id, source.source_workflow_id, source.source_digest});
+        }
+        payload.parameter_candidates_json = draft.parameter_candidates_json;
         respond(connection_id, correlation_id, std::move(payload));
     }
 

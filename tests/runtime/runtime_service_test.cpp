@@ -5,6 +5,7 @@
 #include <mira/core_contracts.hpp>
 #include <mira/model_contracts.hpp>
 #include <mira/model_provider.hpp>
+#include <mira/workflow_ir.hpp>
 
 #include <mirage/desktop/desktop_environment.hpp>
 #include <mirage/desktop/semantic_snapshot.hpp>
@@ -326,6 +327,109 @@ void scenario_workflow_get_serves_head_definition_content() {
     MIRAGE_CHECK(!gone.ok);
     MIRAGE_CHECK(gone.error.code == "not_found");
 
+    service.request_shutdown();
+    MIRAGE_CHECK(service.run().clean);
+}
+
+void scenario_workflow_experience_is_review_only() {
+    mirage::testing::TempDir dir;
+    auto config = make_config(dir);
+    config.executor_threads = 4;
+    config.max_workflow_definitions = 1;
+    const auto desktop = std::make_shared<mirage::testing::FakeDesktopEnvironment>();
+    RuntimeService service(config);
+    MIRAGE_CHECK(service.start(std::make_shared<integration::MiraEnvironmentBinding>(desktop)).ok);
+    ipc::IpcClient client(config.socket_path);
+    const auto source_id = mira::WorkflowId::generate().to_string();
+    const auto step_id = mira::StepId::generate().to_string();
+    const auto target_id = mira::WorkflowId::generate().to_string();
+    const auto definition =
+        R"({"schema_version":{"major":1,"minor":0},"workflow_id":")" + source_id +
+        R"(","name":"source","parameters":[{"name":"confirm","type":"boolean","required":false}],"steps":[{"step_id":")" +
+        step_id +
+        R"(","kind":"tool_call","arguments":{"tool":"desktop.clipboard.write_text","text":"experience-private"},"verification":{"signal":"run_parameter:confirm","op":"eq","value":true}}],"default_policy":"strict","allowed_policies":["strict","dry_run"]})";
+    const auto published = client.call(ipc::WorkflowPublishRequest{definition}, kCallBudget);
+    const auto *version = std::get_if<ipc::WorkflowPublished>(&published.payload);
+    MIRAGE_CHECK(published.ok && version != nullptr);
+    if (version == nullptr) {
+        service.request_shutdown();
+        MIRAGE_CHECK(service.run().clean);
+        return;
+    }
+    MIRAGE_CHECK(!desktop->clipboard_has_text); // DryRun did not dispatch.
+    const auto started = client.call(
+        ipc::WorkflowRunRequest{source_id, version->digest, R"({"confirm":true})", "strict"},
+        kCallBudget);
+    const auto *run = std::get_if<ipc::WorkflowRunStarted>(&started.payload);
+    MIRAGE_CHECK(started.ok && run != nullptr);
+    if (run == nullptr) {
+        service.request_shutdown();
+        MIRAGE_CHECK(service.run().clean);
+        return;
+    }
+    bool completed = false;
+    const auto deadline = std::chrono::steady_clock::now() + kTaskBudget;
+    while (!completed && std::chrono::steady_clock::now() < deadline) {
+        const auto listed = client.call(ipc::WorkflowRunsRequest{}, kCallBudget);
+        if (const auto *runs = std::get_if<ipc::WorkflowRunList>(&listed.payload)) {
+            for (const auto &record : runs->runs) {
+                completed =
+                    completed || (record.run_id == run->run_id && record.state == "completed");
+            }
+        }
+        if (!completed)
+            std::this_thread::sleep_for(std::chrono::milliseconds{10});
+    }
+    MIRAGE_CHECK(completed);
+    MIRAGE_CHECK(desktop->clipboard_text == "experience-private");
+    ipc::CompileWorkflowExperienceRequest request{run->run_id, target_id, "review candidate",
+                                                  "one observed run"};
+    const auto exported = client.call(request, kCallBudget);
+    const auto *draft = std::get_if<ipc::WorkflowExperienceDraft>(&exported.payload);
+    MIRAGE_CHECK(exported.ok && draft != nullptr);
+    if (draft != nullptr) {
+        MIRAGE_CHECK(draft->source_run_id == run->run_id);
+        MIRAGE_CHECK(draft->source_workflow_id == source_id);
+        MIRAGE_CHECK(draft->source_digest == version->digest);
+        MIRAGE_CHECK(draft->workflow_id == target_id);
+        const auto parsed = mira::parse_workflow_definition(draft->definition_json);
+        MIRAGE_CHECK(parsed);
+        if (parsed) {
+            MIRAGE_CHECK(mira::workflow_definition_digest(parsed.value()).to_string() ==
+                         draft->digest);
+        }
+        const auto repeated = client.call(request, kCallBudget);
+        const auto *again = std::get_if<ipc::WorkflowExperienceDraft>(&repeated.payload);
+        MIRAGE_CHECK(repeated.ok && again != nullptr);
+        if (again)
+            MIRAGE_CHECK(again->definition_json == draft->definition_json &&
+                         again->digest == draft->digest);
+    }
+    const auto catalog = client.call(ipc::WorkflowListRequest{}, kCallBudget);
+    const auto *entries = std::get_if<ipc::WorkflowList>(&catalog.payload);
+    MIRAGE_CHECK(catalog.ok && entries && entries->workflows.size() == 1);
+    // This fixture has a one-entry catalog. Import must preflight capacity
+    // before appending a draft to the pinned library (DEC-141).
+    const auto full = client.call(
+        ipc::ImportWorkflowExperienceRequest{ipc::encode_response(exported)}, kCallBudget);
+    MIRAGE_CHECK(!full.ok && full.error.code == "unavailable");
+    const auto still_full = client.call(ipc::WorkflowListRequest{}, kCallBudget);
+    const auto *unchanged_entries = std::get_if<ipc::WorkflowList>(&still_full.payload);
+    MIRAGE_CHECK(still_full.ok && unchanged_entries && unchanged_entries->workflows.size() == 1);
+    const auto runs_after = client.call(ipc::WorkflowRunsRequest{}, kCallBudget);
+    const auto *runs = std::get_if<ipc::WorkflowRunList>(&runs_after.payload);
+    MIRAGE_CHECK(runs_after.ok && runs && runs->runs.size() == 1);
+    MIRAGE_CHECK(!client.call(ipc::WorkflowGetRequest{target_id}, kCallBudget).ok);
+    MIRAGE_CHECK(
+        !client.call(ipc::WorkflowRunRequest{target_id, "", "{}", "strict"}, kCallBudget).ok);
+    MIRAGE_CHECK(desktop->clipboard_text == "experience-private");
+    request.source_run_id = version->dry_run_id;
+    MIRAGE_CHECK(!client.call(request, kCallBudget).ok);
+    request.source_run_id = mira::WorkflowRunId::generate().to_string();
+    MIRAGE_CHECK(!client.call(request, kCallBudget).ok);
+    request.source_run_id = run->run_id;
+    request.target_workflow_id = source_id;
+    MIRAGE_CHECK(!client.call(request, kCallBudget).ok);
     service.request_shutdown();
     MIRAGE_CHECK(service.run().clean);
 }
@@ -2803,6 +2907,7 @@ int main() {
                  scenario_workflow_get_unknown_id_is_not_found);
     run_scenario("workflow_get_serves_head_definition_content",
                  scenario_workflow_get_serves_head_definition_content);
+    run_scenario("workflow_experience_is_review_only", scenario_workflow_experience_is_review_only);
     run_scenario("observe_wire_budget_truncates_with_explicit_mark",
                  scenario_observe_wire_budget_truncates_with_explicit_mark);
     return mirage::testing::finish("runtime_service_test");

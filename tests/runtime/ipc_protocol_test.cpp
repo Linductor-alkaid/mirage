@@ -592,6 +592,80 @@ void scenario_workflow_requests_round_trip() {
     }
 }
 
+void scenario_workflow_experience_budgets() {
+    ipc::CompileWorkflowExperienceRequest request{
+        std::string(32, '1'), std::string(32, '2'),
+        std::string(ipc::kWorkflowExperienceMetadataBytes, 'n'), ""};
+    MIRAGE_CHECK(ipc::decode_request(ipc::encode_request(90, request)).ok);
+    request.name.push_back('x');
+    MIRAGE_CHECK(!ipc::decode_request(ipc::encode_request(90, request)).ok);
+    request.name = "candidate";
+    request.summary.assign(ipc::kWorkflowExperienceMetadataBytes, 's');
+    MIRAGE_CHECK(ipc::decode_request(ipc::encode_request(90, request)).ok);
+    request.summary.push_back('x');
+    MIRAGE_CHECK(!ipc::decode_request(ipc::encode_request(90, request)).ok);
+
+    ipc::WorkflowExperienceDraft draft{
+        std::string(32, '1'),
+        std::string(32, '3'),
+        std::string(64, 'a'),
+        std::string(32, '2'),
+        std::string(64, 'b'),
+        "{\"data\":\"" + std::string(ipc::kWorkflowExperienceDefinitionBytes - 11, 'x') + "\"}"};
+    ipc::Response response;
+    response.id = 90;
+    response.ok = true;
+    response.payload = draft;
+    MIRAGE_CHECK(ipc::decode_response(ipc::encode_response(response)).ok);
+    // The complete review archive has its own budget, including envelope
+    // extensions. Preserve the exact boundary and reject one extra byte.
+    auto archive = ipc::encode_response(response);
+    archive.pop_back();
+    archive += ",\"padding\":\"";
+    archive.append(ipc::kWorkflowExperienceArchiveBytes - archive.size() - 2, 'x');
+    archive += "\"}";
+    MIRAGE_CHECK(archive.size() == ipc::kWorkflowExperienceArchiveBytes);
+    MIRAGE_CHECK(
+        ipc::decode_request(ipc::encode_request(91, ipc::ImportWorkflowExperienceRequest{archive}))
+            .ok);
+    archive.insert(archive.size() - 2, "x");
+    MIRAGE_CHECK(
+        !ipc::decode_request(ipc::encode_request(91, ipc::ImportWorkflowExperienceRequest{archive}))
+             .ok);
+    draft.definition_json.insert(draft.definition_json.size() - 2, "x");
+    response.payload = draft;
+    MIRAGE_CHECK(!ipc::decode_response(ipc::encode_response(response)).ok);
+    draft.definition_json = "{}";
+    draft.sources = {{draft.source_run_id, draft.source_workflow_id, draft.source_digest},
+                     {std::string(32, '4'), draft.source_workflow_id, draft.source_digest}};
+    const std::string prefix =
+        R"([{"name":"value","step_index":0,"pointer":"/path","provenance":"structural","observed_values":[")";
+    const std::string suffix = R"(","b"]}])";
+    draft.parameter_candidates_json =
+        prefix +
+        std::string(ipc::kWorkflowExperienceReviewBytes - prefix.size() - suffix.size(), 'x') +
+        suffix;
+    response.payload = draft;
+    MIRAGE_CHECK(ipc::decode_response(ipc::encode_response(response)).ok);
+    draft.parameter_candidates_json =
+        prefix +
+        std::string(ipc::kWorkflowExperienceReviewBytes - prefix.size() - suffix.size() + 1, 'x') +
+        suffix;
+    response.payload = draft;
+    MIRAGE_CHECK(!ipc::decode_response(ipc::encode_response(response)).ok);
+    draft.parameter_candidates_json = "[]";
+    response.payload = draft;
+    MIRAGE_CHECK(ipc::decode_response(ipc::encode_response(response)).ok);
+    draft.sources.clear();
+    response.payload = draft;
+    MIRAGE_CHECK(!ipc::decode_response(ipc::encode_response(response)).ok);
+    // An experience envelope must not degrade to a library read response.
+    MIRAGE_CHECK(
+        !ipc::decode_response(
+             R"({"v":1,"id":90,"ok":true,"experience":null,"workflow_id":"other","digest":"other","definition":{}})")
+             .ok);
+}
+
 void scenario_workflow_requests_reject_malformed_payloads() {
     const char *invalid_payloads[] = {
         R"({"v":1,"id":5,"op":"workflow.save"})",
@@ -1517,6 +1591,7 @@ int main() {
     run_scenario("request_round_trips", scenario_request_round_trips);
     run_scenario("request_rejects_malformed_payloads", scenario_request_rejects_malformed_payloads);
     run_scenario("workflow_requests_round_trip", scenario_workflow_requests_round_trip);
+    run_scenario("workflow_experience_budgets", scenario_workflow_experience_budgets);
     run_scenario("workflow_requests_reject_malformed_payloads",
                  scenario_workflow_requests_reject_malformed_payloads);
     run_scenario("workflow_responses_round_trip", scenario_workflow_responses_round_trip);
