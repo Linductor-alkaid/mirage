@@ -631,6 +631,14 @@ struct ModelLayer::Impl {
         record.deadlines.tls = std::chrono::milliseconds{20'000};
         record.deadlines.write = std::chrono::milliseconds{30'000};
         record.default_data_policy.store = false;
+        // Upstream PR#118: the transport SSRF line denies loopback/private/
+        // link-local endpoints unless the host consents on the profile. The
+        // endpoint origin here is user-declared local settings (never model
+        // output), and pinned allowed_hosts already binds every hop including
+        // redirects to that configured host, so the consent only unlocks the
+        // address family the user explicitly typed in — it is what makes
+        // loopback/LAN local model servers (Ollama, LM Studio, ...) reachable.
+        record.allow_private_endpoint = true;
         return record;
     }
 

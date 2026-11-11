@@ -685,6 +685,19 @@ set_tests_properties(mira_binding_test PROPERTIES
 )
 endif()
 
+# 2026-11-11 mira pin upgrade (PR#118 SSRF consent): the ModelLayer profile
+# assembly consents user-configured endpoints and a refused loopback /
+# unresolvable public endpoint must fail at the transport layer, never as an
+# endpoint-policy denial. POSIX-only (loopback socket probe helper).
+if(UNIX)
+mirage_add_test(model_profile_endpoint_test
+    SOURCES integration/model_profile_endpoint_test.cpp
+    LIBS Mirage::integration_mira Mira::core Mirage::kairo_consumer
+    LABELS "integration;runtime;security"
+    TIMEOUT 60
+    )
+endif()
+
 # DEC-093 categorized budget allocation (M9-14 / BUG-20261015-001)
 mirage_add_test(conversation_budget_test
     SOURCES runtime/conversation_budget_test.cpp
