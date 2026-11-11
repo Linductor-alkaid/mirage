@@ -143,6 +143,18 @@ M9-25/27/28/33及平台/资源/视频门禁保持开放，不切生产默认。
 [验收记录](../compatibility/temporal-storyboard-20261027.md)。M9-23/24 保持 In Progress，
 不以工具接通替代真实视频理解、在线 token/资源与完成率 A/B。
 
+2026-10-27：维护者明确持续独立 Agent 的完整目标为“用户始终一个输入口，Mira 内部
+安排会话、上下文和记忆”。[反馈工作项 MNT-MEM-01～06](agent-memory-upstream-feedback-20261027.md)
+据此修订 [MIRA-20261027-001](../dependency_feedback/mira.md#mira-20261027-001) 与
+[mira#111](https://github.com/Linductor-alkaid/mira/issues/111)（Proposed），覆盖输入接纳、
+内部会话/任务协调、上下文/记忆编排、统一输出与恢复。Mira 提供通用协调，Mirage
+提供 UI/IPC/平台能力与授权配置；当前会话实现仍为兼容基线，M11～M14 的产品实现
+与验收不因提报完成。初版回忆反馈/激活排序转为子能力。
+维护者进一步要求有限部署：[DEC-119](../decisions/DEC-119-bounded-memory-and-session-retention.md)
+替代 DEC-101 的默认无限会话和路线图永久保留原始经历的前提；记忆/管理会话/归档
+总预算、分层遗忘、安全归档和物理清理进入同一 #111，MNT-MEM-07～09 跟踪提报。
+具体算法/数值/迁移及实际资源验收待冻结，当前实现与存量数据未改变。
+
 2026-10-27：[M9-22 最新会话门控与重复取帧调查](../research/2026-10-27-event-driven-observation-and-action-gates.md)
 完成：两次 arrival_target_changed 归属 Mirage 共享输入 Adapter；同按钮悬停配色
 合成复现证明现有像素守卫可误拒。最新会话 23 次模型请求、10 次显式 capture
@@ -742,6 +754,7 @@ Executor 由 pinned `third_party/mira/third_party/executor` 提供，能力路�
 | DEC-131 | 多对象显式唤醒优先级 | [DEC-131](../decisions/DEC-131-multi-object-wake-priority.md)：最多4目标，准确observe身份仅延后位置/外观唤醒；保留日志、整组失效 | Mirage维护者 | M9-29显式重要性增量；自动语义层继续开放 |
 | DEC-130 | 普通事件无损批次 | [DEC-130](../decisions/DEC-130-lossless-event-batching.md)：同身份普通事件共享字段，逐次样本保留；预算只确认实际呈现前缀 | Mirage维护者 | M9-29批次增量；任务语义去噪继续开放 |
 | DEC-128 | Linux分层视觉生产配置 | [DEC-128](../decisions/DEC-128-layered-perception-production-profile.md)：Linux默认layered/5Hz/5s完整巡检/有界跟踪，稳定CLI和legacy回退；本机验收见生产记录，Windows/Portal/视频门禁保留 | Mirage维护者 | 本机配置已冻结；跨平台M9-33 |
+| DEC-119 | 有限容量的记忆、会话归档与清理 | [DEC-119](../decisions/DEC-119-bounded-memory-and-session-retention.md)：容量/生命周期原则 Accepted，部分替代 DEC-101；算法、部署预算、迁移与实际资源收敛验收待冻结，Mira #111 评审 | Mira/Mirage 维护者 | M11～M14 统一交互实施前 |
 | DEC-110 | 连续输入与设备兼容性 | Proposed：M7-25 已有契约冻结稿；2026-10-20 补全量键鼠默认本地自然时序、无模型时间参数与完整执行后返回/验证要求，契约及兼容迁移待修订；M7-26 已交付 X11/Portal 完整动作默认自然时序与裸修饰键 tap；持键/IME/设备及真实平台验收未完成 | Mirage 维护者 | M7-25 修订/评审；设备原型前 M7-29/30，任务阈值执行前 M7-31 |
 | DEC-095 | 基础 Agent 工具集 | Proposed：四工具/alias、观察与提交点、预算、权限迁移和平台边界见提案 | Mirage 维护者 | M10-02 |
 | DEC-090 | 持续任务与有界资源 | 方向 Accepted；无进展判定、公开循环 API/准入及存量在实施前冻结 | Mira/Mirage 维护者 | M9-01～04 |

@@ -2,7 +2,7 @@
 
 > 状态：Active
 > 负责人：Mirage维护者；处理方：Mira上游
-> 更新日期：2026-10-25
+> 更新日期：2026-10-27
 > 工作项：台账维护性收口见[依赖复用整改计划](../plans/dependency-reuse-remediation.md)
 > （REUSE-16/17/18）；既有条目分别溯源至 M6-10、M7、M8/M9 各工作项。
 > 总入口：[依赖反馈](ledger.md)；维护规则：[工程规范9.4](../project/project-standards.md)
@@ -102,6 +102,7 @@
 | MIRA-20261014-005 | ConversationLoop 供给缝无跨轮输入复用身份标注入口 | P2：多轮上下文成本缺口 | Resolved | PR#95 授权合并 9e7b729；Mirage 随 pin 消费跨轮计数并复验 fixture；真实会话对照待真实 provider 补跑 | [PR#95](https://github.com/Linductor-alkaid/mira/pull/95)，已合并 |
 | MIRA-20261013-001 | `Result<T>::value()` 对 error 态 UB 解引用 | P2：公开 API 防线缺口 | Open | 非法 JSON `.value()` 触发 SIGSEGV 且无符号栈（DEC-085 测试现场）；详见详细条目 | 未提交（待维护者评估） |
 | MIRA-20261016-001 | 语义相似度计算能力（M10 记忆系统前瞻确认） | P3：前瞻能力确认 | Accepted（部分交付） | pin 68a8bf1 已有 embedding 生产者/索引修复与向量召回契约；模型供给、质量与产品接线未验收 | 上游 [PR#103](https://github.com/Linductor-alkaid/mira/pull/103)，无需重复提报已有契约 |
+| MIRA-20261027-001 | 统一输入下的会话/任务/上下文/记忆完整编排 | P3：前瞻演进提案，非线上故障 | Proposed | 复用现有组件；统一编排、记忆/会话/归档总预算及安全清理契约待评审 | [mira#111](https://github.com/Linductor-alkaid/mira/issues/111)，[反馈计划](../plans/agent-memory-upstream-feedback-20261027.md) |
 | MIRA-20261016-002 | 会话循环对 provider error 与输出截断的韧性/续写语义（DEC-085 系列） | P1：真实会话整轮失败 | Resolved（追记） | PR#91（error 分类入恢复白名单）/PR#92（截断恢复反馈差异化）/PR#93（有界输出续写）均已授权合并并随 pin 消费复验；见 [DEC-085](../decisions/DEC-085-session-loop-resilience-and-tool-failure-handling.md) | [PR#91](https://github.com/Linductor-alkaid/mira/pull/91)/[92](https://github.com/Linductor-alkaid/mira/pull/92)/[93](https://github.com/Linductor-alkaid/mira/pull/93)，已合并 |
 | MIRA-20261016-003 | kairo 0.7.0 延期能力：QoS 标注与 AdaptiveScheduler 触发条件未到期 | P3：分层采用延期能力 | Open | 上游 DEC-054 分层采用；QoS/AdaptiveScheduler 延期并记录触发条件；见 [审计](../supply-chain/mira-kairo-070-20261013.md) | [PR#89](https://github.com/Linductor-alkaid/mira/pull/89) 已合并（延期部分未交付） |
 | MIRA-20261016-004 | 观察管线无 RGBA→PNG 转码缝，host 自理编码 | P2：多模态供给依赖自研编解码 | Open | `observation.hpp` 明示 host 负责 RGBA→PNG；Mirage 以 `desktop_png.cpp` 手写 DEFLATE/PNG 承载（integration 边界内） | 未提交 |
@@ -603,6 +604,46 @@ SqliteMemoryStore 支持向量查询、缺失向量降级、内容变更失效�
 代替上游召回面。此次不引入 embedding 运行时、不启用产品记忆；真实模型的
 召回质量/资源预算与 M10 接线仍未验收，不能标为 Resolved。
 负责人 Mirage 维护者；补跑条件：M10 设计冻结、选定获准模型与标注数据集。
+
+<a id="mira-20261027-001"></a>
+
+## MIRA-20261027-001：统一输入下的会话、任务、上下文与记忆完整编排
+
+- 状态：Proposed；日期：2026-10-27；负责人：Mirage 维护者；P3 前瞻演进，非线上故障。
+- 上游：[mira#111](https://github.com/Linductor-alkaid/mira/issues/111)（Open）；沿用原 issue 和编号修订。
+- 工作项：[MNT-MEM-01～06](../plans/agent-memory-upstream-feedback-20261027.md)；来源：
+  [持续个体路线图](../design/continuous-digital-entity-evolution.md) §4.2～4.5，以及维护者
+  本轮明确要求：用户始终只有一个输入口，Mira 内部安排会话、上下文与记忆。
+- 当前范围：统一输入接纳与结果关联 → 意图/内部会话与任务安排 → 上下文/记忆准备 →
+  执行验证 → 状态与记忆更新 → 统一输出；涵盖插话、话题切换、暂停恢复、纠正及重启。
+  初版只提回忆反馈/激活排序，现作为长期记忆子能力保留，不能代替完整交互目标。
+- 核对基线：pin 与本日已查 master 为 `68a8bf17b30af246b722fbb548c033de82efe26e`。
+  补核对 runtime.hpp、agent_loop.hpp、conversation_loop.hpp、Runtime/Loop API：
+  open_session/submit_task 需要宿主指定会话；enqueue_user_message 作用于已选 loop；
+  run(AgentLoopSpec) 的任务/会话帧由调用方提供。现有 Context/Memory/W1～W5 可复用，
+  未发现主体输入到这些组件的高层统一协调入口。依据为静态契约核对，未执行新行为测试。
+- 最小诉求：主体/input id 绑定的高层接纳与输出契约；Mira 通用会话/任务安排、
+  上下文/记忆编排、状态恢复与输出关联；精确 API 和分期由上游评审。
+  接纳/路由/执行/回答/完成分开可见，重复输入幂等、歧义可在同一入口澄清。
+- 职责修订：Mira 提供通用协调，复用既有 Runtime/Loop/Context/Memory；Mirage 提供
+  UI/IPC、认证与权限配置、桌面能力/租约、模型与存储接线。产品时间线投影 Mira
+  交互状态，宿主不重新实现整套输入后的会话/上下文/记忆决策。
+- 约束：用户侧统一入口不等于取消内部隔离；保留 scope/tenant/authority/epoch、
+  副作用日志与隐私删除纪律；全部并发仍由 kairo 管理，不建立平行控制面。
+- 延期影响：现有会话模式继续可用，但不构成本需求完成；统一输入、内部协调、
+  记忆系统的集成契约及真实模型质量尚待上游评审/实现。既有 embedding 条目状态不变。
+- 有界部署补充（DEC-119）：记忆/原始事件/工件/索引/台账、管理中会话和归档均须有
+  总预算；分层遗忘允许物理删除零星经历。完全结束且无待处理依赖的会话归档释放名额，
+  归档自身按容量/保留期清理。软/硬水位、保护配额、共享引用、迟到写入、清理中崩溃、
+  去重窗口和实际文件占用/峰值必须进入设计及验收。当前代码未迁移或开始清理。
+- 已有能力与剩余缺口：复用 TTL、compact/IMemoryRetentionSweep、erase、工件局部限额；
+  MemorySweepOptions 限制单趟工作，SqliteMemoryStoreOptions 未给出整个记忆库的字节配额。
+  现有局部上限不能代替统一总容量接纳、压力遗忘与会话退出协调，具体公共边界待上游评审。
+- 验收：同入口连续交流与任务补充、穿插话题后续接、多任务指代澄清、执行中纠正/取消、
+  偏好纠正/删除、压缩与重启恢复、输入重试/并发/输出归属、权限隔离、预算/背压/
+  拒绝/取消/超时/shutdown，另验有限归档/遗忘的资源收敛和信息损失。真实模型准确率
+  与资源另验，不能用单 loop 或向量召回替代。
+- 关联 #39/#48/#55/#73；完整正文、修订说明、回执与验证见[反馈计划](../plans/agent-memory-upstream-feedback-20261027.md)。
 
 <a id="mira-20261016-002"></a>
 
