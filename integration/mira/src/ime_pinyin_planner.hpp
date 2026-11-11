@@ -12,5 +12,6 @@ inline constexpr char ime_pinyin_prompt[] =
     "full text for polyphonic characters. Group printable ASCII verbatim in units with empty "
     "pinyin. Preserve every character exactly and in order. Never output candidate numbers, "
     "commands, images or tools. Unsupported scripts must not be transliterated into other text.";
-ImePlanner make_ime_planner(mira::ModelGateway &, mira::ModelProfileId);
+ImePlanner make_ime_planner(mira::ModelGateway &, mira::ModelProfileId,
+                            std::uint64_t max_output_tokens);
 } // namespace mirage::integration::detail

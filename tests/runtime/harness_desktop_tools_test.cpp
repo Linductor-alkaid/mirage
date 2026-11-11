@@ -1983,17 +1983,20 @@ class PreflightScript final : public mira::IModelProvider {
 };
 
 // DEC-087 per-request output-budget preflight (ZCode model-token-limits
-// semantics) on the pure dialog path: one request per turn, a fixed system
-// persona plus the user text, no tools — the pinned estimator's result is
-// exactly computable from the recorded wire request, whose bytes the
-// decorator never touches. The declared window shrinks the wire budget to
-// window − estimate − 1000, the provider-reported usage anchors the next
-// request's usage estimate, and a non-positive margin keeps the baseline.
-// model_config() declares max_output_tokens = 512; these probes re-declare
-// 8192 so the shrink is observable against the small fixture input.
+// semantics) on the pure dialog path, plus the new-pin admission window
+// discipline: one request per turn, a fixed system persona plus the user
+// text, no tools — the pinned estimator's result is exactly computable from
+// the recorded wire request, whose bytes the decorator never touches. With a
+// declared window the host budget is first clamped to the admission-funded
+// cap (window − admission reserve; floor at kMinAdmissibleOutputTokens for
+// windows below the reserve), and the DEC-087 decorator may only shrink that
+// further against window − estimate − 1000. Provider-reported usage anchors
+// the next request's usage estimate. model_config() declares
+// max_output_tokens = 512; these probes re-declare 8192 so the caps are
+// observable against the small fixture input.
 void preflight_budget_scenario() {
-    // (a) a declared window shrinks the first wire call; no window leaves
-    // the baseline verbatim.
+    // (a) a window below the admission reserve clamps the wire budget to the
+    // admissible floor; no window leaves the baseline verbatim.
     {
         kairo::Executor owner;
         MIRAGE_CHECK(static_cast<bool>(owner.initialize({})));
@@ -2014,13 +2017,12 @@ void preflight_budget_scenario() {
         MIRAGE_CHECK(result.ok && result.reply_text == "preflight probe answer");
         MIRAGE_CHECK(script && script->requests.size() == 1);
         if (script && script->requests.size() == 1) {
-            const auto estimate = mira::estimate_input_tokens(script->requests.front());
-            // Premise: the fixture input leaves a positive margin below the
-            // declared window and that margin sits under the baseline, so
-            // the shrink is observable at all.
-            MIRAGE_CHECK(6000u > estimate + 1000u && 6000u - estimate - 1000u < 8192u);
-            MIRAGE_CHECK(script->requests.front().generation.max_output_tokens ==
-                         6000u - estimate - 1000u);
+            // Premise: the window sits below the static admission reserve
+            // (9696 = 1024 margin + 8192 budget floor + 480 slack), so the
+            // profile clamps to the 1024 admissible-output floor and the
+            // request may not reserve more than the profile declares.
+            MIRAGE_CHECK(6000u < 9696u + 1024u);
+            MIRAGE_CHECK(script->requests.front().generation.max_output_tokens == 1024u);
         }
         layer.shutdown();
         // Control: the same fixture without a declared window keeps the
@@ -2043,10 +2045,12 @@ void preflight_budget_scenario() {
         plain_layer.shutdown();
         owner.shutdown(true);
     }
-    // (b) the provider-reported usage anchors the next request: the second
-    // byte-identical turn is charged the reported provider input (7000)
-    // plus zero growth, so its wire budget lands on window − 7000 − 1000 =
-    // 4000, while the first turn (no anchor yet) keeps the baseline.
+    // (b) the provider-reported usage anchors the next request: the first
+    // turn (no anchor yet) keeps the admission-funded profile cap —
+    // window − 9696 = 16000 − 9696 = 6304 under the 8192 baseline — and the
+    // second byte-identical turn is charged the reported provider input
+    // (9500) plus zero growth, so its wire budget lands on the decorator
+    // shrink window − 9500 − 1000 = 5500, below the cap.
     {
         kairo::Executor owner;
         MIRAGE_CHECK(static_cast<bool>(owner.initialize({})));
@@ -2056,12 +2060,12 @@ void preflight_budget_scenario() {
         });
         auto config = model_config();
         config.max_output_tokens = 8192;
-        config.context_window_tokens = 12000;
+        config.context_window_tokens = 16000;
         integration::ModelLayer layer(owner, config, &provider, {});
         auto context = mira::make_control_context();
         context.session = mira::SessionId::generate();
         context.deadline = std::chrono::steady_clock::now() + 10s;
-        script->reported_input = 7000;
+        script->reported_input = 9500;
         const auto first = owner
                                .submit_auto([&] {
                                    return layer.complete_dialog_turn({}, "anchor probe", context);
@@ -2078,18 +2082,24 @@ void preflight_budget_scenario() {
         MIRAGE_CHECK(script && script->requests.size() == 2);
         if (script && script->requests.size() == 2) {
             const auto first_estimate = mira::estimate_input_tokens(script->requests[0]);
-            // Premise: without an anchor the first call keeps the baseline.
-            MIRAGE_CHECK(12000u - first_estimate - 1000u >= 8192u);
-            MIRAGE_CHECK(script->requests[0].generation.max_output_tokens == 8192u);
-            MIRAGE_CHECK(script->requests[1].generation.max_output_tokens == 4000u);
+            // Premise: without an anchor the decorator shrink stays above
+            // the profile cap, so the first call carries the cap verbatim;
+            // with the anchor it drops below the cap and binds instead.
+            MIRAGE_CHECK(16000u - first_estimate - 1000u >= 6304u);
+            MIRAGE_CHECK(16000u - 9500u - 1000u < 6304u);
+            MIRAGE_CHECK(script->requests[0].generation.max_output_tokens == 6304u);
+            MIRAGE_CHECK(script->requests[1].generation.max_output_tokens == 5500u);
         }
         layer.shutdown();
         owner.shutdown(true);
     }
-    // (c) a non-positive margin keeps the baseline: with the window exactly
-    // at estimate + 1000 the preflight has nothing to shave and must not
-    // drive the wire budget to zero; one spare token above that shrinks to
-    // exactly 1.
+    // (c) the admission cap is exact and monotone: with the window at
+    // estimate + reserve + floor the wire budget lands exactly on the floor
+    // above the fixture input estimate, and one spare window token raises
+    // it by one. (The retired usable==0/1 decorator edges are structurally
+    // inadmissible under complete-request admission — a window that small
+    // cannot fund margin plus input — so the cap arithmetic pins the
+    // contract now.)
     {
         kairo::Executor owner;
         MIRAGE_CHECK(static_cast<bool>(owner.initialize({})));
@@ -2111,10 +2121,12 @@ void preflight_budget_scenario() {
         const auto estimate = mira::estimate_input_tokens(script->requests.front());
         MIRAGE_CHECK(estimate > 0);
         measure_layer.shutdown();
-        // usable == 0: the baseline is kept verbatim.
+        // window == estimate + reserve + 1024: the funded cap sits exactly
+        // 1024 above the input estimate (the 1024 admissible floor stays
+        // below it), under the 8192 baseline.
         auto zero_config = model_config();
         zero_config.max_output_tokens = 8192;
-        zero_config.context_window_tokens = estimate + 1000u;
+        zero_config.context_window_tokens = estimate + 9696u + 1024u;
         std::shared_ptr<PreflightScript> zero_script;
         integration::ModelProviderOverride zero_provider([&](const auto &profile) {
             return zero_script = std::make_shared<PreflightScript>(profile);
@@ -2127,12 +2139,13 @@ void preflight_budget_scenario() {
                 .get();
         MIRAGE_CHECK(zero.ok);
         MIRAGE_CHECK(zero_script && zero_script->requests.size() == 1 &&
-                     zero_script->requests.front().generation.max_output_tokens == 8192u);
+                     zero_script->requests.front().generation.max_output_tokens ==
+                         estimate + 1024u);
         zero_layer.shutdown();
-        // usable == 1: the shrink bottoms out at the single remaining token.
+        // One spare window token: the cap rises by exactly one.
         auto one_config = model_config();
         one_config.max_output_tokens = 8192;
-        one_config.context_window_tokens = estimate + 1001u;
+        one_config.context_window_tokens = estimate + 9696u + 1025u;
         std::shared_ptr<PreflightScript> one_script;
         integration::ModelProviderOverride one_provider([&](const auto &profile) {
             return one_script = std::make_shared<PreflightScript>(profile);
@@ -2145,7 +2158,7 @@ void preflight_budget_scenario() {
                              .get();
         MIRAGE_CHECK(one.ok);
         MIRAGE_CHECK(one_script && one_script->requests.size() == 1 &&
-                     one_script->requests.front().generation.max_output_tokens == 1u);
+                     one_script->requests.front().generation.max_output_tokens == estimate + 1025u);
         one_layer.shutdown();
         owner.shutdown(true);
     }
@@ -2972,7 +2985,12 @@ void continuous_large_receipt_scenario() {
     integration::DesktopToolContext tools;
     tools.environment = desktop;
     tools.actions = std::make_shared<mirage::desktop::ActionCoordinator>();
-    const auto config = model_config(); // no declared window: clamp-only shape
+    // A declared window wide enough that the pinned admission budget funds
+    // the retained-receipt suffix the structural clamp keeps (8 x 64 KiB
+    // receipts measure ~128k conservative tokens): the clamp, not token
+    // compaction, stays the operative retention bound here.
+    auto config = model_config();
+    config.context_window_tokens = 512000;
     integration::ModelLayer layer(owner, config, &provider, tools);
     auto context = mira::make_control_context();
     context.session = mira::SessionId::generate();

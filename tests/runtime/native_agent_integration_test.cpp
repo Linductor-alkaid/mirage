@@ -1486,23 +1486,20 @@ int main(int argc, char **argv) {
     // DEC-085 follow-up (DEC-087 alignment): the adaptive-thinking baseline
     // is 32768 (deepseek-flash reasons unconditionally and its reasoning
     // tokens count against max_tokens; 16384 cut mid-thinking three turns in
-    // a row) and M9-03 (DEC-090, MIRA-20261015-002) makes every profile fund
-    // exactly one worst-case request: the profile limit is
-    // max(configured, 32768) = 32768 here — a Request-scope admission bound,
-    // with no whole-run envelope above it. This fixture declares a 32768-token
-    // context window, so the provider decorator's preflight shrinks the first
-    // wire call to window − estimated usage − 1000 (ZCode semantics; the old
-    // static window/2 clamp is gone). The install is fresh (the m3
-    // SetModelRequest above recreated the provider), so the anchor table is
-    // empty and used is the pinned local estimate of the fixed fixture
-    // input: 3 text parts totalling 1275 bytes -> Σ ⌊bytes/3⌋ + 3 =
-    // 424 + 3 = 427 tokens; wire = 32768 − 427 − 1000 = 31341. The fixture
-    // input is fixed and the pinned estimator is deterministic, so the
-    // bound is stable.
+    // a row). This fixture declares a 32768-token context window, so the
+    // new-pin admission discipline caps the profile's declared output at
+    // window − static admission reserve = 32768 − 9696 (1024 pinned margin
+    // + 8192 budget floor + 480 slack) = 23072 — the dialog request may not
+    // reserve more than the profile declares. The provider decorator's
+    // preflight would shrink to window − estimated usage − 1000 = 31341
+    // (3 text parts totalling 1275 bytes -> Σ ⌊bytes/3⌋ + 3 = 427 tokens),
+    // but that stays above the cap, so the wire carries the cap verbatim.
+    // The fixture input is fixed and the pinned estimator is deterministic,
+    // so the bound is stable.
     MIRAGE_CHECK(default_dialog && default_dialog->status == "ok" &&
                  provider->saw_adaptive.load() && provider->last_tools.load() == 0 &&
-                 provider->last_output_tokens.load() == 31341 &&
-                 provider->profile_.capabilities.limits.max_output_tokens == 32768 &&
+                 provider->last_output_tokens.load() == 23072 &&
+                 provider->profile_.capabilities.limits.max_output_tokens == 23072 &&
                  default_dialog->reply_text == "Mira 已完成通用工具调用。" &&
                  std::any_of(default_dialog->parts.begin(), default_dialog->parts.end(),
                              [](const auto &part) { return part.kind == "thinking"; }));
