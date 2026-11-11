@@ -249,7 +249,10 @@ void lossless_event_batching_and_prefixes() {
     }
     auto batch = detail::perception_event_batch(view, 0, now);
     MIRAGE_CHECK(batch.rows.size() == 4 && batch.cursor == 25);
-    std::uint64_t restored = 0;
+    // Signed to match mira/json's as_integer() (optional<int64_t>): MSVC
+    // raises the heterogeneous comparison against uint64_t as a
+    // signed/unsigned mismatch (C4389) under warnings-as-errors.
+    std::int64_t restored = 0;
     for (const auto &row : batch.rows) {
         if (const auto *prior = row.find("prior_samples")) {
             MIRAGE_CHECK(prior->as_array()->size() == 7);

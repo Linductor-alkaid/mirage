@@ -365,7 +365,16 @@ void original_dimensions_late_result_and_generation_barrier() {
     state->width = 2048;
     // Keep the 1.28 mapping in BOTH axes; full-height work is a separate
     // diagnostic because TSAN can exhaust the unchanged 100ms CV budget.
+    // MSVC alone raises the CRT getenv as a warnings-as-errors deprecation
+    // (C4996) that the Linux gate never sees; the flag only toggles size.
+#if defined(_MSC_VER)
+#pragma warning(push)
+#pragma warning(disable : 4996)
+#endif
     const bool large_replay = std::getenv("MIRAGE_TEST_LARGE_REPLAY") != nullptr;
+#if defined(_MSC_VER)
+#pragma warning(pop)
+#endif
     state->height = large_replay ? 512 : 128;
     std::atomic<bool> hold{true};
     std::atomic<unsigned> calls{0};
@@ -531,7 +540,7 @@ void paint(d::ImageFrame &image, int x, int y, int width, int height, int value)
     for (int row = y; row < y + height; ++row)
         for (int col = x; col < x + width; ++col)
             for (int c = 0; c < 3; ++c)
-                image.pixels[row * image.stride + col * 4 + c] = value;
+                image.pixels[row * image.stride + col * 4 + c] = static_cast<std::uint8_t>(value);
 }
 void regional_gates_select_capabilities_without_renewing_full_baseline() {
     detail::LayeredVisualSampler sampler(false);
@@ -694,7 +703,7 @@ struct RegionalOcr final : m::OcrBackend {
         m::TextRegion line;
         line.bounds = {2, 3, 12, 8};
         line.utf8_text = "region";
-        line.confidence = .99;
+        line.confidence = .99F;
         return std::vector<m::TextRegion>(many ? 33 : 1, line);
     }
 };
@@ -774,7 +783,7 @@ struct AdaptiveOcr final : m::OcrBackend {
         m::TextRegion line;
         line.bounds = im.width == 256 ? m::RectF{32, 32, 96, 96} : m::RectF{8, 8, 96, 96};
         line.utf8_text = im.width == 256 ? "baseline" : "regional";
-        line.confidence = .99;
+        line.confidence = .99F;
         return std::vector<m::TextRegion>{line};
     }
 };
@@ -833,7 +842,7 @@ void capture_owner_routes_real_regional_work_and_suppresses_equal_content() {
     d::VisualReferenceRegistry registry;
     AdaptiveOcr ocr;
     FakeDetectorConfig dc;
-    dc.regions = {{{192, 192, 24, 24}, 0, "icon", .99}};
+    dc.regions = {{{192, 192, 24, 24}, 0, "icon", .99F}};
     FakeDetectorBackend detector(dc);
     VisualObservationPipelineConfig config;
     config.source_id = "adaptive-owner";
