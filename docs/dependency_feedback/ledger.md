@@ -2,12 +2,27 @@
 
 > 状态：Active
 > 负责人：Mirage维护者
-> 更新日期：2026-10-28
+> 更新日期：2026-11-11
 > 维护规则：[工程规范9.4](../project/project-standards.md)
-> 本轮工作项：[Mira 同步维护](../plans/mira-upstream-sync-20261025.md)（MNT-MIRA-01～04）；既有[依赖复用整改](../plans/dependency-reuse-remediation.md)（REUSE-16/17/18
+> 本轮工作项：[Mira 上游同步 2026-11-11](../plans/mira-upstream-sync-20261111.md)（SYNC-01～05）；既有[依赖复用整改](../plans/dependency-reuse-remediation.md)（REUSE-16/17/18
 > 台账一致性收口）；既有条目分别溯源至 M6、M7-06、M8/M9 各工作项
 
 ## 分依赖台账
+
+2026-11-11：同步 Mira master `be44e36`（PR#112～127，嵌套 kairo v0.7.0→v0.7.4）。
+[MIRA-20261016-003](mira.md#mira-20261016-003) 保持 Open：v0.7.4 交付 keyed
+admission、TaskResult/submit_task_result、CpuGpuTask 与空 cpu_affinity 自由调度
+（Mirage 零代码迁移），QoS 标注与 AdaptiveScheduler 仍延期。
+[MIRA-20261027-001](mira.md#mira-20261027-001) 转 Accepted（部分交付）：上游 M28
+（PR#112/113，源自本条目扩展的 mira#111）交付主体级输入接纳与最小路由闭环
+（interaction_coordinator），M29/M30/M31 仅范围边界；Mirage 未接线，接线评估见
+[2026-11-11 升级审计](../supply-chain/mira-upstream-sync-20261111.md)。
+本轮接线 PR#118 的 `ModelProfile::allow_private_endpoint` host 同意缝，用户配置的
+本地/内网模型 endpoint 可达；并对齐新网关默认路径的 Layer 0 完整请求准入
+（DEC-101）：Mirage 预算装配按测量前缀/工具集预留准入份额（校准计数器 +
+profile 窗口一致性钳制 + transformer 工具余量），推导与 fixture 影响见
+[2026-11-11 升级审计](../supply-chain/mira-upstream-sync-20261111.md)。
+无新增台账条目。
 
 2026-10-28：按 DEC-121/M9-25，以现有公开 CV API 在 Mirage Adapter 交付显式
 sample_only 和独立比较基线，无 digest 翻转、无识别/语义推进；本机回归和

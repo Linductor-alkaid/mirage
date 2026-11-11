@@ -102,9 +102,9 @@
 | MIRA-20261014-005 | ConversationLoop 供给缝无跨轮输入复用身份标注入口 | P2：多轮上下文成本缺口 | Resolved | PR#95 授权合并 9e7b729；Mirage 随 pin 消费跨轮计数并复验 fixture；真实会话对照待真实 provider 补跑 | [PR#95](https://github.com/Linductor-alkaid/mira/pull/95)，已合并 |
 | MIRA-20261013-001 | `Result<T>::value()` 对 error 态 UB 解引用 | P2：公开 API 防线缺口 | Open | 非法 JSON `.value()` 触发 SIGSEGV 且无符号栈（DEC-085 测试现场）；详见详细条目 | 未提交（待维护者评估） |
 | MIRA-20261016-001 | 语义相似度计算能力（M10 记忆系统前瞻确认） | P3：前瞻能力确认 | Accepted（部分交付） | pin 68a8bf1 已有 embedding 生产者/索引修复与向量召回契约；模型供给、质量与产品接线未验收 | 上游 [PR#103](https://github.com/Linductor-alkaid/mira/pull/103)，无需重复提报已有契约 |
-| MIRA-20261027-001 | 统一输入下的会话/任务/上下文/记忆完整编排 | P3：前瞻演进提案，非线上故障 | Proposed | 复用现有组件；统一编排、记忆/会话/归档总预算及安全清理契约待评审 | [mira#111](https://github.com/Linductor-alkaid/mira/issues/111)，[反馈计划](../plans/agent-memory-upstream-feedback-20261027.md) |
+| MIRA-20261027-001 | 统一输入下的会话/任务/上下文/记忆完整编排 | P3：前瞻演进提案，非线上故障 | Accepted（部分交付） | 上游 M28（PR#112/113）随 pin be44e36 交付主体级输入接纳与最小路由闭环（interaction_coordinator，M29/M30/M31 仅范围边界）；Mirage 未接线，后续评估 | [mira#111](https://github.com/Linductor-alkaid/mira/issues/111)、[PR#112](https://github.com/Linductor-alkaid/mira/pull/112)/[113](https://github.com/Linductor-alkaid/mira/pull/113)，[反馈计划](../plans/agent-memory-upstream-feedback-20261027.md) |
 | MIRA-20261016-002 | 会话循环对 provider error 与输出截断的韧性/续写语义（DEC-085 系列） | P1：真实会话整轮失败 | Resolved（追记） | PR#91（error 分类入恢复白名单）/PR#92（截断恢复反馈差异化）/PR#93（有界输出续写）均已授权合并并随 pin 消费复验；见 [DEC-085](../decisions/DEC-085-session-loop-resilience-and-tool-failure-handling.md) | [PR#91](https://github.com/Linductor-alkaid/mira/pull/91)/[92](https://github.com/Linductor-alkaid/mira/pull/92)/[93](https://github.com/Linductor-alkaid/mira/pull/93)，已合并 |
-| MIRA-20261016-003 | kairo 0.7.0 延期能力：QoS 标注与 AdaptiveScheduler 触发条件未到期 | P3：分层采用延期能力 | Open | 上游 DEC-054 分层采用；QoS/AdaptiveScheduler 延期并记录触发条件；见 [审计](../supply-chain/mira-kairo-070-20261013.md) | [PR#89](https://github.com/Linductor-alkaid/mira/pull/89) 已合并（延期部分未交付） |
+| MIRA-20261016-003 | kairo 0.7.0 延期能力：QoS 标注与 AdaptiveScheduler 触发条件未到期 | P3：分层采用延期能力 | Open | 上游 DEC-054 分层采用；v0.7.4（随 pin be44e36）交付 keyed admission/TaskResult/CpuGpuTask/空 cpu_affinity 自由调度，QoS 与 AdaptiveScheduler 仍延期；见 [审计](../supply-chain/mira-kairo-070-20261013.md)、[2026-11-11 审计](../supply-chain/mira-upstream-sync-20261111.md) | [PR#89](https://github.com/Linductor-alkaid/mira/pull/89) 已合并（延期部分未交付）；[PR#127](https://github.com/Linductor-alkaid/mira/pull/127) 收敛 v0.7.4（延期项仍未交付） |
 | MIRA-20261016-004 | 观察管线无 RGBA→PNG 转码缝，host 自理编码 | P2：多模态供给依赖自研编解码 | Open | `observation.hpp` 明示 host 负责 RGBA→PNG；Mirage 以 `desktop_png.cpp` 手写 DEFLATE/PNG 承载（integration 边界内） | 未提交 |
 | MIRA-20261022-001 | ConversationLoop 终态截断原因缺少结构化表达 | P2：可观测性缺口 | Resolved（Linux 消费范围） | 68a8bf1，terminal_incomplete_reason 替代文本锚点；结果/事件与消费回归见[审计](../supply-chain/mira-upstream-sync-20261025.md) | [PR#108](https://github.com/Linductor-alkaid/mira/pull/108)/[109](https://github.com/Linductor-alkaid/mira/pull/109) |
 
@@ -609,8 +609,14 @@ SqliteMemoryStore 支持向量查询、缺失向量降级、内容变更失效�
 
 ## MIRA-20261027-001：统一输入下的会话、任务、上下文与记忆完整编排
 
-- 状态：Proposed；日期：2026-10-27；负责人：Mirage 维护者；P3 前瞻演进，非线上故障。
-- 上游：[mira#111](https://github.com/Linductor-alkaid/mira/issues/111)（Open）；沿用原 issue 和编号修订。
+- 状态：Accepted（部分交付）；日期：2026-10-27（2026-11-11 随 pin 同步更新）；负责人：Mirage 维护者；P3 前瞻演进，非线上故障。
+- 上游：[mira#111](https://github.com/Linductor-alkaid/mira/issues/111)；2026-11-11
+  随 pin `be44e36` 消费上游 M28 交付：[PR#112](https://github.com/Linductor-alkaid/mira/pull/112)
+  冻结统一交互协调器与有界容量模型（DEC-068/069，M28 门禁矩阵 M28-G1..G8）、
+  [PR#113](https://github.com/Linductor-alkaid/mira/pull/113) 交付主体级输入入口；
+  `interaction_coordinator.hpp` 进 pin。M29（并发与恢复）/M30（长期记忆集成）/
+  M31（容量准入与归档清理）仅为范围边界，未交付。Mirage 本轮未接线，后续按
+  [升级审计](../supply-chain/mira-upstream-sync-20261111.md)后续工作项评估。
 - 工作项：[MNT-MEM-01～06](../plans/agent-memory-upstream-feedback-20261027.md)；来源：
   [持续个体路线图](../design/continuous-digital-entity-evolution.md) §4.2～4.5，以及维护者
   本轮明确要求：用户始终只有一个输入口，Mira 内部安排会话、上下文与记忆。
@@ -693,6 +699,14 @@ SqliteMemoryStore 支持向量查询、缺失向量降级、内容变更失效�
   的授权消费，本条随之收口。
 - 影响：当前无行为缺口——Mirage 任务面继续以 tier-0（默认调度 + SchedulingMetrics）
   运行；不预建 QoS/自适应调度消费代码。
+- 2026-11-11 进展：kairo 随 mira pin `be44e36` 升至 v0.7.4 release tag
+  （`10e870b`，上游 [PR#127](https://github.com/Linductor-alkaid/mira/pull/127)/DEC-110，
+  中间经 PR#112/115 master pin 轮次）。新增交付：bare-form keyed `submit_auto`
+  与 per-subject admitted_total、`TaskResult<T>`/`submit_task_result`、valued
+  `CpuGpuTask`（Mirage 均未使用，零代码迁移）、deadline-drop 竞态修复、空
+  `cpu_affinity` 默认 OS 自由调度。**QoS 标注与 AdaptiveScheduler 仍延期**，
+  触发条件未满足，本条保持 Open。见
+  [2026-11-11 升级审计](../supply-chain/mira-upstream-sync-20261111.md)。
 
 <a id="mira-20261016-004"></a>
 
