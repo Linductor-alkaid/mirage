@@ -163,6 +163,32 @@ constexpr std::size_t kRetainedHistoryItems = 200;
 /// DEC-087: per-request preflight reserve — the shrink keeps this much of
 /// the declared context window free beyond the estimated current usage.
 constexpr std::uint64_t kContextReserveTokens = 1000;
+/// New-pin gateway admission (complete-request Layer 0): every routed request
+/// is admitted against `declared window − reserved output − pinned margin`,
+/// counting all pinned input plus the full exposed toolset. Budget shaping
+/// therefore reserves admission headroom on top of the DEC-087 preflight:
+/// the pinned admission margin (ModelContextAdmissionConfig default), a
+/// bounded allowance for the current turn's pinned input (system, goal,
+/// observation, supply text — images carry their own tile estimate), and
+/// slack for estimator deltas between the pinned byte estimator and the
+/// admission counter.
+constexpr std::uint64_t kAdmissionMarginTokens = 1024;
+constexpr std::uint64_t kAdmissionInputAllowanceTokens = 4096;
+/// Supply evidence and assembly overheads carried by every harness request.
+constexpr std::uint64_t kAdmissionSupplyOverheadTokens = 500;
+/// Floor for the funded input budget.
+constexpr std::uint64_t kAdmissionBudgetFloorTokens = 8192;
+constexpr std::uint64_t kAdmissionSlackTokens = 480;
+/// Static profile-level reserve: margin + the budget floor + slack. The
+/// per-turn harness shaping below may reserve more (measured prefix and
+/// toolset) inside the same declared window.
+constexpr std::uint64_t kAdmissionReserveTokens =
+    kAdmissionMarginTokens + std::max(kAdmissionInputAllowanceTokens, kAdmissionBudgetFloorTokens) +
+    kAdmissionSlackTokens;
+/// Smallest output limit a declared-window profile still carries. Requests
+/// above it fail admission visibly instead of the profile pretending a
+/// too-small window can fund more (fail closed, pinned philosophy).
+constexpr std::uint64_t kMinAdmissibleOutputTokens = 1024;
 
 /// The declared-or-default baseline for one wire call, before the
 /// per-request context preflight shrinks it. A declared value (1..65536) is
@@ -560,9 +586,20 @@ struct ModelLayer::Impl {
             provider = override_factory(*profile);
         }
         provider = detail::make_tool_alias_provider(std::move(provider));
+        // New-pin gateway admission runs on the default path (no disable
+        // seam) and its default counter counts text at 1 byte/token — far
+        // denser than the pinned conservative estimator family this layer
+        // speaks (bytes/4, the same PR#97 wire-payload semantics the
+        // compaction transformer uses). ModelContextAdmissionConfig.counter
+        // is the pinned calibration seam for exactly this: supply the
+        // conservative counter so admission units match the transformer and
+        // the preflight estimator.
+        admission_counter = std::make_shared<mira::ConservativeTokenCounter>();
+        mira::ModelGatewayConfig gateway_config;
+        gateway_config.context_admission.counter = admission_counter;
         gateway = std::make_unique<mira::ModelGateway>(executor, std::move(router),
                                                        /*artifacts=*/images, mira::PriceTable{},
-                                                       mira::ModelGatewayConfig{});
+                                                       std::move(gateway_config));
         observed = std::make_shared<detail::ObservedProvider>(provider);
         // DEC-087: the declared context window drives the per-request
         // output-budget preflight in the provider decorator.
@@ -604,9 +641,21 @@ struct ModelLayer::Impl {
         // thinking floor — instead of the retired 22x whole-run envelope.
         // Every profile must carry it (the router admits each request
         // against this limit), not only thinking-class ones.
-        record.capabilities.limits.max_output_tokens = std::max<std::uint64_t>(
+        auto output = std::max<std::uint64_t>(
             config.max_output_tokens != 0 ? config.max_output_tokens : kDefaultMaxOutputTokens,
             kThinkingOutputFloor);
+        // New-pin admission: a declared window only funds output that leaves
+        // the admission reserve free, so the declared limit clamps to it
+        // (floor keeps tiny windows usable; above it admission fails
+        // visibly). Undeclared windows keep the pinned 128000 default, which
+        // funds the full floor.
+        if (config.context_window_tokens != 0) {
+            const auto funded = config.context_window_tokens > kAdmissionReserveTokens
+                                    ? config.context_window_tokens - kAdmissionReserveTokens
+                                    : 0;
+            output = std::min(output, std::max<std::uint64_t>(funded, kMinAdmissibleOutputTokens));
+        }
+        record.capabilities.limits.max_output_tokens = output;
         // DEC-082: baseline_output_budget still bounds each wire call; the
         // provider decorator shrinks it per request against the declared
         // context window (DEC-087 preflight).
@@ -631,6 +680,14 @@ struct ModelLayer::Impl {
         record.deadlines.tls = std::chrono::milliseconds{20'000};
         record.deadlines.write = std::chrono::milliseconds{30'000};
         record.default_data_policy.store = false;
+        // Upstream PR#118: the transport SSRF line denies loopback/private/
+        // link-local endpoints unless the host consents on the profile. The
+        // endpoint origin here is user-declared local settings (never model
+        // output), and pinned allowed_hosts already binds every hop including
+        // redirects to that configured host, so the consent only unlocks the
+        // address family the user explicitly typed in — it is what makes
+        // loopback/LAN local model servers (Ollama, LM Studio, ...) reachable.
+        record.allow_private_endpoint = true;
         return record;
     }
 
@@ -670,6 +727,9 @@ struct ModelLayer::Impl {
     std::shared_ptr<mira::IModelProvider> provider;
     std::shared_ptr<detail::ObservedProvider> observed;
     std::unique_ptr<mira::ModelGateway> gateway;
+    // Calibrated admission counter (bytes/4 conservative family); shared with
+    // the harness turn so tool-schema allowance and admission agree on units.
+    std::shared_ptr<mira::ConservativeTokenCounter> admission_counter;
     std::shared_ptr<mira::MemoryEventStore> events = std::make_shared<mira::MemoryEventStore>();
     /// DEC-085 repeated-failure guard; infer_mutex serializes all access.
     ToolFailureTracker failure_tracker;
@@ -827,8 +887,13 @@ DialogCompletion ModelLayer::complete_dialog_turn(
     request.output_contract.mode = mira::OutputMode::Text;
     request.generation.reasoning_effort = reasoning_value(reasoning);
     request.generation.thinking = thinking_value(impl_->config, reasoning);
-    request.generation.max_output_tokens = baseline_output_budget(impl_->config, reasoning);
-    request.budget.max_output_tokens = baseline_output_budget(impl_->config, reasoning);
+    // Clamped to the profile limit: a declared window caps that limit at the
+    // admission-funded value (see build_profile), and the request may not
+    // reserve more than the profile declares.
+    const auto dialog_output = std::min(baseline_output_budget(impl_->config, reasoning),
+                                        impl_->profile->capabilities.limits.max_output_tokens);
+    request.generation.max_output_tokens = dialog_output;
+    request.budget.max_output_tokens = dialog_output;
     request.budget.max_requests = 1;
     request.data_policy.store = false;
     request.prompt_provenance.system_template_digest =
@@ -1176,7 +1241,10 @@ DialogCompletion ModelLayer::complete_harness_turn(
     }
     if (tools_allowed && image_turn)
         image_turn->register_ime_tool(
-            *registry, detail::make_ime_planner(*impl_->gateway, impl_->profile->id), decorate);
+            *registry,
+            detail::make_ime_planner(*impl_->gateway, impl_->profile->id,
+                                     impl_->profile->capabilities.limits.max_output_tokens),
+            decorate);
     mira::ConversationLoopConfig config;
     // M9-03 (DEC-090, MIRA-20261015-002): normal desktop tasks no longer
     // stop at an accumulated model-step or tool-call count. Continuous mode
@@ -1670,6 +1738,39 @@ DialogCompletion ModelLayer::complete_harness_turn(
     if (!transcript.empty())
         spec.goal += "Earlier conversation (untrusted):\n" + transcript + "\n";
     spec.goal += "Current user request:\n" + user_text;
+    // New-pin admission counts the whole pinned input — this turn's goal
+    // text is its dominant fixed member — plus the full exposed toolset
+    // inside `window − reserved output − pinned margin`. With a declared
+    // window the per-call bound therefore leaves the measured prefix, a
+    // replay allowance until the compaction watermark, the compaction-band
+    // budget floor, and the toolset free; the compaction request below
+    // reserves the same toolset allowance for watermark-shaped history.
+    // Undeclared windows lean on the pinned 128000 default, which funds
+    // baseline, prefix and toolset together.
+    std::uint64_t tool_allowance = 0;
+    if (impl_->config.context_window_tokens != 0) {
+        // The funded input budget must hold the measured prefix, the
+        // post-compaction replay pinned near the 0.45 checkpoint band of the
+        // transformer's own budget (which itself funds the toolset), supply
+        // evidence and assembly overheads, and the full exposed toolset —
+        // worst shape: budget ≥ ~1.82 × (prefix + supply) + ~2.64 × toolset.
+        const auto prefix_tokens = (spec.goal.size() + 3) / 4 + 24;
+        for (const auto &tool : registry->exposed_tools()) {
+            if (const auto estimate =
+                    impl_->admission_counter->estimate_tool(tool, impl_->profile->id))
+                tool_allowance += estimate.value().upper_bound;
+        }
+        const auto required_budget = std::max<std::uint64_t>(
+            kAdmissionBudgetFloorTokens,
+            ((prefix_tokens + kAdmissionSupplyOverheadTokens) * 1820 + 999) / 1000 +
+                (tool_allowance * 2640 + 999) / 1000);
+        const auto window = impl_->config.context_window_tokens;
+        const auto required = kAdmissionMarginTokens + kAdmissionSlackTokens + required_budget;
+        const auto funded = window > required ? window - required : 0;
+        config.max_output_tokens_per_turn =
+            std::min(config.max_output_tokens_per_turn,
+                     std::max<std::uint64_t>(funded, kMinAdmissibleOutputTokens));
+    }
     const bool stream_requested = static_cast<bool>(preview) || static_cast<bool>(thinking_preview);
     auto invoke_loop = [&](const bool stream) -> mira::Result<mira::ConversationLoopResult> {
         mira::ConversationLoopConfig loop_config = config;
@@ -1710,8 +1811,8 @@ DialogCompletion ModelLayer::complete_harness_turn(
             auto counter = std::make_shared<mira::ConservativeTokenCounter>();
             auto manager = std::make_shared<mira::StandardContextManager>(std::move(counter));
             detail::DesktopContextBuilder builder(
-                std::move(manager),
-                {impl_->config.context_window_tokens, config.max_output_tokens_per_turn});
+                std::move(manager), {impl_->config.context_window_tokens,
+                                     config.max_output_tokens_per_turn + tool_allowance});
             const detail::DesktopContextBuilder::RequestKeys keys{
                 spec.task_id, spec.session_id, spec.task_epoch, impl_->profile->id};
             loop.set_history_transformer(

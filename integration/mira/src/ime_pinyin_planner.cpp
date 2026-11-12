@@ -1,7 +1,9 @@
 #include "ime_pinyin_planner.hpp"
 namespace mirage::integration::detail {
-ImePlanner make_ime_planner(mira::ModelGateway &gateway, mira::ModelProfileId profile) {
-    return [&gateway, profile](const std::string &text,
+ImePlanner make_ime_planner(mira::ModelGateway &gateway, mira::ModelProfileId profile,
+                            std::uint64_t max_output_tokens) {
+    return [&gateway, profile,
+            max_output_tokens](const std::string &text,
                                const mira::OperationContext &ctx) -> std::optional<ImePlan> {
         if (ctx.cancelled_or_expired(mira::Timestamp::now()))
             return {};
@@ -22,7 +24,10 @@ ImePlanner make_ime_planner(mira::ModelGateway &gateway, mira::ModelProfileId pr
                                                  mira::Sensitivity::Internal});
         request.input = {std::move(system), std::move(user)};
         request.output_contract.mode = mira::OutputMode::Text;
-        request.generation.max_output_tokens = request.budget.max_output_tokens = 2048;
+        // Clamped to the profile limit: a declared window caps it at the
+        // admission-funded value (see ModelLayer build_profile).
+        const auto output = std::min<std::uint64_t>(2048, max_output_tokens);
+        request.generation.max_output_tokens = request.budget.max_output_tokens = output;
         request.budget.max_requests = 1;
         request.budget.scope = mira::ModelBudgetScope::Request;
         request.data_policy.store = false;

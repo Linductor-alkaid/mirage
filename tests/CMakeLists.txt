@@ -1,6 +1,16 @@
 # Test binaries follow the pinned mira house style: one plain main() per
 # binary using tests/support/test.hpp; labels drive CI selection (docs/
 # project/project-standards.md section 11).
+# Sanitizer instrumentation slows CPU-bound suites severalfold while the CI
+# runners stay 2-core, so suites with known-tight bounds are widened under
+# any active sanitizer (MIRAGE_TESTS_SANITIZED below). Widened bounds only
+# fence the test process; production deadlines are unaffected, and
+# Debug/Release presets keep their tight bounds.
+set(MIRAGE_TESTS_SANITIZED OFF)
+if(CMAKE_CXX_FLAGS MATCHES "fsanitize=")
+    set(MIRAGE_TESTS_SANITIZED ON)
+endif()
+
 mirage_add_test(visual_scene_test
     SOURCES desktop/visual_scene_test.cpp
     LIBS Mirage::desktop
@@ -685,6 +695,19 @@ set_tests_properties(mira_binding_test PROPERTIES
 )
 endif()
 
+# 2026-11-11 mira pin upgrade (PR#118 SSRF consent): the ModelLayer profile
+# assembly consents user-configured endpoints and a refused loopback /
+# unresolvable public endpoint must fail at the transport layer, never as an
+# endpoint-policy denial. POSIX-only (loopback socket probe helper).
+if(UNIX)
+mirage_add_test(model_profile_endpoint_test
+    SOURCES integration/model_profile_endpoint_test.cpp
+    LIBS Mirage::integration_mira Mira::core Mirage::kairo_consumer
+    LABELS "integration;runtime;security"
+    TIMEOUT 60
+    )
+endif()
+
 # DEC-093 categorized budget allocation (M9-14 / BUG-20261015-001)
 mirage_add_test(conversation_budget_test
     SOURCES runtime/conversation_budget_test.cpp
@@ -1289,6 +1312,12 @@ if(UNIX)
     # instrumentation multiplies it, so the ceiling is widened to keep the
     # sanitizer run bounded instead of the scenarios shortened.
     set_tests_properties(harness_desktop_tools_test PROPERTIES LABELS "integration;runtime" TIMEOUT 300)
+    if(MIRAGE_TESTS_SANITIZED)
+        # Thread instrumentation is the slowest sanitizer and the long-run
+        # scenarios sit near the ceiling; on loaded 2-core CI runners the
+        # 300s bound tips with scheduling, so widen it under sanitizers.
+        set_tests_properties(harness_desktop_tools_test PROPERTIES TIMEOUT 600)
+    endif()
 
     add_executable(native_agent_integration_test runtime/native_agent_integration_test.cpp
         ${CMAKE_SOURCE_DIR}/apps/native/runtime_bridge.cpp ${CMAKE_SOURCE_DIR}/apps/native/attachment.cpp)
@@ -1462,9 +1491,11 @@ add_test(NAME content_visual_supply_test
     COMMAND $<TARGET_FILE:desktop_image_supply_test> --automatic-content)
 set_tests_properties(content_visual_supply_test PROPERTIES
     LABELS "integration;runtime;perception" TIMEOUT 30)
-if(CMAKE_CXX_FLAGS MATCHES "fsanitize=thread")
-    # The full PNG/content matrix is much slower under instrumentation; this
-    # only bounds the test process, never the production acquisition deadline.
+if(MIRAGE_TESTS_SANITIZED)
+    # The full PNG/content matrix is much slower under instrumentation, and
+    # the pinned per-request admission accounting adds per-turn estimate
+    # work; this only bounds the test process, never the production
+    # acquisition deadline.
     set_tests_properties(desktop_image_supply_test content_visual_supply_test PROPERTIES TIMEOUT 120)
 endif()
 
@@ -1504,6 +1535,12 @@ endif()
 mirage_enable_warnings(post_action_verification_test)
 add_test(NAME post_action_verification_test COMMAND post_action_verification_test)
 set_tests_properties(post_action_verification_test PROPERTIES LABELS "integration;runtime;platform" TIMEOUT 30)
+if(MIRAGE_TESTS_SANITIZED)
+    # The verification matrix sleeps through real-time windows and
+    # instrumentation multiplies the CPU share; the 30s bound tips on
+    # loaded 2-core CI runners (observed under TSan).
+    set_tests_properties(post_action_verification_test PROPERTIES TIMEOUT 120)
+endif()
 
 mirage_add_test(visual_text_verification_test
     SOURCES integration/visual_text_verification_test.cpp

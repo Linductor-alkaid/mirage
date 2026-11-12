@@ -1151,15 +1151,17 @@ void harness_compaction(kairo::Executor &executor, bool declare_window) {
     model.shutdown();
 }
 
-// Real compaction through the harness path: a small declared window with a
-// per-call output that still leaves an input budget. 4096 window, per-call
-// output 2304 -> Layer 0 input budget = 4096 - 2304 - 1024 = 768 tokens,
-// checkpoint watermark 537.6. The conservative counter counts tool wire
-// payload bytes (upstream PR#97), so pairs cost their capture-receipt bytes
-// at 4 bytes per token plus overhead and the 15th round's replay crosses the
-// checkpoint: the oldest pairs leave the replay and the pair the watermark
-// split collapses whole, while the newest pairs stay. The loop's 16-turn
-// ceiling makes 15 capture rounds the most this path can accumulate.
+// Real compaction through the harness path: a declared window whose
+// admission budget stays tight, so the replay crosses the checkpoint
+// watermark before the script ends. The measured pinned prefix (~15 KiB of
+// goal text) and the full harness toolset (~5k conservative tokens) shape
+// the funded per-call bound; the Layer 0 budget is
+// 16384 − wire − 1024 and the transformer's own budget (that minus the
+// toolset) keeps the checkpoint watermark near 4k. The conservative counter
+// counts tool wire payload bytes (upstream PR#97) at 4 bytes per token plus
+// overhead, so 100 capture rounds' replay crosses the checkpoint: the
+// oldest pairs leave the replay and the pair the watermark split collapses
+// whole, while the newest pairs stay.
 void harness_compaction_under_pressure(kairo::Executor &executor) {
     integration::DesktopToolContext tools;
     auto env = std::make_shared<mirage::testing::FakeDesktopEnvironment>();
@@ -1170,7 +1172,7 @@ void harness_compaction_under_pressure(kairo::Executor &executor) {
     tools.gate = [](const auto &capability, const auto &, const auto &cancel) {
         return capability == "screen.capture" && !cancel();
     };
-    constexpr std::size_t rounds = 15;
+    constexpr std::size_t rounds = 100;
     std::shared_ptr<CompactionScript> script;
     integration::ModelProviderOverride provider([&](const auto &profile) {
         script = std::make_shared<CompactionScript>(profile, rounds);
@@ -1179,8 +1181,11 @@ void harness_compaction_under_pressure(kairo::Executor &executor) {
     integration::ModelLayerConfig config;
     config.enabled = config.supports_images = true;
     config.model_selector = "compaction-fixture";
-    config.max_output_tokens = 2304; // non-thinking: used verbatim as the per-call bound
-    config.context_window_tokens = 4096;
+    // The funded bound bottoms out below the config value (the window
+    // funds margin + measured prefix/budget floor + toolset first), so the
+    // config value stays above the effective per-call bound either way.
+    config.max_output_tokens = 2304;
+    config.context_window_tokens = 32768;
     integration::ModelLayer model(executor, config, &provider, tools);
     const auto ctx = context();
     const auto result = executor
@@ -1189,6 +1194,8 @@ void harness_compaction_under_pressure(kairo::Executor &executor) {
                                     "", "capture the desktop repeatedly, then answer", ctx);
                             })
                             .get();
+    if (!result.ok)
+        std::fprintf(stderr, "compaction probe failed: %s\n", result.error.c_str());
     check(result.ok);
     check(!result.failed && !result.cancelled);
     check(script && script->requests.size() == rounds + 1);
@@ -1226,13 +1233,13 @@ void harness_compaction_under_pressure(kairo::Executor &executor) {
     check(call_ids(last).size() >= 1);
     model.shutdown();
 }
-// Honest degradation for a window that cannot fund an input budget: the
-// default per-call output bound (32000) exceeds this declared window, so
-// Layer 0's limits validation rejects the build and the loop seam degrades
-// every transform to the raw replay with a visible degradation count. That is
-// the settled contract - compaction cannot help when the reserved output
-// alone fills the window, and the DEC-087 preflight keeps the wire call
-// bounded - so these assertions pin it deliberately.
+// The admission-funded clamp retires the old degradation shape: a declared
+// 8192 window with an undeclared output baseline used to exceed the window
+// and degrade every transform; the host now clamps the declared output to
+// the admission-funded value, so Layer 0's build validates and the seam
+// compacts (or passes through) instead of degrading. The settled contract
+// under complete-request admission is that the host never reserves more
+// output than the window funds, so these assertions pin the positive path.
 void tiny_window_without_input_budget_degrades(kairo::Executor &executor) {
     integration::DesktopToolContext tools;
     auto env = std::make_shared<mirage::testing::FakeDesktopEnvironment>();
@@ -1252,9 +1259,11 @@ void tiny_window_without_input_budget_degrades(kairo::Executor &executor) {
     integration::ModelLayerConfig config;
     config.enabled = config.supports_images = true;
     config.model_selector = "compaction-fixture";
-    // max_output_tokens stays undeclared: the per-call bound defaults to
-    // 32000, which alone exceeds the 8192-token window.
-    config.context_window_tokens = 8192;
+    // max_output_tokens stays undeclared: the admission-funded clamp bounds
+    // the profile at the static reserve (window − 9696), so the window
+    // funds margin plus input and the seam build validates without
+    // degradation.
+    config.context_window_tokens = 32768;
     integration::ModelLayer model(executor, config, &provider, tools);
     const auto ctx = context();
     const auto result = executor
@@ -1265,9 +1274,10 @@ void tiny_window_without_input_budget_degrades(kairo::Executor &executor) {
                             .get();
     check(result.ok);
     check(script && script->requests.size() == rounds + 1);
-    check(result.history_transforms == 0);
-    check(result.history_transform_degradations == rounds);
-    // The degraded raw replay keeps the requests pair-valid and complete.
+    check(result.history_transforms == rounds);
+    check(result.history_transform_degradations == 0);
+    // Three tiny rounds stay under every watermark: the replay passes
+    // through whole, pair-valid and complete.
     const auto &last = script->requests.back();
     check(call_ids(last).size() == rounds);
     check(has_part_id(last, "compact-capture-1"));
