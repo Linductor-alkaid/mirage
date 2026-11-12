@@ -31,6 +31,7 @@ add_library(mirage_integration_mira STATIC
     src/tool_alias_provider.cpp
     src/session_journal.cpp
     src/workflow_event_bridge.cpp
+    src/workflow_recovery_model.cpp
     # The model layer's credential resolver reads the environment per
     # platform (MSVC raises the CRT getenv as a warnings-as-errors
     # deprecation; DEC-017 / M4-06 toolchain fact).

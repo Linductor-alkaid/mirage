@@ -39,7 +39,7 @@ Mirador pin `2a9f4830f4727498ed4cbad568a1d3ec357ece7e` 的本地公开契约与�
 | Agent 控制平面 + Workflow 执行平面，成功经验固化 | Mira [DEC-014](../../third_party/mira/docs/decisions/DEC-014-agent-harness-workflow-dual-plane.md)，2026-09-07 | 架构方向已有；原生 UI 后来优先 harness |
 | 成功 Run 捕获、编译、参数归纳、发布门禁 | Mira [M11](../../third_party/mira/docs/plans/m11-trajectory-compilation-and-task-induction.md)、[workflow_compiler.hpp](../../third_party/mira/include/mira/workflow_compiler.hpp) | Host 已发布/运行 Workflow；本轮新增只读编译候选 |
 | Episode、成功恢复 Lesson、失败检索 | Mira [M13](../../third_party/mira/docs/plans/m13-memory-and-learning-loop.md)、[workflow_learning.hpp](../../third_party/mira/include/mira/workflow_learning.hpp) | `attach_workflow_surface` 尚未设置 learning context |
-| WaitingAgent 到模型恢复与续跑 | Mira [恢复 API](../../third_party/mira/docs/api/workflow-contracts.md#workflow-恢复编排workflow_recoveryhppm14dec-031) | 本地知识 Workflow 可交出 WaitingAgent，尚未装配恢复 orchestrator |
+| WaitingAgent 到模型恢复与续跑 | Mira [恢复 API](../../third_party/mira/docs/api/workflow-contracts.md#workflow-恢复编排workflow_recoveryhppm14dec-031) | M15-15 已接 Host 单次显式恢复；产品共享模型与自动触发待接 |
 | 普通 Agent 历史转成功轨迹 | Mira [DEC-038](../../third_party/mira/docs/decisions/DEC-038-unified-behavior-trace.md)，方向冻结、未实现 | 不能把 Task ID/聊天文本作为 Run 轨迹；[反馈](../dependency_feedback/mira.md#mira-20261111-001) |
 | 统一 Desktop Environment、产品 Workflow 面 | Mirage [原设计](Mirage：Linux%20-%20Windows%20桌面端设计方案.md) §2/12/14、[DEC-023](../decisions/DEC-023-workflow-contract-face.md) | CLI/IPC 已有发布、运行、取消；native 仍提示未接入 RPA |
 | 新语义/OCR/模板目标与动作后验证 | [DEC-067](../decisions/DEC-067-local-semantic-workflow-grounding.md)、[DEC-069](../decisions/DEC-069-local-visual-workflow-grounding.md) | 已有本地复合 atom；模板资源不会自动学习 |
@@ -140,6 +140,17 @@ M15-04 进入实施前须冻结：证据 schema、授权与脱敏、每任务/�
 显式检查点/失败经 `agent_continuation` 交给 Agent；Agent 提议 patch，经现有校验、权限
 及副作用判定后 resume，无法确认则等待用户或停止。普通步骤不必每步请求模型，监督
 频率、恢复次数/费用/期限与用户呈现须在 M15-07 冻结。
+
+[DEC-144](../decisions/DEC-144-host-workflow-recovery.md) / M15-15 已接 Host 的显式
+attach/start/poll/cancel/shutdown；外部 owner 注入同一 Executor 上的 Gateway/profile/
+provider，Host 保留强引用，不访问 ModelLayer 私有对象。受控修复后真实 atom 续跑，
+完成 Run 可重新编译候选。当前每 Run 一次、并发一次、请求期限 1ms～30s、尝试内
+决策修复 0～1 次、跟踪 1～32 条；token/费用预算沿外部 profile。回执结算与 Run
+完成分别观察，审计沿同一事件桥。provider 异常与旧回执缺口已登记
+[MIRA-20261112-002](../dependency_feedback/mira.md#mira-20261112-002)/
+[003](../dependency_feedback/mira.md#mira-20261112-003)，采用单 Adapter 异常边界与单次
+限制；未修改 pin。模型共享/重载、IPC/native/自动触发、长期 Lesson、真实接管和在线
+验收仍待 M15-06～09，见[接线示例](../examples/workflow-agent-recovery.md)。
 
 不确定副作用不能盲目重发；取消/接管阻止新动作，恢复前重新观察，终态不可被迟到结果
 复活。补丁只有在恢复成功后才可沉淀为 Lesson；旧错误版本保留来源和失效原因。

@@ -88,6 +88,8 @@
 
 | 编号 | 主题 | 类型/分级 | 状态 | 本轮证据 | 上游 |
 | --- | --- | --- | --- | --- | --- |
+| MIRA-20261112-002 | Workflow 恢复的 provider/future 异常结算与关停 | P2：恢复异常生命周期缺口 | Open | provider 故障注入导致 future.get 穿透并在析构阶段 abort；Adapter 临时边界防护 | 本地登记，未发送 |
+| MIRA-20261112-003 | 异步恢复 wait 返回旧缓存，无法可靠关联新尝试 | P2：多轮恢复接线缺口 | Open | 第二轮先返回旧 ordinal，游标过滤后仍等不到次数耗尽的新回执 | 本地登记，未发送；Host 单 Run 限一次 |
 | MIRA-20261112-001 | 持久视觉记忆的总量准入与部分写入恢复 | P2：产品长期存储接线缺口 | Open | 单字节工件正文上限下反复擦除，目录元数据仍增长；公开接口无统一预留/盘点 | 本地登记，未发送；扩展既有 MIRA-20261027-001 / M31 |
 | MIRA-20261111-001 | 普通 Agent 执行事实到成功轨迹的公开提取 | P2：经验生成接线缺口 | Open | 当前 Run 捕获可用；普通历史提取仍为上游 DEC-038 未实现方向 | 本地登记，未发送 |
 | MIRA-20261015-002 | ConversationLoop 缺少不按累计步骤/工具次数终止的模式 | P1：长程任务循环能力缺口 | Resolved | a29374a 消费契约：1,025 轮/1,024 工具；干净 Debug 82/82，ASAN/UBSAN 各 5/5 | [Mira PR #99](https://github.com/Linductor-alkaid/mira/pull/99) 已合并；[升级 PR #97](https://github.com/Linductor-alkaid/mirage/pull/97)、[接线 PR #103](https://github.com/Linductor-alkaid/mirage/pull/103) |
@@ -1157,3 +1159,56 @@ Failed + MaxOutputTokens，删除 summary 锚点；其它原因不误报 output_
   延迟写入、并发预留、关闭和断电/重启后仍在预算内；拒绝与实际占用/峰值可观察，
   已删证据不复活。负责人 Mira/Mirage 维护者，待上游公开实现与授权升级后补跑。
   本地登记不代表上游已接受/排期。
+
+<a id="mira-20261112-002"></a>
+
+## MIRA-20261112-002：Workflow 恢复的异常结算与关停
+
+- 状态：Open；日期：2026-11-12；负责人 Mirage 维护者，处理方 Mira；P2，产品未启用
+  恢复前的故障注入发现。仅本地记录，没有发送上游消息、改 pin 或修改依赖。
+- 基线 be44e36044eaf8e5ab09bc0a22f134a3c8545111。核对 IModelProvider、ModelGateway、
+  WorkflowRecoveryOrchestrator 公共头、M14 测试和 Workflow API；实际复现后定点核对
+  workflow_recovery.cpp 的 wait_recovery/shutdown，两处 shared_future.get 没有异常
+  转 Result 边界，析构也调用 shutdown。
+- 实际证据：M15-15 首轮 workflow_recovery_host_test 的脚本 provider 在 infer 抛
+  runtime_error，CTest 报 Subprocess aborted，错误在关停/析构的 future.get 再次穿透。
+  这是测试内固定错误标记，无用户/凭据数据。最小路径：构造 WaitingAgent Run，注册
+  抛异常的公开 IModelProvider，start_recovery -> wait_recovery -> shutdown。
+- 可重复输入见[恢复 Host 测试](../../tests/runtime/workflow_recovery_host_test.cpp) 的
+  throw 场景；在独立临时 checkout 中让 Gateway 注册原 provider、跳过 Mirage guard，
+  构建 workflow_recovery_host_test 后执行相同 CTest 即可恢复原始路径。当前正式测试
+  通过 guard 覆盖异常不再逃逸，不以测试已加防护宣称上游已修复。
+- 期望：provider/gateway/任务异常必须转为有审计关联的 Aborted/Error，取消/在途计数/
+  latest result/future 全部结算；wait 和 shutdown 不传播异常，析构不终止进程；模型
+  异常正文不入事件或用户诊断。任务失败和审计失败分别可观察，不伪造恢复成功。
+- 临时边界：仅 integration/workflow_recovery_model.cpp 捕获 provider infer/诊断
+  虚调用异常，推理异常转固定 Internal，已有 Error 保留 code/retryable 并替换正文；
+  诊断读取异常降为空。不创建线程/队列/调度器、不接管 Mira 状态机，Gateway 内部的
+  泛化异常收敛仍属上游。行为差异是异常成为普通模型失败且没有原始异常正文。
+- 移除条件/验收：上游公开异常结算语义、M14 同步/异步/provider/审计/取消/关闭故障
+  测试通过且授权升级后，移除临时 guard。延期影响：当前只交付受控 Host 单次恢复，
+  产品 ModelLayer 共享和自动触发保持关闭。负责人 Mira/Mirage 维护者。
+
+<a id="mira-20261112-003"></a>
+
+## MIRA-20261112-003：异步恢复的新尝试回执不可可靠关联
+
+- 状态：Open；日期：2026-11-12；负责人 Mirage 维护者，处理方 Mira；P2，多轮恢复
+  接线缺口。基线同 002，仅本地登记，未发送/改依赖。
+- 公共 wait_recovery 文档描述最近尝试的有界结果。首轮 need_user 后再 start，实际
+  先得到上一轮 ordinal/reason；Host 加 after_ordinal 过滤后，在次数耗尽场景等待
+  10 秒仍没有新回执。日志保留在本机 build/m15-recovery-debug-test-guarded.log；
+  原始错误预期与收口结果均记录于 M15-15，不把超时冒充 pending 状态证明。
+- 复现：同一 WaitingAgent Run，第一次异步 need_user 完成并读回；再次异步启动（可
+  故意保持 provider 阻塞，也可达到尝试次数上限），调用 wait_recovery。当前实现在
+  检查最新 pending future 前直接返回 tracking.last_result；即使消费方增加游标也
+  无法保证次数耗尽等新结果可以读到。该定点实现核对仅用于已复现缺陷归因。
+- 期望/最小能力：start 返回稳定尝试身份，wait/query 明确接收身份或游标，旧结算与
+  新 pending 区分；包括 admission/预算拒绝在内的每个异步结果均可读、可与审计关联，
+  在途计数与关闭结算一致。保留最近历史查询，但不能拿旧结果冒充新的恢复结算。
+- 应用边界：Host 提供只排除已读结果的无状态游标，且每 Run 限一次恢复、已结算后
+  拒绝再开；不建立平行 tracking、私有 future 队列或偷偷换 Run/重绑重置预算。这是
+  明确缩小的预览范围，不声称多轮问题已解决。
+- 验收/移除限制条件：同 Run 连续异步尝试、第二轮阻塞/完成/预算耗尽/拒绝、迟到结果、
+  重复通知/关闭，查询必须返回对应 ordinal/attempt 而非旧缓存；上游交付并授权升级后
+  再开放 Host 多轮配置。负责人 Mira/Mirage 维护者；不代表上游接受/排期。

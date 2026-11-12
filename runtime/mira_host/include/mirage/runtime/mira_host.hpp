@@ -14,6 +14,10 @@ namespace kairo {
 class Executor;
 }
 
+namespace mirage::integration {
+struct WorkflowRecoveryModel;
+}
+
 namespace mirage::runtime {
 
 /// Version of the pinned Mira core this binary was linked against. Sourced
@@ -265,6 +269,25 @@ struct WorkflowRunViewResult {
     HostError error;
 };
 
+struct WorkflowRecoveryOptions {
+    std::chrono::milliseconds model_call_deadline{5000};
+    std::uint32_t max_decision_repairs = 0;
+    std::size_t max_tracked_runs = 32;
+};
+
+struct WorkflowRecoveryAttemptView {
+    std::string run_id, workflow_id, outcome, reason_code;
+    std::uint32_t ordinal = 0;
+    std::string decision_digest, patch_id, model_request_id;
+};
+
+struct WorkflowRecoveryPollResult {
+    bool ok = false;
+    bool settled = false;
+    WorkflowRecoveryAttemptView attempt;
+    HostError error;
+};
+
 /// Host for one long-running pinned Mira instance inside the Mirage runtime
 /// (design doc section 11). The host owns the pinned runtime instance, drives
 /// its initialization and ordered shutdown, and exposes a pinned-free task
@@ -443,6 +466,25 @@ class MiraHost {
     /// Requests cooperative cancellation of one run (DEC-023); the pinned
     /// cancel is idempotent and never revives a terminal run.
     WorkflowRunCancelResult cancel_workflow_run(const std::string &run_id_hex);
+
+    /// DEC-144: explicit, once-per-Host binding. External model ownership and
+    /// profile budgets stay visible; no product automatic trigger is enabled.
+    HostOutcome
+        attach_workflow_recovery(std::shared_ptr<mirage::integration::WorkflowRecoveryModel>,
+                                 WorkflowRecoveryOptions = {});
+    /// One explicit attempt per Run (MIRA-20261112-003). Admission only;
+    /// the caller must poll settlement and then inspect the Run.
+    HostOutcome start_workflow_recovery(const std::string &run_id_hex);
+    /// Bounded 1ms poll of the last settled attempt, newer than after_ordinal.
+    /// after_ordinal excludes already-read receipts, not an in-flight state.
+    /// Multiple attempts stay disabled until MIRA-20261112-003 is fixed.
+    /// Settlement does not prove successful execution.
+    WorkflowRecoveryPollResult poll_workflow_recovery(const std::string &run_id_hex,
+                                                      std::uint32_t after_ordinal = 0);
+    /// Cancels an attempt, leaving the Run waiting; Run cancellation cancels both.
+    HostOutcome cancel_workflow_recovery(const std::string &run_id_hex);
+    /// Producer-first drain before WorkflowRuntime and model/Gateway teardown.
+    HostOutcome shutdown_workflow_recovery();
 
     /// Ordered workflow-surface shutdown (DEC-023): stops run producers,
     /// cancels active runs through the control plane and drains drive futures

@@ -1455,7 +1455,10 @@ Run 到只读候选 IR 的 Host 接口，复用 Mira 捕获/编译，不自动�
 来源、作用域与失效，无可执行引用。仅在隔离存储中验证关闭重开和擦除，产品自动采集、
 全局预算与存储 owner 仍按 M15-04/06 推进。
 [DEC-143](../decisions/DEC-143-supervised-visual-memory-write.md) 将有限视觉写入接入
-Mira Supervisor 并核对真实来源回执；产品长期 owner 与总量/恢复契约仍待装配。
+Mira Supervisor 并核对真实来源回执；[DEC-144](../decisions/DEC-144-host-workflow-recovery.md)
+提供 Host 单次显式 Agent 恢复、补丁续跑及取消/关闭，修复后成功 Run 可编译新候选。
+模型由外部 owner 注入，产品共享/重载和自动触发尚未装配；多轮回执、异常生命周期和
+长期存储总量的上游缺口见 M15 反馈。受控测试不代替在线模型或真实桌面接管。
 原生 Agent 历史自动提取仍依赖 Mira DEC-038 的未交付能力，长期视觉保存与监督恢复
 继续按专项计划设计验证。既有 M7/M9 临时引用、新观察、权限和动作后核验约束保持适用。
 

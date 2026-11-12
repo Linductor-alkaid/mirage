@@ -90,6 +90,12 @@ target_link_libraries(mira_host_test
         Mirage::kairo_consumer
 )
 add_test(NAME mira_host_test COMMAND mira_host_test)
+mirage_add_test(workflow_recovery_host_test
+    SOURCES runtime/workflow_recovery_host_test.cpp
+    LIBS Mirage::mira_host Mira::simulator_adapter Mirage::kairo_consumer
+    LABELS "integration;runtime;security;workflow"
+    TIMEOUT 120
+    )
 set_tests_properties(mira_host_test PROPERTIES
     LABELS "unit"
     TIMEOUT 120

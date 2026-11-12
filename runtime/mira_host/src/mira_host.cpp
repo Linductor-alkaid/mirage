@@ -5,7 +5,9 @@
 #include <mira/version.hpp>
 #include <mira/workflow_compiler.hpp>
 #include <mira/workflow_ir.hpp>
+#include <mira/workflow_recovery.hpp>
 #include <mira/workflow_runtime.hpp>
+#include <mirage/integration/workflow_recovery_model.hpp>
 
 #include <algorithm>
 #include <atomic>
@@ -198,11 +200,16 @@ struct MiraHost::Impl {
     /// every drive; constructed empty and engaged by attach.
     std::unique_ptr<mira::WorkflowRuntime> workflow_runtime;
     std::shared_ptr<mirage::integration::WorkflowEventBridge> workflow_events;
+    kairo::Executor *workflow_executor = nullptr;
+    std::shared_ptr<mirage::integration::WorkflowRecoveryModel> recovery_model;
+    std::unique_ptr<mira::WorkflowRecoveryOrchestrator> workflow_recovery;
+    bool recovery_drained = true;
 
     /// True when the surface is attached and still accepting work; a shut
     /// down surface rejects every call with the stable invalid_state shape.
     [[nodiscard]] bool workflow_surface_active() const {
-        return workflow_runtime != nullptr && !workflow_runtime->shut_down();
+        return status.load() == HostStatus::Running && workflow_runtime != nullptr &&
+               !workflow_runtime->shut_down();
     }
 };
 
@@ -618,6 +625,7 @@ HostOutcome MiraHost::attach_workflow_surface(
     runtime->set_tool_registry(atom_toolset->registry());
     impl_->workflow_runtime = std::move(runtime);
     impl_->workflow_events = std::move(event_bridge);
+    impl_->workflow_executor = &executor;
     return HostOutcome{true, {}};
 }
 
@@ -943,21 +951,157 @@ WorkflowRunCancelResult MiraHost::cancel_workflow_run(const std::string &run_id_
         return WorkflowRunCancelResult{
             false, {}, {}, host_error("invalid_argument", "malformed run identity")};
     }
-    // Idempotent per the pinned contract; terminal runs never revive.
+    HostError recovery_error;
+    if (impl_->workflow_recovery && !impl_->workflow_recovery->shut_down()) {
+        const auto stopped = impl_->workflow_recovery->cancel_recovery(*run_id);
+        if (!stopped)
+            recovery_error = pinned_error(stopped.error());
+    }
+    // Idempotent per the pinned contract; terminal runs never revive. Request
+    // Run cancellation even if cancelling its model producer reported failure.
     const auto cancelled = impl_->workflow_runtime->cancel_run(run_id.value());
     if (!cancelled) {
         return WorkflowRunCancelResult{false, {}, {}, pinned_error(cancelled.error())};
     }
+    if (!recovery_error.code.empty())
+        return WorkflowRunCancelResult{false, run_id_hex,
+                                       mira::workflow_run_state_name(cancelled.value().state),
+                                       recovery_error};
     return WorkflowRunCancelResult{
         true, run_id_hex, mira::workflow_run_state_name(cancelled.value().state), {}};
 }
 
-HostOutcome MiraHost::shutdown_workflow_surface() {
-    if (impl_->workflow_runtime == nullptr) {
+HostOutcome MiraHost::attach_workflow_recovery(
+    std::shared_ptr<mirage::integration::WorkflowRecoveryModel> model,
+    WorkflowRecoveryOptions options) {
+    if (!impl_->workflow_surface_active() || impl_->workflow_recovery)
+        return failed(host_error(
+            "invalid_state", "recovery requires an active, previously unbound workflow surface"));
+    if (!model || !model->gateway || !model->provider || model->profile_id.is_nil() ||
+        options.model_call_deadline < std::chrono::milliseconds{1} ||
+        options.model_call_deadline > std::chrono::seconds{30} ||
+        options.max_decision_repairs > 1 || options.max_tracked_runs == 0 ||
+        options.max_tracked_runs > 32)
+        return failed(host_error("invalid_argument", "invalid recovery model or limits"));
+    mira::WorkflowRecoveryConfig config;
+    config.profile_id = model->profile_id;
+    config.max_attempts_per_run = 1;
+    config.model_call_deadline = options.model_call_deadline;
+    config.max_decision_repairs = options.max_decision_repairs;
+    config.max_tracked_runs = options.max_tracked_runs;
+    config.max_concurrent_attempts = 1;
+    auto retained = std::make_shared<mirage::integration::WorkflowRecoveryModel>(*model);
+    const auto guarded = mirage::integration::guard_workflow_recovery_provider(model->provider);
+    if (!guarded)
+        return failed(pinned_error(guarded.error()));
+    if (guarded.value()->profile().id != model->profile_id)
+        return failed(host_error("invalid_argument", "recovery provider profile mismatch"));
+    retained->gateway->register_provider(guarded.value());
+    auto recovery = std::make_unique<mira::WorkflowRecoveryOrchestrator>(
+        *impl_->workflow_executor, *impl_->workflow_runtime, impl_->runtime, *retained->gateway,
+        impl_->session_id, config);
+    recovery->set_event_store(impl_->workflow_events);
+    impl_->recovery_model = std::move(retained);
+    impl_->workflow_recovery = std::move(recovery);
+    impl_->recovery_drained = false;
+    return HostOutcome{true, {}};
+}
+
+HostOutcome MiraHost::start_workflow_recovery(const std::string &run_id_hex) {
+    if (!impl_->workflow_surface_active() || !impl_->workflow_recovery ||
+        impl_->workflow_recovery->shut_down())
+        return failed(host_error("invalid_state", "workflow recovery is not active"));
+    const auto id = mira::WorkflowRunId::parse(run_id_hex);
+    if (!id || id->is_nil())
+        return failed(host_error("invalid_argument", "malformed run identity"));
+    const auto view = impl_->workflow_runtime->run_snapshot(*id);
+    if (!view)
+        return failed(pinned_error(view.error()));
+    if (view.value().state != mira::WorkflowRunState::WaitingAgent)
+        return failed(host_error("invalid_state", "workflow run is not waiting for Agent"));
+    // MIRA-20261112-003: the cache can hide a later budget-rejected result.
+    // Keep this preview single-attempt without parallel attempt accounting.
+    const auto previous =
+        impl_->workflow_recovery->wait_recovery(*id, std::chrono::milliseconds{1});
+    if (previous)
+        return failed(
+            host_error("invalid_state", "workflow run already has a settled recovery attempt"));
+    if (previous.error().code != mira::ErrorCode::NotFound &&
+        previous.error().code != mira::ErrorCode::DeadlineExceeded)
+        return failed(pinned_error(previous.error()));
+    const auto started = impl_->workflow_recovery->start_recovery(*id);
+    return started ? HostOutcome{true, {}} : failed(pinned_error(started.error()));
+}
+
+WorkflowRecoveryPollResult MiraHost::poll_workflow_recovery(const std::string &run_id_hex,
+                                                            std::uint32_t after_ordinal) {
+    WorkflowRecoveryPollResult result;
+    const auto id = mira::WorkflowRunId::parse(run_id_hex);
+    if (!id || id->is_nil()) {
+        result.error = host_error("invalid_argument", "malformed run identity");
+        return result;
+    }
+    if (!impl_->workflow_recovery) {
+        result.error = host_error("invalid_state", "workflow recovery is not attached");
+        return result;
+    }
+    const auto attempt = impl_->workflow_recovery->wait_recovery(*id, std::chrono::milliseconds{1});
+    if (!attempt) {
+        if (attempt.error().code == mira::ErrorCode::DeadlineExceeded) {
+            result.ok = true;
+            return result;
+        }
+        result.error = pinned_error(attempt.error());
+        return result;
+    }
+    const auto &a = attempt.value();
+    if (a.ordinal <= after_ordinal) {
+        result.ok = true;
+        return result;
+    }
+    result.ok = result.settled = true;
+    result.attempt = {a.run_id.to_string(),
+                      a.workflow_id.to_string(),
+                      mira::workflow_recovery_outcome_name(a.outcome),
+                      a.reason_code,
+                      a.ordinal,
+                      a.decision_digest ? a.decision_digest->to_string() : "",
+                      a.patch_id ? a.patch_id->to_string() : "",
+                      a.model_request_id ? a.model_request_id->to_string() : ""};
+    return result;
+}
+
+HostOutcome MiraHost::cancel_workflow_recovery(const std::string &run_id_hex) {
+    const auto id = mira::WorkflowRunId::parse(run_id_hex);
+    if (!id || id->is_nil())
+        return failed(host_error("invalid_argument", "malformed run identity"));
+    if (!impl_->workflow_recovery)
+        return failed(host_error("invalid_state", "workflow recovery is not attached"));
+    if (impl_->workflow_recovery->shut_down())
         return HostOutcome{true, {}};
+    const auto cancelled = impl_->workflow_recovery->cancel_recovery(*id);
+    return cancelled ? HostOutcome{true, {}} : failed(pinned_error(cancelled.error()));
+}
+
+HostOutcome MiraHost::shutdown_workflow_recovery() {
+    if (!impl_->workflow_recovery)
+        return HostOutcome{true, {}};
+    const auto report = impl_->workflow_recovery->shutdown();
+    impl_->recovery_drained = report.clean;
+    if (!report.clean || report.event_emit_failures || report.hook_failures)
+        return failed(host_error("pinned_runtime", "workflow recovery drain or audit failed"));
+    return HostOutcome{true, {}};
+}
+
+HostOutcome MiraHost::shutdown_workflow_surface() {
+    const auto recovery_down = shutdown_workflow_recovery();
+    if (!recovery_down.ok && !impl_->recovery_drained)
+        return recovery_down;
+    if (impl_->workflow_runtime == nullptr) {
+        return recovery_down;
     }
     if (impl_->workflow_runtime->shut_down()) {
-        return HostOutcome{true, {}};
+        return recovery_down;
     }
     // Pinned order for this call: stop producers, cancel active runs through
     // the control plane, drain drive futures within the bounded budget. Runs
@@ -967,7 +1111,7 @@ HostOutcome MiraHost::shutdown_workflow_surface() {
         return failed(host_error("pinned_runtime",
                                  "workflow surface shutdown was not clean: " + report.diagnostic));
     }
-    return HostOutcome{true, {}};
+    return recovery_down;
 }
 
 ShutdownResult MiraHost::shutdown() {
@@ -983,10 +1127,18 @@ ShutdownResult MiraHost::shutdown() {
     }
     // The workflow surface converges before the runtime it rides on (pinned
     // order: WorkflowRuntime shutdown → MiraRuntime stop; DEC-023).
-    (void)shutdown_workflow_surface();
+    const auto workflow_down = shutdown_workflow_surface();
+    if (!workflow_down.ok && !impl_->recovery_drained) {
+        impl_->status.store(HostStatus::Failed);
+        return ShutdownResult{false, {}, workflow_down.error};
+    }
     if (current == HostStatus::Failed) {
         // Failed is terminal and never revived; release pinned resources.
         impl_->release_pinned_runtime();
+        if (!workflow_down.ok) {
+            impl_->last_shutdown_report.clean = false;
+            impl_->last_shutdown_report.diagnostic = workflow_down.error.message;
+        }
         return ShutdownResult{true, impl_->last_shutdown_report, {}};
     }
     if (current != HostStatus::Running) {
@@ -1009,7 +1161,9 @@ ShutdownResult MiraHost::shutdown() {
     }
 
     const mira::ShutdownReport pinned = impl_->runtime.finish_shutdown();
-    report.clean = pinned.clean;
+    report.clean = pinned.clean && workflow_down.ok;
+    if (!workflow_down.ok)
+        report.diagnostic = workflow_down.error.message;
     report.pending_commands = pinned.pending_commands;
     if (report.diagnostic.empty() && !pinned.diagnostic.empty()) {
         report.diagnostic = pinned.diagnostic;

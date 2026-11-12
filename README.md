@@ -251,6 +251,9 @@ M15-12 增加 `workflow import --file candidate.review.json`：支持用户文�
 产品自动采集与持久存储 owner 尚未接线。
 M15-14 增加 Mira Supervisor 管理的有限写入、真实事件回执核对与阶段失败回报；
 长期总量准入/部分写入恢复的上游缺口已登记，产品默认仍不采集或持久保存截图。
+M15-15 提供 Host 的单次显式 Agent 恢复：失败等待、补丁校验、atom 续跑及取消/关闭，
+并验证修复后的 Run 可生成新候选；见[接线示例](docs/examples/workflow-agent-recovery.md)。
+产品模型共享、IPC/native 自动触发与在线验收仍待后续，多轮恢复受上游回执缺口限制。
 
 2026-10-11（M7-11 首增量）：产品 workflow 目录新增 `desktop.knowledge.activate`，
 IR 保存应用/页面/目标语义，执行时重新解析引用、权限判定、一次激活并验证新后条件，
