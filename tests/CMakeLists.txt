@@ -1302,6 +1302,12 @@ if(UNIX)
     # instrumentation multiplies it, so the ceiling is widened to keep the
     # sanitizer run bounded instead of the scenarios shortened.
     set_tests_properties(harness_desktop_tools_test PROPERTIES LABELS "integration;runtime" TIMEOUT 300)
+    if(CMAKE_CXX_FLAGS MATCHES "fsanitize=thread")
+        # Thread instrumentation is the slowest sanitizer and the long-run
+        # scenarios sit near the ceiling; on loaded 2-core CI runners the
+        # 300s bound tips with scheduling, so widen it under TSan only.
+        set_tests_properties(harness_desktop_tools_test PROPERTIES TIMEOUT 600)
+    endif()
 
     add_executable(native_agent_integration_test runtime/native_agent_integration_test.cpp
         ${CMAKE_SOURCE_DIR}/apps/native/runtime_bridge.cpp ${CMAKE_SOURCE_DIR}/apps/native/attachment.cpp)
@@ -1519,6 +1525,12 @@ endif()
 mirage_enable_warnings(post_action_verification_test)
 add_test(NAME post_action_verification_test COMMAND post_action_verification_test)
 set_tests_properties(post_action_verification_test PROPERTIES LABELS "integration;runtime;platform" TIMEOUT 30)
+if(CMAKE_CXX_FLAGS MATCHES "fsanitize=thread" OR CMAKE_CXX_FLAGS MATCHES "fsanitize=address")
+    # The verification matrix sleeps through real-time windows and
+    # instrumentation multiplies the CPU share; the 30s bound tips on
+    # loaded 2-core CI runners (observed under TSan).
+    set_tests_properties(post_action_verification_test PROPERTIES TIMEOUT 120)
+endif()
 
 mirage_add_test(visual_text_verification_test
     SOURCES integration/visual_text_verification_test.cpp
