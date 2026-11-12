@@ -1,6 +1,16 @@
 # Test binaries follow the pinned mira house style: one plain main() per
 # binary using tests/support/test.hpp; labels drive CI selection (docs/
 # project/project-standards.md section 11).
+# Sanitizer instrumentation slows CPU-bound suites severalfold while the CI
+# runners stay 2-core, so suites with known-tight bounds are widened under
+# any active sanitizer (MIRAGE_TESTS_SANITIZED below). Widened bounds only
+# fence the test process; production deadlines are unaffected, and
+# Debug/Release presets keep their tight bounds.
+set(MIRAGE_TESTS_SANITIZED OFF)
+if(CMAKE_CXX_FLAGS MATCHES "fsanitize=")
+    set(MIRAGE_TESTS_SANITIZED ON)
+endif()
+
 mirage_add_test(visual_scene_test
     SOURCES desktop/visual_scene_test.cpp
     LIBS Mirage::desktop
@@ -1302,10 +1312,10 @@ if(UNIX)
     # instrumentation multiplies it, so the ceiling is widened to keep the
     # sanitizer run bounded instead of the scenarios shortened.
     set_tests_properties(harness_desktop_tools_test PROPERTIES LABELS "integration;runtime" TIMEOUT 300)
-    if(CMAKE_CXX_FLAGS MATCHES "fsanitize=thread")
+    if(MIRAGE_TESTS_SANITIZED)
         # Thread instrumentation is the slowest sanitizer and the long-run
         # scenarios sit near the ceiling; on loaded 2-core CI runners the
-        # 300s bound tips with scheduling, so widen it under TSan only.
+        # 300s bound tips with scheduling, so widen it under sanitizers.
         set_tests_properties(harness_desktop_tools_test PROPERTIES TIMEOUT 600)
     endif()
 
@@ -1481,7 +1491,7 @@ add_test(NAME content_visual_supply_test
     COMMAND $<TARGET_FILE:desktop_image_supply_test> --automatic-content)
 set_tests_properties(content_visual_supply_test PROPERTIES
     LABELS "integration;runtime;perception" TIMEOUT 30)
-if(CMAKE_CXX_FLAGS MATCHES "fsanitize=thread" OR CMAKE_CXX_FLAGS MATCHES "fsanitize=address")
+if(MIRAGE_TESTS_SANITIZED)
     # The full PNG/content matrix is much slower under instrumentation, and
     # the pinned per-request admission accounting adds per-turn estimate
     # work; this only bounds the test process, never the production
@@ -1525,7 +1535,7 @@ endif()
 mirage_enable_warnings(post_action_verification_test)
 add_test(NAME post_action_verification_test COMMAND post_action_verification_test)
 set_tests_properties(post_action_verification_test PROPERTIES LABELS "integration;runtime;platform" TIMEOUT 30)
-if(CMAKE_CXX_FLAGS MATCHES "fsanitize=thread" OR CMAKE_CXX_FLAGS MATCHES "fsanitize=address")
+if(MIRAGE_TESTS_SANITIZED)
     # The verification matrix sleeps through real-time windows and
     # instrumentation multiplies the CPU share; the 30s bound tips on
     # loaded 2-core CI runners (observed under TSan).
