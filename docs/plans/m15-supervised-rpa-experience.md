@@ -5,7 +5,7 @@
 > 所属计划：[Mirage 实施总计划](mirage-implementation-plan.md)
 > 前置：M5 Workflow 服务面、M7 本地知识 atom；Mira 已交付编译/学习/恢复公开能力
 > 建议发布点：经验候选契约预览；产品入口与发布标签另验
-> 更新日期：2026-11-11
+> 更新日期：2026-11-12
 
 ## 目标
 
@@ -50,13 +50,13 @@ M15-11 提供同版成功多 Run 的参数归纳及审阅；M15-12 提供用户�
   [MIRA-20261111-001](../dependency_feedback/mira.md#mira-20261111-001)，冻结可重建的
   事件投影、原生任务关联、成功/缺失/截断判定和有界提取；同事实前缀同候选，未知
   工具或缺验证明确拒绝。就绪后接 Mira 公开提取接口，不私建通用 Trace。
-- [ ] `M15-04` 视觉记忆契约与预算（Proposed）：定义动作前后图/ROI/文字/应用页面/
+- [ ] `M15-04` 视觉记忆契约与预算（In Progress，首增量 M15-13）：定义动作前后图/ROI/文字/应用页面/
   事件来源、工件与记忆关联、敏感内容、授权、总/主体/任务配额和物理遗忘；先在
   单一参考任务验证跨会话新观察/唯一目标重定位，再启用任何长期保存。
 - [ ] `M15-05` 审阅、参数化和资产保存（In Progress，增量 M15-11/12）：复用 `induce_parameters`、Mira
   版本与 Skill 生命周期，区分常量/参数/秘密/临时目标；草稿不覆盖已验证资产。
   冻结跨重启资产/来源恢复、删除与兼容策略，DryRun 和实际验证分别呈现。
-- [ ] `M15-06` 学习存储装配（Proposed）：共享既有 scope-bound Memory/ArtifactStore，
+- [ ] `M15-06` 学习存储装配（In Progress，有限写入增量 M15-14）：共享既有 scope-bound Memory/ArtifactStore，
   在 Workflow surface 设置 learning context，验证终态 Episode、成功恢复 Lesson、
   失败检索和写失败可观测；不得另建 MemoryStore、JSON 经验库或图片数据库。
 - [ ] `M15-07` Agent 监督与恢复（Proposed）：装配 Mira RecoveryOrchestrator，冻结
@@ -80,13 +80,23 @@ M15-11 提供同版成功多 Run 的参数归纳及审阅；M15-12 提供用户�
   文件，经 Mira 校验 IR 身份后只创建 NotValidated 草稿；验证独立服务重启、正文
   改写/错身份/超限/冲突/容量拒绝、再发布运行与旧 Run 不复活。自动资产库仍后续。
 
+- [x] `M15-13` 视觉 Episode 候选适配器（Completed，Linux 本机适配器增量）：按
+  [DEC-142](../decisions/DEC-142-visual-action-evidence-candidate.md) 编码有来源的动作前后图，
+  单工件 + Task-scoped MemoryRecord；实际隔离 Mira 存储验证重启、查询、失效与擦除。
+  不启用自动捕获或第二存储，产品总量与生命周期仍由 M15-04/06 冻结。
+
+- [x] `M15-14` Supervisor 管理的视觉记忆写入（Completed，Linux 本机有限操作增量）：按
+  [DEC-143](../decisions/DEC-143-supervised-visual-memory-write.md) 接真实事件回执/回读与
+  Memory apply，验证在途容量、阶段失败/部分写入、取消及关闭；长期总量 owner 仍依赖
+  上游容量/回收契约，不以进程内计数替代持久配额。
+
 ## 风险与阻塞
 
 | 风险/依赖 | 负责人 | 解除条件/处置 |
 | --- | --- | --- |
 | 普通 Agent 自动轨迹提取尚无公开 API | Mira/Mirage 维护者 | 本地反馈 MIRA-20261111-001；上游契约交付并授权升级后接线；M15-02 可独立推进 |
 | 旧历史可能只有文本/有界摘要，无完整动作证据 | Mirage 维护者 | 审计真实样本；缺证据返回不支持，只从具备证据的新任务开始，不补造历史 |
-| 长期视觉容量、删除与多存储一致性未冻结 | Mirage 维护者 | M15-04 + DEC-119 预算/故障/擦除测试；未通过前不启用长期保存 |
+| 长期视觉容量、删除与多存储一致性未冻结 | Mira/Mirage 维护者 | [MIRA-20261112-001](../dependency_feedback/mira.md#mira-20261112-001) 与 M15-04/06：公开容量/恢复契约及 DEC-119 预算/故障/擦除测试；未通过前不启用产品长期保存 |
 | 一次成功或 DryRun 被误标为可重复技能 | Mirage 维护者 | 审阅等级、实跑门禁、新引用与后条件；错误/不确定副作用禁止盲目重放 |
 | 基于尚未合并的 Mira 同步开发线 | Mirage 维护者 | 合并/重放时确认同步线进入目标分支并补回归，不能丢失所核对的 pin 基线 |
 
@@ -103,7 +113,7 @@ M15-11 提供同版成功多 Run 的参数归纳及审阅；M15-12 提供用户�
 | 监督 | 正常、异常、接纳拒绝、执行中取消、超时、接管、shutdown，恢复预算与不确定副作用 | M15-07；新并发路径六类门禁 + TSAN/故障注入 |
 | 产品收益 | 已冻结任务集多次探索/复用对照，真实 Linux、Windows、在线模型分开 | M15-08/09；无数据不写改善指标 |
 
-- [ ] M15-01～12 均完成，所需后续决策已冻结。
+- [ ] M15-01～14 均完成，所需后续决策已冻结。
 - [ ] 至少一个真实桌面任务达到执行 -> 候选 -> 审阅/发布 -> 重启后再用 -> 变化交给
   Agent -> 经验证恢复 -> Lesson 的闭环。
 - [ ] 视觉长期预算/遗忘与隐私删除实际通过；缺失证据不继续执行。
@@ -272,3 +282,97 @@ M15-11 提供同版成功多 Run 的参数归纳及审阅；M15-12 提供用户�
   资产恢复、断电/磁盘故障、长期视觉保存/删除、native 审阅、普通 Agent 历史提取、在线
   监督恢复及 Windows 未验收；负责人 Mirage 维护者，待相应 M15-03～09 设计、公开
   接口和目标设备就绪后补跑。本机文件任务不能代替真实桌面经验复用验收。
+
+### 2026-11-12：M15-13 动作前后视觉证据候选
+
+- 基线：本分支 `e00debf`；沿既有 Mira/Mirador/kairo pin，没有依赖指针或第三方源码
+  变更。冻结 DEC-142，M15-04 进入 In Progress。核对 Mira artifact_store、MemoryRecord/
+  IMemory、SqliteMemoryStore 公共头、durable-memory-host 指南、M4 secret/作用域测试；
+  SQLite 生命周期沿 pinned kairo-integration 的 by-api / blocking-io 卡片。
+- 实现：新增 integration 的 prepare_visual_action_evidence / make_visual_memory_record /
+  review_visual_memory。宿主提供的前后 BGRA8、应用/页面描述和来源编为单工件，丢弃
+  padding；manifest/每帧/整体均核对摘要，Task Episode 的 statement 只有摘要。
+  敏感度与内容绑定，Secret 遵循 Mira 禁止进入 Memory 的规则，拒绝而不降级。取消、
+  超时、过期、错 scope/来源/类型/等级、缺失与篡改拒绝；底层读失败保留错误码但不
+  复制错误正文。历史图不带 source_sequence、执行引用、授权或坐标。
+- 操作预算由 caller 显式提供，并约束于 8 MiB/帧、16 MiB/工件、8 KiB manifest、
+  120 秒观察窗口的上界；不设置产品总量或默认保留期。适配器不创建 Store、不 apply、
+  不捕获/输入/写磁盘或自建任务。外部 owner 仍负责授权、来源真实性、总量接纳、
+  孤儿/共享引用处理和完整关闭，不把生成候选标为已经入库。
+- 开发期：三次构建分别暴露测试临时目录 helper 带入 IPC 头、JsonValue::as_object
+  只读、遗漏 Mira::state_store 链接；已改用独立可移植临时目录、重建 JSON 对象和
+  显式测试链接。首次运行有 2 个失败，原因是测试误以为重复内容会改变原工件标签；
+  独立 Store 后验证拒绝。随后 Secret 正例与 Mira MemoryRecord 禁止 Secret 的契约
+  冲突，包含加诊断定位的一次重复失败；已把准备/绑定/读取全部收敛为拒绝 Secret。
+  最终以下结果来自最后构建，不使用失败构建后的旧二进制作为完成证据。
+- 新测试 229 检查：确定性、padding 剔除、完整预算边界与溢出、源/时间/上下文/取消/
+  期限、闭集/非整数/版本/偏移/正文/敏感度/来源篡改、错误码和诊断隔离；真实
+  FileArtifactStore/SqliteMemoryStore 的写入、幂等重放、总工件容量拒绝、Task scope
+  get/query 与隔离、关闭重开后图像恢复、显式擦除后再次重开记录和工件仍不可读。
+  存储在独占私有临时目录；SQLite worker 由唯一测试 Executor 管理，close 后再
+  shutdown，无私有线程/队列。这里是进程内重建存储对象，不是产品服务跨进程恢复。
+- 环境沿前轮 Ubuntu 24.04.5 x86_64、GCC 13.3.0、CMake 3.28.3/Ninja、
+  clang-format 18.1.8，非 native/OCR，无用户桌面/配置和在线模型。
+  四配置各执行
+  `cmake --build --preset <preset> --target visual_memory_test local_visual_workflow_test mira_host_test mirage mirage-service -j 4`，
+  构建均退出 0；Debug 另含 mirage-format-check / mirage-boundary-check。
+  随后执行
+  `ctest --preset <preset> -R '^(visual_memory_test|local_visual_workflow_test|mira_host_test|workflow_experience_cli_test)$' --output-on-failure`，
+  TSAN 前缀 `setarch x86_64 -R`。Debug/ASAN/UBSAN/TSAN 均 **6/6 通过、0 skip**
+  （4 个业务测试 + 2 个隔离 fixture），无 sanitizer 报告。各配置视觉记忆/本地视觉
+  Workflow/Host 为 **229/177/224** 检查、0 失败；实际 CLI 的经验文件闭环仍通过。
+- 格式与公共头检查通过：67 头、0 新违规、DEC-096 两个既有 seam；7 份 Markdown
+  的 540 个本地路径及标题/围栏检查通过，git diff --check 通过。同步主/专项设计、
+  DEC-142、总计划、专项计划、调用示例和 README；本增量未提交/推送。
+- M15-13 完成，M15-04 与总体 M15 保持 In Progress；M15-06 仍待产品共享 owner/
+  全局预算方案。未接 Runtime Service/CLI/native 的自动视觉记忆，未从原生 Agent
+  历史生成图像，未验收真实桌面重定位、断电/磁盘故障、共享工件隐私删除、全局物理
+  占用/峰值、Agent 在线恢复或 Windows。负责人 Mirage 维护者，按 M15-03～09 的
+  上游接口、owner/预算设计和目标设备条件补跑；本机受控图不代表产品闭环完成。
+
+### 2026-11-12：M15-14 Supervisor 写入与持久容量缺口
+
+- 基线仍为 e00debf，加同工作树未提交的 M15-13；无第三方/依赖 pin 变更。
+  DEC-143 冻结有限写入协议，M15-06 进入 In Progress。核对 pinned Mira 的
+  ContextMemorySupervisor、EventStore、Memory/ArtifactStore 公共头及 M4 监督/存储
+  测试；kairo-integration 的 by-api / tasks-and-lifecycle 约束 future 消费和外部 owner
+  排空。Mira DEC-069/M31 和记忆维护计划明确尚无长期总量/恢复 facade。
+- 接线：schedule_visual_memory_write 借用唯一外部 Supervisor 与共享 Store，Critical
+  有限操作持有不可变输入，顺序执行准备、工件提交/核验、来源事件提交/按序号限一条
+  回读、Memory apply。ProcessCrash/PowerLoss 回执、真实 runtime/session/task/event/
+  sequence/payload 必须匹配，才可写 Memory；事件只有来源与工件身份，不含像素/页面。
+  不自建线程、队列、Store、任务监控或持久配额。
+- 失败：保留错误码、业务阶段及已知工件 ID，异常正文不进入诊断；不自动重试或 erase。
+  commit/apply 错误可能已经写入，回执异常也不能伪装回滚。apply 期间取消但已成功时，
+  返回真实回执和 completed_after_cancel，不改变上层 Task 状态。关闭先停止生产、
+  Supervisor 关键排空/消费 future、关闭/析构 Store，最后外部非 worker owner 关闭
+  Executor；测试 owner 在末轮复核后改为由 RAII 保证 Executor 最后析构。
+- 开发期首轮 Debug 新测试 **306 检查、1 失败**：关闭后的测试误期望 InvalidState；
+  pinned Supervisor 的文档/测试约定实际是 Unavailable，修正测试后 **3/3**（含 fixture）
+  通过，没有改依赖或改变原错误码。末轮 owner 析构调整后重建并重跑完整专项矩阵。
+- 新测试最终 306 检查：16 类阶段故障，包括真实提交后报错、异常、Buffered/坏序号、
+  无/错来源回读、Memory apply 拒绝和提交后坏回执；检查后续层零新增写入、部分结果
+  标识、无自动删除、Supervisor failed 统计与诊断隔离。另验空输入、排队/提交后取消、
+  排队/受控 I/O 超时、apply 后取消的实际成功、满容量拒绝、Critical 排空与关闭拒绝。
+  真实 FileEventStore/FileArtifactStore/SQLite 关闭重开后来源与图像仍匹配。所有 Store
+  与取消 probe 活过 future；对象重建是进程内测试，不宣称产品服务恢复。
+- 容量证据：公开 FileArtifactStore(root, 1) 接口做 16 次不同单字节提交/erase，旧工件
+  open 均拒绝。目录普通文件长度合计在 8 轮后为 **1760 字节**、16 轮后 **3520 字节**，
+  四配置一致。它证明正文限额不能当作整目录总量；不是文件系统块分配、可回用空间、
+  SQLite/WAL 规模或全局物理占用/峰值基准。登记 MIRA-20261112-001（Open，未发送），
+  延伸既有 M31/容量反馈，不用 Mirage 私有计数/数据库绕过。
+- 环境沿前增量 Ubuntu 24.04.5 x86_64、GCC 13.3.0、CMake 3.28.3/Ninja、
+  clang-format 18.1.8，非 native/OCR，无用户桌面/配置或在线模型。四配置各先构建
+  `cmake --build --preset <preset> --target visual_memory_write_test visual_memory_test local_visual_workflow_test mira_host_test mirage mirage-service -j 4`，
+  owner 收口后各追加构建 visual_memory_write_test，退出码均 0。最终执行
+  `ctest --preset <preset> -R '^(visual_memory_write_test|visual_memory_test|local_visual_workflow_test|mira_host_test|workflow_experience_cli_test)$' --output-on-failure`，
+  TSAN 前缀 setarch x86_64 -R。Debug/ASAN/UBSAN/TSAN 均 **7/7 通过，0 skip**
+  （5 个业务测试 + 2 个隔离 fixture），无 sanitizer 报告；写入/视觉记忆/本地视觉
+  Workflow/Host 分别 **306/229/177/224** 检查、0 失败，真实 CLI 经验文件闭环仍通过。
+- 格式/公共头检查通过，67 头、0 新违规、DEC-096 两条既有 seam；10 份 Markdown
+  的 681 个本地路径、标题/围栏检查与 git diff --check 通过。同步 DEC-143、专项设计、
+  计划、示例、README 和依赖反馈；代码和文档未提交/推送。
+- M15-14 完成，M15-04/06 与总体 M15 保持 In Progress。产品长期存储 owner 的总量/
+  原子预留/孤儿恢复仍依赖上游 M31；真实桌面采集、服务跨进程恢复、磁盘/断电故障、
+  共享证据隐私删除、Agent 监督 RPA、native/Windows 和收益未验收。负责人 Mira/Mirage
+  维护者，待公开契约/授权升级和 M15-03～09 的目标环境就绪后补跑。

@@ -2,7 +2,7 @@
 
 > 状态：Active
 > 负责人：Mirage维护者；处理方：Mira上游
-> 更新日期：2026-11-11
+> 更新日期：2026-11-12
 > 工作项：台账维护性收口见[依赖复用整改计划](../plans/dependency-reuse-remediation.md)
 > （REUSE-16/17/18）；既有条目分别溯源至 M6-10、M7、M8/M9 各工作项。
 > 总入口：[依赖反馈](ledger.md)；维护规则：[工程规范9.4](../project/project-standards.md)
@@ -88,6 +88,8 @@
 
 | 编号 | 主题 | 类型/分级 | 状态 | 本轮证据 | 上游 |
 | --- | --- | --- | --- | --- | --- |
+| MIRA-20261112-001 | 持久视觉记忆的总量准入与部分写入恢复 | P2：产品长期存储接线缺口 | Open | 单字节工件正文上限下反复擦除，目录元数据仍增长；公开接口无统一预留/盘点 | 本地登记，未发送；扩展既有 MIRA-20261027-001 / M31 |
+| MIRA-20261111-001 | 普通 Agent 执行事实到成功轨迹的公开提取 | P2：经验生成接线缺口 | Open | 当前 Run 捕获可用；普通历史提取仍为上游 DEC-038 未实现方向 | 本地登记，未发送 |
 | MIRA-20261015-002 | ConversationLoop 缺少不按累计步骤/工具次数终止的模式 | P1：长程任务循环能力缺口 | Resolved | a29374a 消费契约：1,025 轮/1,024 工具；干净 Debug 82/82，ASAN/UBSAN 各 5/5 | [Mira PR #99](https://github.com/Linductor-alkaid/mira/pull/99) 已合并；[升级 PR #97](https://github.com/Linductor-alkaid/mirage/pull/97)、[接线 PR #103](https://github.com/Linductor-alkaid/mirage/pull/103) |
 | MIRA-20260922-001 | Executor MinGW POSIX native_handle转换 | 构建缺陷 | Open | 最小编译复现同类错误 | [#75](https://github.com/Linductor-alkaid/mira/issues/75)，已提交 |
 | MIRA-20260927-001 | 同digest草稿遮蔽已验证workflow记录 | 版本语义缺陷 | Resolved | 公共版本API离线复现 | [#74](https://github.com/Linductor-alkaid/mira/issues/74)，已提交 |
@@ -1114,3 +1116,44 @@ Failed + MaxOutputTokens，删除 summary 锚点；其它原因不误报 output_
   原生历史样本验证提取 -> 审阅 -> 编译，旧证据不足时明确拒绝。
 - 补跑负责人/条件：Mira/Mirage 维护者；上游契约与实现交付、依赖升级获准，随后
   执行契约/生命周期矩阵和 native 样本验收。登记不代表上游接受或排期。
+
+<a id="mira-20261112-001"></a>
+
+## MIRA-20261112-001：持久视觉记忆总量准入与部分写入恢复
+
+- 状态：Open；日期：2026-11-12；负责人：Mirage 维护者，处理方 Mira；P2，阻碍长期
+  owner 接线的能力缺口，非已上线功能故障。仅本地登记，没有向上游发送消息。
+  扩展 MIRA-20261027-001 的 M31 分项，不替代其主体交互部分已交付状态。
+- 基线：pinned be44e36044eaf8e5ab09bc0a22f134a3c8545111。核对公共
+  IArtifactStore/FileArtifactStore、IMemory/SqliteMemoryStoreOptions、
+  ContextMemorySupervisor，以及上游 DEC-069、M31/记忆维护计划和 M4 存储/监督测试。
+  未修改依赖或读取/迁移用户数据。
+- 复现：[visual_memory_write_test](../../tests/integration/visual_memory_write_test.cpp)
+  的 durable_sources_and_capacity_gap，在独占临时目录构造 FileArtifactStore(root, 1)，
+  依次提交不同的单字节工件并立即 erase，共 16 次；每次旧工件 open 均失败。通过
+  filesystem API 统计整个目录的普通文件字节，8 轮后大于正文上限，16 轮后继续增长。
+  不依赖某个内部表或私有文件名，不以逻辑 erase 证明物理收敛。
+- 复现命令：构建 visual_memory_write_test 后执行
+  `ctest --preset debug -R '^visual_memory_write_test$' --output-on-failure`；输出含
+  payload cap / 8 与 16 次擦除后的目录字节。实际四配置结果见 M15-14 验收。
+- 接口事实：FileArtifactStore 的 max_total_bytes 没有提供跨正文/manifest/墓碑的
+  整目录预留与回收回执；SqliteMemoryStoreOptions 只有单次请求/扫描、版本与 TTL
+  参数，缺少全库/主体总字节、WAL/索引/幂等台账配额。Supervisor max_in_flight 只管
+  在途操作；不能作为持久容量。IArtifactStore 无有界 inventory 或按稳定提交键查询，
+  commit 报错/进程中断且无 descriptor 时，公开入口不足以确认自有孤儿是否已写入。
+- 期望语义：跨层预留与结算覆盖正常完成、拒绝、未知部分写入、重启恢复和共享引用；
+  所有元数据/台账、数据库/WAL、临时峰值/回收预留均计量；逻辑有效载荷、可重用空间
+  与实际占用分别报告。容量回收和隐私擦除 Pending 各自结算，不互相冒充。
+- 最小能力建议：M31 的有界持久准入/恢复 facade，提供稳定操作身份、预留/结算结果、
+  可限量盘点/续扫的恢复水位及引用安全删除；具体 API 由 Mira 冻结，Mirage 只提供部署
+  数值、目录/磁盘测量和产品状态。现有 TTL/compact/sweep/erase 继续复用。
+- 应用职责排除：部署预算、选择保留对象、授权和 Secret 分类由 Mirage 决定；把每条
+  上限或进程内计数当成总量、绕过公开接口扫描并删除依赖私有文件、另建 JSON/SQLite
+  图片库、在 Host 实现第二套通用配额引擎均不是可接受接线。
+- 影响/延期：M15-13/14 的受控候选与有限 Supervisor 写入可独立验证；产品自动视觉
+  记忆 owner、重启孤儿回收、全局容量和共享证据隐私删除保持未交付。不存在绕过缺口
+  的临时存储实现；当前路径返回已知工件 ID/失败阶段，禁止自动清理/重试不确定写入。
+- 验收：微配额持续提交/擦除、共享引用、全受保护、磁盘满、未知 commit/apply、
+  延迟写入、并发预留、关闭和断电/重启后仍在预算内；拒绝与实际占用/峰值可观察，
+  已删证据不复活。负责人 Mira/Mirage 维护者，待上游公开实现与授权升级后补跑。
+  本地登记不代表上游已接受/排期。

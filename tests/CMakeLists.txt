@@ -1525,6 +1525,20 @@ mirage_add_test(visual_text_verification_test
     TIMEOUT 30
     )
 
+mirage_add_test(visual_memory_test
+    SOURCES integration/visual_memory_test.cpp
+    LIBS Mirage::integration_mira Mira::state_store Mirage::kairo_consumer
+    LABELS "integration;runtime;security;memory"
+    TIMEOUT 30
+    )
+
+mirage_add_test(visual_memory_write_test
+    SOURCES integration/visual_memory_write_test.cpp
+    LIBS Mirage::integration_mira Mira::state_store Mirage::kairo_consumer
+    LABELS "integration;runtime;security;memory"
+    TIMEOUT 60
+    )
+
 mirage_add_test(visual_marks_test
     SOURCES integration/visual_marks_test.cpp
     LIBS Mirage::integration_mirador mirador::fusion Mirage::kairo_consumer

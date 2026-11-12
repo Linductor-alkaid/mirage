@@ -23,6 +23,8 @@ add_library(mirage_integration_mira STATIC
     src/desktop_region_tools.cpp
     src/desktop_visual_knowledge.cpp
     src/desktop_png.cpp
+    src/visual_memory.cpp
+    src/visual_memory_write.cpp
     src/mira_environment_binding.cpp
     src/model_layer.cpp
     src/model_catalog.cpp

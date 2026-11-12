@@ -10,7 +10,7 @@ native-release 与 DEB 交付完成；Release 120/120、真实推理与包校验
 > 版本：0.1
 > 负责人：Mirage 维护者
 > 依据：[《Mirage：Linux - Windows 桌面端设计方案》](../design/Mirage：Linux%20-%20Windows%20桌面端设计方案.md)（下称"设计文档"）
-> 更新日期：2026-11-11（新增 M15 经验/视觉记忆/监督 RPA；既有门禁保留）
+> 更新日期：2026-11-12（推进 M15 视觉记忆与有限监督写入；既有门禁保留）
 
 ## 当前状态
 
@@ -27,6 +27,12 @@ M15-11 继续按 [DEC-140](../decisions/DEC-140-workflow-experience-parameter-in
 审阅与完整经验闭环仍未交付。
 M15-12 按 [DEC-141](../decisions/DEC-141-workflow-experience-archive-import.md) 提供
 候选文件跨重启导入为草稿，校验 IR 身份、预检冲突/容量；自动受管资产恢复仍未交付。
+2026-11-12：M15-13 按 [DEC-142](../decisions/DEC-142-visual-action-evidence-candidate.md)
+推进动作前后图的单工件/Task Episode 候选，复用 Mira 存储验证重开与失效；M15-04
+进入 In Progress，产品自动采集、全局预算和学习 owner 仍待后续装配。
+M15-14 按 [DEC-143](../decisions/DEC-143-supervised-visual-memory-write.md) 将有限写入
+接到 Mira Supervisor，验证真实来源和部分写入；M15-06 进入 In Progress，长期
+owner 的总量/恢复缺口登记 MIRA-20261112-001，保持默认关闭。
 长期视觉记忆、native 入口和在线监督恢复仍待后续实施，不将短期视觉缓存或上游
 模块交付视为产品闭环完成。
 

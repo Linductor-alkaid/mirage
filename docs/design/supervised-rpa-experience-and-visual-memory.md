@@ -94,7 +94,7 @@ NotValidated 草稿；重新发布后才可运行。不会恢复旧 Run、版本
 库没有完整重启恢复接口，本增量不自建库或序列化 runtime，不自动扫描、保存到 Memory
 或恢复目录；受管资产生命周期和视觉长期存储仍归 M15-05/06。
 
-## 后续设计约束（Proposed，尚未实现）
+## 后续设计与接线约束
 
 ### 从普通 Agent 任务产生经验
 
@@ -105,6 +105,21 @@ NotValidated 草稿；重新发布后才可运行。不会恢复旧 Run、版本
 一套 BehaviorTrace 或在 pinned 依赖中直接补丁。
 
 ### 长期视觉记忆
+
+首个适配器增量 [DEC-142](../decisions/DEC-142-visual-action-evidence-candidate.md) /
+M15-13 将宿主提供的动作前后图与来源编为单个有界工件，去除 padding；通过同一
+ArtifactStore 核对字节后生成 Task-scoped Observed Episode 候选。Memory 索引仅含
+摘要，敏感度纳入正文身份，Secret 沿 Mira 策略拒绝。读取重新核对来源/作用域/有效期/
+摘要，缺图不能降格成可用证据；历史图无执行引用。存储关闭重开、查询和擦除使用真实
+Mira 后端在隔离测试中验证，[调用示例](../examples/visual-memory-candidate.md)说明
+外部 owner 的接纳/清理责任。尚未接入产品采集或全局存储生命周期，不代表已启用长期记忆。
+
+[DEC-143](../decisions/DEC-143-supervised-visual-memory-write.md) / M15-14 增加经现有
+ContextMemorySupervisor 排定的有限写入：工件核验后提交并回读真实来源事件，再
+IMemory::apply；future、阶段错误、已知部分写入和取消后的实际完成均明确。所有
+Store/取消 owner 外部注入并按关键排空后关闭。该存储 Supervisor 不是 Agent 监督
+执行；产品长期 owner 还依赖
+[MIRA-20261112-001](../dependency_feedback/mira.md#mira-20261112-001) 的总量/恢复能力。
 
 记录与任务/动作相关的关键前后帧、ROI、OCR/目标描述、时间、应用/页面身份、来源事件与
 验证结果；截图经 Mira ArtifactStore 存储与去重，索引/可回忆事实走 scope-bound Memory。
