@@ -1475,9 +1475,11 @@ add_test(NAME content_visual_supply_test
     COMMAND $<TARGET_FILE:desktop_image_supply_test> --automatic-content)
 set_tests_properties(content_visual_supply_test PROPERTIES
     LABELS "integration;runtime;perception" TIMEOUT 30)
-if(CMAKE_CXX_FLAGS MATCHES "fsanitize=thread")
-    # The full PNG/content matrix is much slower under instrumentation; this
-    # only bounds the test process, never the production acquisition deadline.
+if(CMAKE_CXX_FLAGS MATCHES "fsanitize=thread" OR CMAKE_CXX_FLAGS MATCHES "fsanitize=address")
+    # The full PNG/content matrix is much slower under instrumentation, and
+    # the pinned per-request admission accounting adds per-turn estimate
+    # work; this only bounds the test process, never the production
+    # acquisition deadline.
     set_tests_properties(desktop_image_supply_test content_visual_supply_test PROPERTIES TIMEOUT 120)
 endif()
 
