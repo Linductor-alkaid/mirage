@@ -32,6 +32,7 @@ add_library(mirage_integration_mira STATIC
     src/session_journal.cpp
     src/workflow_event_bridge.cpp
     src/workflow_recovery_model.cpp
+    src/workflow_learning_store.cpp
     # The model layer's credential resolver reads the environment per
     # platform (MSVC raises the CRT getenv as a warnings-as-errors
     # deprecation; DEC-017 / M4-06 toolchain fact).
@@ -66,6 +67,7 @@ target_link_libraries(mirage_integration_mira
         Mira::core
         Mira::workflow
     PRIVATE
+        Mira::state_store
         # DEC-027 model layer: the pinned portable socket HTTP/SSE transport
         # (POSIX + Winsock). https endpoints fail closed unless a TLS channel
         # adapter was built by the pinned dependency (OpenSSL adapter on UNIX

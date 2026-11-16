@@ -90,7 +90,7 @@
 | --- | --- | --- | --- | --- | --- |
 | MIRA-20261112-002 | Workflow 恢复的 provider/future 异常结算与关停 | P2：恢复异常生命周期缺口 | Open | provider 故障注入导致 future.get 穿透并在析构阶段 abort；Adapter 临时边界防护 | 本地登记，未发送 |
 | MIRA-20261112-003 | 异步恢复 wait 返回旧缓存，无法可靠关联新尝试 | P2：多轮恢复接线缺口 | Open | 第二轮先返回旧 ordinal，游标过滤后仍等不到次数耗尽的新回执 | 本地登记，未发送；Host 单 Run 限一次 |
-| MIRA-20261112-001 | 持久视觉记忆的总量准入与部分写入恢复 | P2：产品长期存储接线缺口 | Open | 单字节工件正文上限下反复擦除，目录元数据仍增长；公开接口无统一预留/盘点 | 本地登记，未发送；扩展既有 MIRA-20261027-001 / M31 |
+| MIRA-20261112-001 | 持久视觉记忆的总量准入与部分写入恢复 | P2：产品长期存储接线缺口 | Open（SQLite 元数据已补） | 单字节工件正文上限下反复擦除，目录元数据仍增长；公开接口无统一预留/盘点 | 本地登记，未发送；扩展既有 MIRA-20261027-001 / M31 |
 | MIRA-20261111-001 | 普通 Agent 执行事实到成功轨迹的公开提取 | P2：经验生成接线缺口 | Open | 当前 Run 捕获可用；普通历史提取仍为上游 DEC-038 未实现方向 | 本地登记，未发送 |
 | MIRA-20261015-002 | ConversationLoop 缺少不按累计步骤/工具次数终止的模式 | P1：长程任务循环能力缺口 | Resolved | a29374a 消费契约：1,025 轮/1,024 工具；干净 Debug 82/82，ASAN/UBSAN 各 5/5 | [Mira PR #99](https://github.com/Linductor-alkaid/mira/pull/99) 已合并；[升级 PR #97](https://github.com/Linductor-alkaid/mirage/pull/97)、[接线 PR #103](https://github.com/Linductor-alkaid/mirage/pull/103) |
 | MIRA-20260922-001 | Executor MinGW POSIX native_handle转换 | 构建缺陷 | Open | 最小编译复现同类错误 | [#75](https://github.com/Linductor-alkaid/mira/issues/75)，已提交 |
@@ -1122,6 +1122,12 @@ Failed + MaxOutputTokens，删除 summary 锚点；其它原因不误报 output_
 <a id="mira-20261112-001"></a>
 
 ## MIRA-20261112-001：持久视觉记忆总量准入与部分写入恢复
+
+2026-11-14 进展：维护者已明确授权补齐 Mira 并升级 pin；Mira DEC-111/M31-13 的
+SQLite 元数据文件长度硬限额、预留、快照与重开计量已随 2c42627 消费，Mirage
+DEC-146 默认装配私有长期元数据 owner。本文原始单字节 ArtifactStore 复现未被
+SQLite 增量修复，视觉工件、EventStore 和跨层恢复/清理仍 Open；不把本条整体关闭。
+实现与验证见[升级审计](../supply-chain/mira-workflow-learning-20261114.md)。
 
 - 状态：Open；日期：2026-11-12；负责人：Mirage 维护者，处理方 Mira；P2，阻碍长期
   owner 接线的能力缺口，非已上线功能故障。仅本地登记，没有向上游发送消息。

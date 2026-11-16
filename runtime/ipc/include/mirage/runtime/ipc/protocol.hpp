@@ -356,6 +356,9 @@ struct WorkflowCancelRunRequest {
     std::string run_id;
 };
 
+/// DEC-147: read-only product learning capacity; does not open a disabled store.
+struct WorkflowLearningStatusRequest {};
+
 /// Reads one catalog workflow's head definition (DEC-026, M5-06; DEC-023
 /// backlog item 1): the serialized IR v1 JSON the service last saved or
 /// published for the workflow. The pinned library keeps no definition-body
@@ -411,10 +414,10 @@ using Request = std::variant<
     CloseSessionRequest, DeleteSessionRequest, SessionChatRequest, ChatHistoryRequest,
     WorkflowListRequest, WorkflowSaveRequest, WorkflowPublishRequest, WorkflowDeleteRequest,
     WorkflowAtomCatalogRequest, WorkflowRunsRequest, WorkflowRunRequest, WorkflowCancelRunRequest,
-    WorkflowGetRequest, CompileWorkflowExperienceRequest, ImportWorkflowExperienceRequest,
-    DesktopObserveRequest, GetPolicyRequest, SetPolicyRequest, GetModelRequest, SetModelRequest,
-    ListModelsRequest, CancelChatRequest, GetVisionRequest, SetVisionRequest,
-    GetDesktopAuthorizationRequest, SetDesktopAuthorizationRequest>;
+    WorkflowGetRequest, WorkflowLearningStatusRequest, CompileWorkflowExperienceRequest,
+    ImportWorkflowExperienceRequest, DesktopObserveRequest, GetPolicyRequest, SetPolicyRequest,
+    GetModelRequest, SetModelRequest, ListModelsRequest, CancelChatRequest, GetVisionRequest,
+    SetVisionRequest, GetDesktopAuthorizationRequest, SetDesktopAuthorizationRequest>;
 
 // ---------------------------------------------------------------------------
 // Responses
@@ -793,6 +796,15 @@ struct WorkflowDefinitionView {
     std::string definition_json;
 };
 
+/// DEC-147: file lengths only, no paths or memory contents.
+struct WorkflowLearningStatus {
+    bool enabled = false;
+    std::uint64_t file_bytes = 0;
+    std::uint64_t limit_bytes = 0;
+    std::uint64_t reserve_bytes = 0;
+    std::uint64_t peak_admitted_file_bytes = 0;
+};
+
 /// DEC-139: the experience envelope is explicitly a candidate, not a
 /// workflow.get library record. The IR can contain sensitive arguments;
 /// only the explicit requesting client receives it, never the event stream.
@@ -901,8 +913,9 @@ using ResponsePayload =
                  DialogTurnAccepted, DialogHistory, SessionHistory, WorkflowList, WorkflowSaved,
                  WorkflowPublished, WorkflowDeleted, WorkflowAtomCatalog, WorkflowRunList,
                  WorkflowRunStarted, WorkflowRunCancelled, WorkflowDefinitionView,
-                 WorkflowExperienceDraft, ObservationView, PolicyView, ModelConfiguration,
-                 ModelList, VisionConfiguration, DesktopAuthorizationConfiguration>;
+                 WorkflowExperienceDraft, WorkflowLearningStatus, ObservationView, PolicyView,
+                 ModelConfiguration, ModelList, VisionConfiguration,
+                 DesktopAuthorizationConfiguration>;
 
 /// Stable error surface (DEC-007 item 4). `code` is from the mirage.ipc
 /// domain ("protocol_error", "unsupported", "invalid_argument", "not_found",

@@ -5,7 +5,7 @@
 > 所属计划：[Mirage 实施总计划](mirage-implementation-plan.md)
 > 前置：M5 Workflow 服务面、M7 本地知识 atom；Mira 已交付编译/学习/恢复公开能力
 > 建议发布点：经验候选契约预览；产品入口与发布标签另验
-> 更新日期：2026-11-12
+> 更新日期：2026-11-16
 
 ## 目标
 
@@ -26,9 +26,9 @@ M15 是 Mirage 新分配的具体里程碑；与 Mira 的同号 M15 评估 Harne
 
 首轮完成能力核对与 Host 只读 Run 草稿接口，后续 M15-10 接入 IPC/CLI 导出；
 M15-11 提供同版成功多 Run 的参数归纳及审阅；M15-12 提供用户候选文件跨重启导入草稿。
-不启用历史批量导入、录屏、自动发布、无人监督重放、native 新页面或在线恢复模型。
-本工作树基于 `1f9fba1`（现有 Mira 上游
-同步开发线），不合并该开发线、不修改 pin 或第三方代码。
+最初增量不启用历史批量导入、录屏、自动发布、无人监督重放或 native 新页面。
+本工作树最初基于 `1f9fba1`（现有 Mira 上游同步开发线），不合并该开发线。M15-17
+按维护者明确授权补齐 Mira 并升级 pin，新增受控 Host 在线恢复验收；产品原生自动触发仍后续。
 
 ## 设计与决策依据
 
@@ -56,10 +56,10 @@ M15-11 提供同版成功多 Run 的参数归纳及审阅；M15-12 提供用户�
 - [ ] `M15-05` 审阅、参数化和资产保存（In Progress，增量 M15-11/12）：复用 `induce_parameters`、Mira
   版本与 Skill 生命周期，区分常量/参数/秘密/临时目标；草稿不覆盖已验证资产。
   冻结跨重启资产/来源恢复、删除与兼容策略，DryRun 和实际验证分别呈现。
-- [ ] `M15-06` 学习存储装配（In Progress，有限写入增量 M15-14）：共享既有 scope-bound Memory/ArtifactStore，
+- [ ] `M15-06` 学习存储装配（In Progress，受控写入/Host 学习/默认长期元数据增量 M15-14/16/17）：共享既有 scope-bound Memory/ArtifactStore，
   在 Workflow surface 设置 learning context，验证终态 Episode、成功恢复 Lesson、
   失败检索和写失败可观测；不得另建 MemoryStore、JSON 经验库或图片数据库。
-- [ ] `M15-07` Agent 监督与恢复（In Progress，Host 增量 M15-15）：装配 Mira RecoveryOrchestrator，冻结
+- [ ] `M15-07` Agent 监督与恢复（In Progress，Host/受控在线增量 M15-15/17）：装配 Mira RecoveryOrchestrator，冻结
   检查点/失败触发、次数/期限/成本预算、权限及副作用不确定行为；patch 校验后续跑，
   失败明确等用户/停止，取消/接管与 shutdown 期间零新增自主动作。
 - [ ] `M15-08` native 单入口接线（Proposed）：呈现候选来源与验证等级、审阅/发布、
@@ -95,6 +95,20 @@ M15-11 提供同版成功多 Run 的参数归纳及审阅；M15-12 提供用户�
   每 Run 一次，复用 Mira 的有界编排与审计，验证受控失败/修复/续跑及取消竞态。产品模型共享/重载、
   IPC/native/自动触发和在线模型另验。
 
+- [x] `M15-16` Host 会话内学习接线（Completed，Linux 本机受控增量）：按
+  [DEC-145](../decisions/DEC-145-host-workflow-learning.md) 注入既有 IMemory，固定 primary
+  Session scope，复用 Mira 的 Episode/失败检索/显式恢复 Lesson；真实隔离存储验证
+  幂等、失败降级、关闭/重开与恢复模型上下文。产品长期 owner/跨会话召回仍另验。
+
+- [x] `M15-17` 默认学习、长期 owner 与在线验收（Completed，Linux 元数据/受控在线增量）：
+  [DEC-146](../decisions/DEC-146-default-workflow-learning.md) 与
+  [最小依赖补齐方案](../dependency_feedback/workflow-memory-default-on-proposal.md)；维护者
+  已授权 Mira 增量/pin。默认 true/明确关闭、长期元数据 owner、私有跨会话召回与两轮
+  隔离在线验收已实施；最终回归及 CI 结果见下方记录，完整视觉/原生产品闭环仍另验。
+
+- [x] `M15-18` 学习存储只读状态（Completed，Linux IPC/CLI 增量）：按 [DEC-147](../decisions/DEC-147-workflow-learning-status.md)
+  接 IPC/CLI，使用 Mira 真实容量快照；验证默认开/显式关、只读与坏响应拒绝。
+
 ## 风险与阻塞
 
 | 风险/依赖 | 负责人 | 解除条件/处置 |
@@ -119,7 +133,7 @@ M15-11 提供同版成功多 Run 的参数归纳及审阅；M15-12 提供用户�
 | 监督 | 正常、异常、接纳拒绝、执行中取消、超时、接管、shutdown，恢复预算与不确定副作用 | M15-07；新并发路径六类门禁 + TSAN/故障注入 |
 | 产品收益 | 已冻结任务集多次探索/复用对照，真实 Linux、Windows、在线模型分开 | M15-08/09；无数据不写改善指标 |
 
-- [ ] M15-01～15 均完成，所需后续决策已冻结。
+- [ ] M15-01～18 均完成，所需后续决策已冻结。
 - [ ] 至少一个真实桌面任务达到执行 -> 候选 -> 审阅/发布 -> 重启后再用 -> 变化交给
   Agent -> 经验证恢复 -> Lesson 的闭环。
 - [ ] 视觉长期预算/遗忘与隐私删除实际通过；缺失证据不继续执行。
@@ -430,3 +444,180 @@ M15-11 提供同版成功多 Run 的参数归纳及审阅；M15-12 提供用户�
   冻结后接 Runtime Service/IPC/native 与显式或自动触发；M15-06～09 的长期 Lesson、
   在线模型、真实桌面变化/接管、磁盘/断电、Linux/Windows 和收益矩阵仍未验收，待相应
   owner/公开接口与目标设备就绪后补跑。本增量不代表产品监督 RPA 闭环完成。
+
+### 2026-11-14：M15-16 Host 会话内学习
+
+- 基线 8f05a5b，工作树起始干净；Mira be44e36 / kairo 10e870b、Mirador 2a9f483、
+  eui-neo 19acab6 均不变。按 DEC-145 核对 Mira workflow_runtime/learning/events、
+  IMemory/SqliteMemoryStore 公共头、Workflow API、DEC-030 与 M13 测试；并发遵循
+  pinned kairo-integration 的 by-api / tasks-and-lifecycle 卡片。不修改第三方源码。
+- attach_workflow_surface 可选注入 WorkflowLearningMemory，空 memory 拒绝且不占用
+  surface，省略保持关闭。Mira 安装前共享句柄按值传递，修改 caller binding 不会丢失
+  Runtime 的强引用。scope 固定 primary Session 真实 ID，无外部 scope/热替换入口。
+  默认单次检索 8 条/1024 token/250ms 为 Mira 暂定值，非产品容量/延迟校准。
+- Episode、失败检索和显式恢复 Lesson 均由 Mira 承载；新 Host 接口只返回 run/lesson
+  ID/digest，错误码加固定说明。自动 Episode 写失败不改写已结算终态；检索失败降级
+  为空但继续 WaitingAgent；Lesson 错误可能已真实写入，沿同 Run mutation ID 幂等，
+  不创建私有数据库、线程、队列、后台重试或自动擦除。
+- WaitingAgent 快照可以先于检索结束；启用学习时，恢复准入调用 Mira wait_run 最多
+  1ms 确认当前驱动完成，尚未就绪返回 invalid_state 且不启动模型。真实 SQLite 的
+  受控查询阻塞验证这个边界，解除后显式下一次驱动成功，未用 sleep 猜测检索已完成。
+- 正向：失败 atom -> Agent patch -> 实际成功 -> 终态 Episode -> 显式 Lesson ->
+  下一 Run 同签名失败 -> Lesson 进入模型请求且 lessons_kept > 0 -> 实际恢复完成。
+  第三 Run 撤销权限后即使得到 patched-and-resumed 也继续等待、无新增成功动作，
+  Lesson 不提升权限。无参数值/路径/rationale/后端错误正文进入记忆或审计。
+- 受控存储为唯一外部 Executor 的真实 SqliteMemoryStore；故障 probe 只转发公开接口，
+  没有第二记录表。验证 Completed/Failed/Cancelled Episode、DryRun/缺 context 不写、
+  Lesson 负向准入、幂等 ID/版本、空 binding、写失败、真实提交后报错、查询降级、
+  会话 scope 隔离。关闭 Host 后关闭/重开 SQLite，实际记录仍可读；显式擦除 Session
+  后再重开仍不可读。全部 Store 在 Executor 之前关闭/析构，无用户文件或网络参与。
+- 开发期首次构建因新测试遗漏 DesktopAtomToolset::build 的权限 gate 参数失败，补齐
+  明确拒绝 gate 后重建；Debug 定向含 fixture **5/5 通过**。旧恢复 fixture 提取为
+  共用测试头以复用同一模型/真实 atom，旧恢复仍 **544 检查、0 失败**。下述完整矩阵
+  来自修正后重新构建的所有目标，不使用失败构建后的旧二进制。
+- 环境：Ubuntu 24.04.5 x86_64、GCC 13.3.0、CMake 3.28.3/Ninja、clang-format
+  18.1.8；fetch OFF、无 ccache、沿非 native/OCR 配置。四配置各执行
+  `cmake --build --preset <preset> --target workflow_learning_host_test workflow_recovery_host_test mira_host_test runtime_service_test visual_memory_test visual_memory_write_test local_visual_workflow_test mirage mirage-service -j 4`，
+  退出码 0；随后执行
+  `ctest --preset <preset> -R '^(workflow_learning_host_test|workflow_recovery_host_test|mira_host_test|runtime_service_test|visual_memory_test|visual_memory_write_test|local_visual_workflow_test|workflow_experience_cli_test)$' --output-on-failure`，
+  TSAN 前缀 setarch x86_64 -R。Debug/ASAN/UBSAN/TSAN 均 **10/10 通过，0 skip**
+  （8 个业务测试 + 2 个隔离 fixture），无 sanitizer 报告。新测试逐配置检查数见下项，
+  恢复/Host/服务/视觉记忆/监督写入/本地视觉均 **544/224/712/229/306/177**，0 失败。
+  日志在本机 build/m15-learning-<preset>-final-build.log / final-test.log。
+- 新测试 Debug/ASAN/UBSAN 为 **283**、TSAN 为 **282** 检查，均 0 失败；事件审计遍历
+  的检查数受读取时点影响，核心结果断言一致。格式/公共头检查通过，67 头、0 新违规、
+  DEC-096 两条既有 seam；7 份 Markdown 的 563 个本地路径、标题/围栏检查与
+  git diff --check 通过。同步 DEC-145、主/专项设计、总/专项计划、示例和 README。
+- M15-16 完成，M15-06 与整体 M15 保持 In Progress；代码/文档尚未提交或推送。
+  产品长期 owner/总量/恢复、跨会话授权、普通 Agent 轨迹、模型共享/热更、IPC/native
+  自动触发、在线模型、真实桌面/接管、磁盘/断电、Windows 与收益仍未验收。负责人
+  Mirage/Mira 维护者，待 M15-03～09 的公开接口、owner/容量方案和目标设备就绪补跑。
+  本机对象重开不能当作产品跨进程或断电恢复保证。
+
+
+### 2026-11-14～16：M15-17 默认学习、长期元数据与受控在线验收
+
+- 维护者明确要求默认学习开启、确认“在线验收”，并授权补齐 Mira 及升级 pin。
+  DEC-146 冻结产品默认、私有作用域、预算与验收边界；复用 pinned public
+  SqliteMemoryStore/WorkflowRuntime/RecoveryOrchestrator、ModelGateway 与 kairo
+  StoreChannel，不引入第二存储、任务队列、线程或调度器。
+- Mira be44e36 -> 2c42627a23da83c6d04825c28163836f9f747ec3：88c6836 为 DEC-111
+  文件长度接纳/预留/snapshot，e1eab33 为 DEC-112 显式恢复输出协议与生成预算；
+  232c9d1 修正 Windows 原生 VFS 文件名匹配，2c42627 修正嵌入式架构检查。
+  四个范围化提交已普通推送 feat/bounded-memory-storage，未合并 master、发 tag
+  或修改 kairo/Mirador/eui-neo。gitlink/lock 同步，供应链见
+  [审计](../supply-chain/mira-workflow-learning-20261114.md)。
+- Runtime Service 默认打开产品 state/workflow-learning/memory.sqlite；缺省 true，
+  service.json runtime.workflow_learning_enabled=false 明确关闭。共享外部 owner
+  使用 OS 用户私有目录及固定 Agent scope mirage.workflow.local-user.v1，允许本
+  主体跨 Session 召回，权限检查保持独立；直接 Host binding 默认仍 primary Session。
+  文件长度硬限额 64 MiB，普通写入留 4 MiB 维护预留，在途 64、单操作 2s、busy 250ms。
+  超限/坏配置/目录不可用明确拒绝，不删除旧库、不换内存库、不无限重试。
+- 实际存储 owner 在 Workflow 排空后、Executor 关闭前释放；遗留共享 facade 返回
+  Unavailable。验证默认服务 Episode 落盘、服务关闭后另一 Executor 重开读取、显式
+  关闭不创建库、错误预算/阻挡文件启动拒绝、设置 false 编解码及其他设置更新不丢失。
+  容量测试独立测量目录四文件总长度，验证满额拒绝、保留旧记录/幂等、独占冲突、
+  重开、擦除可能失败、超限旧库拒绝且不截断；四配置每项 58 检查。
+- 专用 Workflow ModelLayer 模式复用生产 Gateway/provider/传输，拒绝普通聊天并用；
+  binding 由公开 integration 接口给 Host，不访问私有对象。Text/JsonObject/
+  StrictJsonSchema 显式选择，Text 回复仍经 Mira 同源本地 schema/补丁/权限/epoch
+  校验；默认输出 2048 token，Host 允许 128～8192，显式思考模式，受信任白名单参数
+  投影。空投影继续隐藏值。产品原生模型共享/热更和自动触发仍后续。
+- 真实配置模型 deepseek-flash / anthropic.messages.v1，Text、关闭思考、30s 期限、
+  输出 2048 token、单 Run 单次恢复。两轮均 patched-and-resumed，实际文件 atom
+  完成；首轮写 Lesson，第二轮上下文带 1 条历史 Lesson 并再写成功。输入/输出
+  合计 1818/363 token，3319ms。另一独立进程打开同库，按确定性 ID 核对 2 条
+  Episode、2 条 Lesson；文件长度运行快照 337848、重开 110592 字节，均低于预算。
+  使用隔离合成文件/状态、标准钥匙环解析，无凭据、用户文件正文或原始模型输出进入报告。
+- 开发与最终共 6 次恢复尝试，4 次失败、最终 2 次成功，未改写失败。首轮 Host 5s
+  默认期限错误、gpt InvalidModelRequest 具体远端字段未确认；两轮 Messages 的
+  decision-invalid 分别暴露本地 parser 接线缺失及无法逐字归因的决策失败。补同源
+  parser 和明确 step ID/value 契约后最终通过。只有 5 次 provider 调用有仪表，首轮
+  未仪表化，缺失 usage 不填零；详见[脱敏证据](../compatibility/workflow-learning-20261114.md)。
+- 在线请求后模型协议代码未再变化。最终 pin 的 VFS/工具修正及 Host 恢复准入结算
+  边界由离线矩阵验证；重建最终验收入口后再次以 --inspect 独立进程核对原库通过，
+  未追加付费请求。该入口只经 MIRAGE_BUILD_MANUAL_ACCEPTANCE 构建，不进 CTest/CI。
+- 回归期间一次 UBSAN 的 cancel 决策停留 WaitingAgent；检查确认公开 WaitingAgent
+  先于 carrier epoch/当前驱动结算，原 1ms wait_run 门禁只对学习启用。现所有恢复
+  准入均先有界结算，未就绪返回 invalid_state 且不消耗尝试；fixture 只对该明确
+  暂态继续驱动，其他错误立即失败。恢复 Debug 连续 20 次通过，取消状态/零新增动作
+  断言保留。另有端点探针在 sanitizer 回归中未匹配预期网络阶段错误；词表未覆盖明确 DNS 超时，补精确 DNS
+  阶段超时结果，继续拒绝 EndpointPolicyDenied；不把旧失败或失败构建后的二进制作为验收。
+- CI 首轮 Windows open 失败修正后两 Windows 配置通过；第二轮 quality 显示既有
+  sqlite_memory_store 规模违规。本地检查器按绝对路径过滤 third_party，实际漏扫，
+  原“架构通过/陈旧基线删除”撤销作为证据。2c42627 改为相对仓库根过滤，补普通/
+  third_party/build 三种父路径测试并恢复 be44e36 既有规模债务；真实扫描 16 项
+  既有债务、0 stale、0 新违规，没有新增豁免或提高预算。
+- 最终 Mira [CI 43784628663](https://github.com/Linductor-alkaid/mira/actions/runs/43784628663)
+  **12/12 job 通过**：Linux GCC/Clang Debug/Release、Windows Debug/Release、Android
+  两 ABI、ASAN/UBSAN/TSAN 与 quality。该 CI 不替代 Mirage Windows 产品设备验收。
+- Mirage 最终四配置构建/测试与文档检查结果见下方收口记录。
+- 完成范围仅 Linux 默认 Workflow 元数据、受控 Host/生产 ModelLayer/真实模型与跨
+  进程重开；M15-04～09 其余、完整 M15 保持 In Progress。普通 Agent 自动轨迹提取、
+  视觉工件长期总量/跨 store 回收、native 模型共享/自动恢复、真实桌面布局变化/接管、
+  真断电/磁盘故障、Windows 设备及收益矩阵尚未验收。负责人 Mira/Mirage 维护者，
+  待公开接口、owner/容量方案和相应设备就绪按原门禁补跑，不用元数据增量关闭完整 M31。
+
+
+#### 最终收口（2026-11-16）
+
+- 四配置分别配置 `cmake --preset <preset> -DMIRAGE_FETCH_DEPENDENCIES=OFF -DCMAKE_CXX_COMPILER_LAUNCHER=`，
+  并执行 `cmake --build --preset <preset> --target workflow_learning_store_test mira_memory_capacity_contract_test mira_recovery_contract_test workflow_learning_host_test workflow_recovery_host_test mira_host_test runtime_service_test visual_memory_test visual_memory_write_test local_visual_workflow_test persistence_test model_profile_endpoint_test mirage mirage-service -j 2`。
+  各目标构建退出 0；最终端点断言调整后四配置重新构建 model_profile_endpoint_test，
+  退出 0。Debug 另重建 workflow_learning_online_acceptance，仅离线 --inspect 读取通过。
+- 最终执行 `ctest --preset <preset> -R '^(workflow_learning_store_test|mira_memory_capacity_contract_test|mira_recovery_contract_test|workflow_learning_host_test|workflow_recovery_host_test|mira_host_test|runtime_service_test|visual_memory_test|visual_memory_write_test|local_visual_workflow_test|persistence_test|model_profile_endpoint_test|workflow_experience_cli_test)$' --output-on-failure`；
+  TSAN 前缀 `setarch x86_64 -R`，四配置顺序运行，避免同时压入真实 DNS 探针。
+  Debug/ASAN/UBSAN/TSAN 各 **15/15 通过，0 skip**（13 业务测试 + 2 隔离 fixture），
+  无 sanitizer 报告。Host/恢复/学习/容量/owner/端点/本地视觉/服务/持久化/视觉记忆/
+  写入各 **224/600/282/58/38/43/177/727/584/229/306** 检查，四配置均 0 失败。
+  原恢复断言保留，fixture 对明确的 drive-is-settling 暂态驱动替代一次 ok 检查；
+  历史轮次事件遍历数也可随读取时点不同，不用旧计数推断覆盖变化。
+- 本地日志 build/m15-final-<preset>-configure.log、-build.log、
+  m15-final-<preset>-endpoint-build.log（UBSAN 为 m15-endpoint-ubsan-build.log）及
+  build/m15-accepted-<preset>-test.log。旧失败日志保留，不用其结果覆盖最终矩阵。
+  恢复额外 `--repeat until-fail:20` Debug 通过，日志 m15-final-recovery-repeat-debug.log。
+- mirage-format-check / mirage-boundary-check / format-check / architecture-check /
+  platform-boundary-check / docs-check / sbom-check 全部退出 0。Mirage 67 公共头、0
+  新违规、DEC-096 两条既有 seam；Mira 379 文件格式、真实架构扫描与检查器回归通过。
+  锁文件比对仅 Mira commit/说明与日期变化，嵌套 pins/artifacts 和其他依赖不变。
+  本轮 Markdown 本地路径/标题/围栏及 git diff --check 通过。
+- M15-17 限定增量完成，M15-06/07 和整体 M15 仍 In Progress。Mira 功能分支已推送，
+  Mirage 主工作树代码/文档/pin 保留未提交；没有合并、发布或修改仓库设置。
+
+
+### 2026-11-16：M15-18 学习存储只读状态
+
+- 以当前未提交 M15-16/17 增量为基线，按 DEC-147 核对 Mira 的公开
+  SqliteMemoryStore::capacity_snapshot 与既有 WorkflowLearningStore、服务串行请求
+  路径。没有修改任何 pinned 源码/gitlink/lock，没有新增异步任务、线程、队列或缓存。
+- 增加 v1 加法操作 workflow.learning.status 和 mirage workflow learning。直接投影
+  Mira 的文件长度、限额、维护预留和进程已接纳峰值；读取失败返回固定 unavailable。
+  关闭时返回 false/四个零且不打开库；不返回路径、主体、记忆正文，不修改配置或记录。
+  CLI 无修改/清理选项，未知操作数拒绝，旧服务/错误 payload 明确失败。
+- 协议验证回环、缺字段、布尔错类型、负数、小数、越限、预留越界、峰值越界和关闭
+  却非零响应；保留既有 golden 契约。实际服务验证默认启用、64MiB/4MiB 预算、
+  显式关闭无数据库。独立服务进程的 CLI 验证精确数值字段集合、查询前后容量一致、
+  无效操作数拒绝，继续原经验导出/归纳/发布/重启导入流程，零在线模型请求。
+- Ubuntu 24.04.5/GCC 13.3/CMake 3.28.3，沿既有非 native/OCR 与 fetch OFF 配置。
+  四配置各构建 ipc_protocol_test ipc_protocol_golden_test runtime_service_test mirage
+  mirage-service（cmake --build --preset <preset> --target <以上目标> -j 2；Debug -j 4），
+  退出 0；随后执行
+  `ctest --preset <preset> -R '^(ipc_protocol_test|ipc_protocol_golden_test|runtime_service_test|workflow_experience_cli_test)$' --output-on-failure`，
+  TSAN 前缀 setarch x86_64 -R。Debug/ASAN/UBSAN/TSAN **各 6/6 通过，0 skip**
+  （4 业务测试 + 2 隔离 fixture），无 sanitizer 报告。协议/golden/服务各
+  **537/1805/731 检查、0 失败**。日志本机 build/m15-status-<preset>-build.log / -test.log。
+- mirage-format-check / mirage-boundary-check 退出 0，67 公共头、0 新违规、DEC-096
+  两条既有 seam；git diff --check 与 Markdown 本地路径/标题/围栏检查通过。
+  DEC-147、主/专项设计、IPC v1 契约、总/专项计划、接线示例与 README 已同步。
+- M15-18 限定增量完成；整体 M15 与 M15-04～09 保持原开放状态。Linux 以外产品
+  设备验收、跨 store 回收/视觉长期总量、原生共享模型和自动恢复仍未验收，负责人
+  Mira/Mirage 维护者，待相应公开接口/owner/设备就绪补跑。工作树继续保留未提交。
+
+
+### 2026-11-16：提交收口
+
+维护者要求提交。默认学习、长期元数据 owner、受控在线验收及配套只读容量诊断作为
+同一完整产品增量提交；Mira 指针/lock 与供应链审计同步，Mira 功能分支此前已推送。
+Mirage 未推送。提交前复核状态/差异/暂存区与本人 Git 身份，无无关文件、编译产物或
+凭据。沿用已记录四配置学习链路各 15/15、诊断专项各 6/6 与 Mira CI 12/12 结果，
+本次仅同步提交记录，不重复运行模型请求或无变更测试。此前“未提交”描述保留为历史状态。

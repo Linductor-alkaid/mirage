@@ -571,6 +571,8 @@ int mirage::apps::run_service_host(int argc, char **argv, bool product) {
             config.model.supports_images = settings.model->supports_images;
             config.model_catalog_json = mirage::runtime::persistence::encode_settings(settings);
         }
+        if (settings.runtime)
+            config.workflow_learning_enabled = settings.runtime->workflow_learning_enabled;
         if (settings.runtime.has_value() && !runtime_from_flags) {
             if (settings.runtime->event_queue_capacity > 0) {
                 config.event_queue_capacity = settings.runtime->event_queue_capacity;

@@ -89,6 +89,18 @@ def run(args):
                     return subprocess.run([str(args.cli), *command, "--socket", str(endpoint)],
                                           env=env, text=True, timeout=20, **kwargs)
 
+                before = call("workflow.learning.status")["learning"]
+                status = cli("workflow", "learning", stdout=subprocess.PIPE)
+                assert status.returncode == 0, status.stderr
+                learning = json.loads(status.stdout)["learning"]
+                assert learning == before
+                assert learning["enabled"] is True and 0 < learning["file_bytes"] <= 64 * 1024 * 1024
+                assert learning["limit_bytes"] == 64 * 1024 * 1024
+                assert learning["reserve_bytes"] == 4 * 1024 * 1024
+                assert set(learning) == {"enabled", "file_bytes", "limit_bytes", "reserve_bytes", "peak_admitted_file_bytes"}
+                assert cli("workflow", "learning", "unexpected").returncode != 0
+                assert call("workflow.learning.status")["learning"] == before
+
                 def start(parameters, workflow_id=None, policy="strict"):
                     deadline = time.monotonic() + 10
                     while True:

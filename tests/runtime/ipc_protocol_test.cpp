@@ -27,6 +27,39 @@ using mirage::testing::TempDir;
 
 constexpr auto kBudget = std::chrono::seconds{3};
 
+void scenario_workflow_learning_status() {
+    const auto request =
+        ipc::decode_request(ipc::encode_request(1, ipc::WorkflowLearningStatusRequest{}));
+    MIRAGE_CHECK(request.ok &&
+                 std::holds_alternative<ipc::WorkflowLearningStatusRequest>(request.body));
+    for (const bool enabled : {true, false}) {
+        ipc::Response response;
+        response.id = 1;
+        response.ok = true;
+        response.payload = enabled ? ipc::WorkflowLearningStatus{true, 100, 1ULL << 20, 65536, 200}
+                                   : ipc::WorkflowLearningStatus{};
+        const auto decoded = ipc::decode_response(ipc::encode_response(response));
+        MIRAGE_CHECK(decoded.ok);
+        const auto *status = std::get_if<ipc::WorkflowLearningStatus>(&decoded.response.payload);
+        MIRAGE_CHECK(status && status->enabled == enabled &&
+                     status->file_bytes == (enabled ? 100U : 0U));
+    }
+    for (
+        const std::string bad :
+        {R"({"enabled":true})",
+         R"({"enabled":"true","file_bytes":0,"limit_bytes":1048576,"reserve_bytes":0,"peak_admitted_file_bytes":0})",
+         R"({"enabled":true,"file_bytes":-1,"limit_bytes":1048576,"reserve_bytes":0,"peak_admitted_file_bytes":0})",
+         R"({"enabled":true,"file_bytes":0,"limit_bytes":1048576,"reserve_bytes":1048576,"peak_admitted_file_bytes":0})",
+         R"({"enabled":true,"file_bytes":1048577,"limit_bytes":1048576,"reserve_bytes":0,"peak_admitted_file_bytes":0})",
+         R"({"enabled":false,"file_bytes":0,"limit_bytes":1048576,"reserve_bytes":0,"peak_admitted_file_bytes":0})",
+         R"({"enabled":true,"file_bytes":0.5,"limit_bytes":1048576,"reserve_bytes":0,"peak_admitted_file_bytes":0})",
+         R"({"enabled":true,"file_bytes":0,"limit_bytes":1099511627777,"reserve_bytes":0,"peak_admitted_file_bytes":0})",
+         R"({"enabled":true,"file_bytes":0,"limit_bytes":1048576,"reserve_bytes":0,"peak_admitted_file_bytes":1048577})"}) {
+        MIRAGE_CHECK(
+            !ipc::decode_response(R"({"v":1,"id":1,"ok":true,"learning":)" + bad + "}").ok);
+    }
+}
+
 // --- framing ----------------------------------------------------------------
 
 void scenario_framing_round_trip() {
@@ -1582,6 +1615,7 @@ int main() {
     scenario_vision_configuration();
     run_scenario("chat_preview", scenario_chat_preview);
     run_scenario("framing_round_trip", scenario_framing_round_trip);
+    run_scenario("workflow_learning_status", scenario_workflow_learning_status);
     run_scenario("framing_little_endian_header", scenario_framing_little_endian_header);
     run_scenario("framing_empty_payload", scenario_framing_empty_payload);
     run_scenario("framing_partial_feeds", scenario_framing_partial_feeds);

@@ -2,10 +2,13 @@
 #include "../support/ipc_io.hpp"
 #include "../support/scripted_model_provider.hpp"
 
+#include <kairo/executor.hpp>
 #include <mira/core_contracts.hpp>
 #include <mira/model_contracts.hpp>
 #include <mira/model_provider.hpp>
 #include <mira/workflow_ir.hpp>
+#include <mira/workflow_learning.hpp>
+#include <mirage/integration/workflow_learning_store.hpp>
 
 #include <mirage/desktop/desktop_environment.hpp>
 #include <mirage/desktop/semantic_snapshot.hpp>
@@ -73,6 +76,7 @@ ServiceConfig make_config(const mirage::testing::TempDir &dir) {
     // M5-08 session state: same isolation discipline as recovery — scenarios
     // must not see each other's persisted sessions via the default state dir.
     config.session_state_directory = dir.root() / "session-state";
+    config.workflow_learning_directory = dir.root() / "workflow-learning";
     return config;
 }
 
@@ -432,6 +436,30 @@ void scenario_workflow_experience_is_review_only() {
     MIRAGE_CHECK(!client.call(request, kCallBudget).ok);
     service.request_shutdown();
     MIRAGE_CHECK(service.run().clean);
+    // The default-on service released its actual SQLite connection before
+    // Executor shutdown: another owner can now reopen and inspect the fact.
+    kairo::Executor reader;
+    MIRAGE_CHECK(reader.initialize(kairo::ExecutorConfig{}));
+    std::string storage_error;
+    auto memory =
+        integration::WorkflowLearningStore::open(reader, config.workflow_learning_directory,
+                                                 config.workflow_learning_max_bytes, storage_error);
+    MIRAGE_CHECK(memory);
+    if (memory) {
+        const auto binding = memory->binding();
+        const mira::MemoryScope scope{mira::MemoryScopeKind::Agent, binding->agent_subject_id,
+                                      std::nullopt};
+        const auto episode =
+            binding->memory->get(mira::workflow_episode_memory_id(run->run_id), scope);
+        MIRAGE_CHECK(episode && episode.value());
+        if (episode && episode.value()) {
+            MIRAGE_CHECK(episode.value()->kind == mira::MemoryKind::Episode);
+            MIRAGE_CHECK(episode.value()->statement.find("experience-private") ==
+                         std::string::npos);
+        }
+        MIRAGE_CHECK(memory->close(storage_error));
+    }
+    MIRAGE_CHECK(reader.shutdown(true) == kairo::ShutdownResult::Completed);
 }
 
 /// Wire-budget projection (DEC-026, RULE-07): a service-side snapshot larger
@@ -597,6 +625,56 @@ void scenario_default_socket_path_resolution() {
     // Empty config selects the DEC-007 default endpoint without binding.
     RuntimeService service(ServiceConfig{});
     MIRAGE_CHECK(service.socket_path() == ipc::default_socket_path());
+}
+
+void scenario_workflow_learning_configuration() {
+    mirage::testing::TempDir dir;
+    auto config = make_config(dir);
+    MIRAGE_CHECK(config.workflow_learning_enabled);
+    config.workflow_learning_enabled = false;
+    {
+        RuntimeService disabled(config);
+        MIRAGE_CHECK(disabled.start(make_binding(dir)).ok);
+        ipc::IpcClient client(config.socket_path);
+        const auto reply = client.call(ipc::WorkflowLearningStatusRequest{}, kCallBudget);
+        const auto *status = std::get_if<ipc::WorkflowLearningStatus>(&reply.payload);
+        MIRAGE_CHECK(reply.ok && status && !status->enabled && status->file_bytes == 0 &&
+                     status->limit_bytes == 0);
+        MIRAGE_CHECK(!std::filesystem::exists(config.workflow_learning_directory));
+        disabled.request_shutdown();
+        MIRAGE_CHECK(disabled.run().clean);
+    }
+    config.workflow_learning_enabled = true;
+    {
+        RuntimeService enabled(config);
+        MIRAGE_CHECK(enabled.start(make_binding(dir)).ok);
+        ipc::IpcClient client(config.socket_path);
+        const auto reply = client.call(ipc::WorkflowLearningStatusRequest{}, kCallBudget);
+        const auto *status = std::get_if<ipc::WorkflowLearningStatus>(&reply.payload);
+        MIRAGE_CHECK(reply.ok && status && status->enabled && status->file_bytes > 0 &&
+                     status->file_bytes <= status->limit_bytes &&
+                     status->limit_bytes == config.workflow_learning_max_bytes &&
+                     status->reserve_bytes == (4ULL << 20));
+        enabled.request_shutdown();
+        MIRAGE_CHECK(enabled.run().clean);
+    }
+    std::filesystem::remove_all(config.workflow_learning_directory);
+    config.workflow_learning_max_bytes = 512;
+    {
+        RuntimeService invalid(config);
+        const auto started = invalid.start(make_binding(dir));
+        MIRAGE_CHECK(!started.ok);
+        MIRAGE_CHECK(started.error.message.find("workflow learning") != std::string::npos);
+    }
+    config.workflow_learning_max_bytes = 64ULL << 20;
+    write_text_file(config.workflow_learning_directory, "private-learning-path-marker");
+    {
+        RuntimeService blocked(config);
+        const auto started = blocked.start(make_binding(dir));
+        MIRAGE_CHECK(!started.ok);
+        MIRAGE_CHECK(started.error.message.find("private-learning-path-marker") ==
+                     std::string::npos);
+    }
 }
 
 // --- task driving -----------------------------------------------------------
@@ -2644,7 +2722,7 @@ void scenario_vision_configuration_persistence() {
     original.model = persistence::ModelSettings{};
     original.model->display_name = "preserved";
     original.read_roots = {"/tmp/work"};
-    original.runtime = persistence::RuntimeSettings{32, 8};
+    original.runtime = persistence::RuntimeSettings{32, 8, false};
     MIRAGE_CHECK(store.save(persistence::encode_settings(original)).ok);
     RuntimeService service(config);
     MIRAGE_CHECK(service.start(make_binding(dir)).ok);
@@ -2667,7 +2745,8 @@ void scenario_vision_configuration_persistence() {
     MIRAGE_CHECK(saved.ok && saved.settings.read_roots == original.read_roots &&
                  saved.settings.permission_rules == original.permission_rules);
     MIRAGE_CHECK(saved.ok && saved.settings.runtime &&
-                 saved.settings.runtime->max_connections == 8);
+                 saved.settings.runtime->max_connections == 8 &&
+                 !saved.settings.runtime->workflow_learning_enabled);
     const auto refused = client.call(ipc::SetVisionRequest{"relative.json"}, kCallBudget);
     MIRAGE_CHECK(!refused.ok && refused.error.code == "invalid_argument");
     get = client.call(ipc::GetVisionRequest{}, kCallBudget);
@@ -2859,6 +2938,7 @@ int main() {
     run_scenario("hello_identity_and_terminal_restart",
                  scenario_hello_identity_and_terminal_restart);
     run_scenario("default_socket_path_resolution", scenario_default_socket_path_resolution);
+    run_scenario("workflow_learning_configuration", scenario_workflow_learning_configuration);
     run_scenario("task_completes_steps_with_operation_ids",
                  scenario_task_completes_steps_with_operation_ids);
     run_scenario("task_fails_fast_and_skips_remainder",

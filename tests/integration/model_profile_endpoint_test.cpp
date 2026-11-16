@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <iostream>
 #include <memory>
 #include <optional>
 #include <string>
@@ -242,9 +243,13 @@ void public_origin_failure_is_transport_level(kairo::Executor &executor) {
     // reserved TLD), refused/filtered connect, connect deadline, or the
     // fail-closed https-without-TLS path. Any of these is a socket-level
     // outcome; a private-address denial would be EndpointPolicyDenied.
-    MIRAGE_CHECK(contains_any(
-        completion.error, {"dns resolution failed", "no candidate address accepted the connection",
-                           "connect exceeded its deadline", "without a TLS channel factory"}));
+    const bool transport_stage = contains_any(
+        completion.error, {"dns resolution failed", "dns resolution exceeded its deadline",
+                           "no candidate address accepted the connection",
+                           "connect exceeded its deadline", "without a TLS channel factory"});
+    if (!transport_stage)
+        std::cerr << "synthetic public endpoint probe: " << completion.error << '\n';
+    MIRAGE_CHECK(transport_stage);
     layer.shutdown();
 }
 

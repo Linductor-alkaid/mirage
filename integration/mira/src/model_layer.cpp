@@ -1,6 +1,7 @@
 #include <mirage/integration/basic_agent_toolset.hpp>
 #include <mirage/integration/desktop_atom_toolset.hpp>
 #include <mirage/integration/model_layer.hpp>
+#include <mirage/integration/workflow_recovery_model.hpp>
 
 #include <mira/adapters/net/socket_transport.hpp>
 #include <mira/conversation_loop.hpp>
@@ -597,7 +598,7 @@ struct ModelLayer::Impl {
         admission_counter = std::make_shared<mira::ConservativeTokenCounter>();
         mira::ModelGatewayConfig gateway_config;
         gateway_config.context_admission.counter = admission_counter;
-        gateway = std::make_unique<mira::ModelGateway>(executor, std::move(router),
+        gateway = std::make_shared<mira::ModelGateway>(executor, std::move(router),
                                                        /*artifacts=*/images, mira::PriceTable{},
                                                        std::move(gateway_config));
         observed = std::make_shared<detail::ObservedProvider>(provider);
@@ -661,6 +662,11 @@ struct ModelLayer::Impl {
         // context window (DEC-087 preflight).
         record.capabilities.text =
             mira::CapabilityFlag{true, mira::CapabilityEvidence::FixtureVerified, ""};
+        if (config.workflow_recovery_only &&
+            dialect_value != mira::ProtocolDialect::AnthropicMessagesV1)
+            record.capabilities.strict_json_schema = mira::CapabilityFlag{
+                true, mira::CapabilityEvidence::FixtureVerified,
+                "pinned structured-output mapper; live quality separately tested"};
         if (config.supports_images)
             record.capabilities.image_input = mira::CapabilityFlag{
                 true, mira::CapabilityEvidence::FixtureVerified,
@@ -726,7 +732,7 @@ struct ModelLayer::Impl {
     std::shared_ptr<detail::DesktopImageSource> images;
     std::shared_ptr<mira::IModelProvider> provider;
     std::shared_ptr<detail::ObservedProvider> observed;
-    std::unique_ptr<mira::ModelGateway> gateway;
+    std::shared_ptr<mira::ModelGateway> gateway;
     // Calibrated admission counter (bytes/4 conservative family); shared with
     // the harness turn so tool-schema allowance and admission agree on units.
     std::shared_ptr<mira::ConservativeTokenCounter> admission_counter;
@@ -816,7 +822,8 @@ DialogCompletion ModelLayer::complete_dialog_turn(
         return completion;
     }
     std::lock_guard drain(impl_->infer_mutex);
-    if (impl_ == nullptr || !impl_->running || !impl_->gateway) {
+    if (impl_ == nullptr || !impl_->running || !impl_->gateway ||
+        impl_->config.workflow_recovery_only) {
         completion.failed = true;
         completion.error = "model layer is not running";
         return completion;
@@ -1022,7 +1029,8 @@ DialogCompletion ModelLayer::complete_harness_turn(
         return completion;
     }
     std::lock_guard drain(impl_->infer_mutex);
-    if (!impl_->running || transcript.size() + user_text.size() > impl_->config.max_input_bytes) {
+    if (!impl_->running || impl_->config.workflow_recovery_only ||
+        transcript.size() + user_text.size() > impl_->config.max_input_bytes) {
         completion.failed = true;
         completion.error = "harness unavailable or input budget exceeded";
         return completion;
@@ -1994,4 +2002,19 @@ DialogCompletion ModelLayer::complete_harness_turn(
     return finish();
 }
 
+} // namespace mirage::integration
+
+namespace mirage::integration {
+std::shared_ptr<WorkflowRecoveryModel> ModelLayer::workflow_recovery_model() const {
+    if (!impl_)
+        return {};
+    std::lock_guard lock(impl_->infer_mutex);
+    if (!impl_->running || !impl_->config.workflow_recovery_only || !impl_->gateway)
+        return {};
+    auto result = std::make_shared<WorkflowRecoveryModel>();
+    result->gateway = impl_->gateway;
+    result->provider = impl_->observed;
+    result->profile_id = impl_->profile->id;
+    return result;
+}
 } // namespace mirage::integration

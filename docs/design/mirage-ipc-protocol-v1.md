@@ -1158,3 +1158,16 @@ inference 是公开 provider 调用的累计用时（含失败、取消和内部
 
 这些字段说明原条件的含义，不授予额外输入权限，也不改变不确定副作用、取消或
 最终收尾验证门禁。模型应按本次用户目标说明实际证据，已核验条件不要求机械重复。
+
+
+## Workflow 学习容量（DEC-147 / M15-18）
+
+请求 `{"v":1,"id":1,"op":"workflow.learning.status"}`，无操作数。成功响应的
+learning 对象包含 enabled（布尔）与四个整数字节字段：file_bytes、limit_bytes、
+reserve_bytes、peak_admitted_file_bytes。启用时限额为 1 MiB～1 TiB，预留小于限额，
+当前量与进程已接纳峰值均不超限；关闭时四项为零且不打开库。字段缺失、类型错误、
+负数或不一致的容量响应拒绝。底层读取错误用 unavailable，与 disabled 区分。
+
+这是数据库/WAL/SHM/journal 文件长度快照，不是物理块或全生命周期峰值。不返回路径、
+主体和记忆正文，不改变库或配置；沿既有本地 IPC 认证和串行上下文。CLI：
+`mirage workflow learning [--socket PATH]`，输出完整 JSON。旧服务明确报告不支持。

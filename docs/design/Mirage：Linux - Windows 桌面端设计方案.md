@@ -1459,6 +1459,15 @@ Mira Supervisor 并核对真实来源回执；[DEC-144](../decisions/DEC-144-hos
 提供 Host 单次显式 Agent 恢复、补丁续跑及取消/关闭，修复后成功 Run 可编译新候选。
 模型由外部 owner 注入，产品共享/重载和自动触发尚未装配；多轮回执、异常生命周期和
 长期存储总量的上游缺口见 M15 反馈。受控测试不代替在线模型或真实桌面接管。
+2026-11-14：[DEC-145](../decisions/DEC-145-host-workflow-learning.md) 允许 surface
+装配时可选注入外部 Memory，固定 primary Session scope，接通 Mira Episode、失败检索
+与宿主显式成功恢复 Lesson。检索经验能进入后续同签名恢复的模型上下文，仍不赋予动作
+权限；直接 Host 省略 binding 时保持未绑定。后续
+[DEC-146](../decisions/DEC-146-default-workflow-learning.md) 默认开启产品 Workflow
+元数据学习，在私有 state 目录持有共享 SQLite owner，文件长度合计 64 MiB/4 MiB 维护
+预留；同一 OS 用户使用固定 Agent scope。明确 false 可关闭，不开启后台截图。新 pin
+支持显式恢复输出协议与同源本地校验，真实模型受控闭环和第二进程重开已通过；原生
+自动触发、跨层回收、真实桌面/接管和设备验收仍待 M15。
 原生 Agent 历史自动提取仍依赖 Mira DEC-038 的未交付能力，长期视觉保存与监督恢复
 继续按专项计划设计验证。既有 M7/M9 临时引用、新观察、权限和动作后核验约束保持适用。
 
@@ -1769,3 +1778,11 @@ vision.state 读取当前分析状态与日志，vision.wait 在既有生产者�
 text_only OCR 不生成图、不退休已有输入意图；共享日志保持 256 条/256 KiB/120 秒，
 消费者 ACK 不删除其他任务所需记录。平台 damage、真实 Portal 长任务及低端资源
 仍按 M9 验收，不能把长期采样声称为静态零取帧或固定低功耗。
+
+
+### Workflow 学习存储状态（M15-18）
+
+[DEC-147](../decisions/DEC-147-workflow-learning-status.md) 增加只读
+workflow.learning.status / mirage workflow learning，返回是否装配及 Mira 的文件长度、
+硬限额、维护预留与进程已接纳峰值；不返回路径/主体/记忆正文。未装配时不打开数据库，
+读取失败返回 unavailable，沿既有服务串行上下文和 Mira StoreChannel，不新增并发设施。

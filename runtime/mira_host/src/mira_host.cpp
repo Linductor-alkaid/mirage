@@ -7,6 +7,7 @@
 #include <mira/workflow_ir.hpp>
 #include <mira/workflow_recovery.hpp>
 #include <mira/workflow_runtime.hpp>
+#include <mirage/integration/workflow_learning_memory.hpp>
 #include <mirage/integration/workflow_recovery_model.hpp>
 
 #include <algorithm>
@@ -204,6 +205,7 @@ struct MiraHost::Impl {
     std::shared_ptr<mirage::integration::WorkflowRecoveryModel> recovery_model;
     std::unique_ptr<mira::WorkflowRecoveryOrchestrator> workflow_recovery;
     bool recovery_drained = true;
+    bool workflow_learning = false;
 
     /// True when the surface is attached and still accepting work; a shut
     /// down surface rejects every call with the stable invalid_state shape.
@@ -592,7 +594,8 @@ HostOutcome MiraHost::admit_operation_completion(const OperationTicket &ticket) 
 HostOutcome MiraHost::attach_workflow_surface(
     kairo::Executor &executor,
     std::shared_ptr<mirage::integration::WorkflowEventBridge> event_bridge,
-    std::shared_ptr<mirage::integration::DesktopAtomToolset> atom_toolset) {
+    std::shared_ptr<mirage::integration::DesktopAtomToolset> atom_toolset,
+    std::shared_ptr<mirage::integration::WorkflowLearningMemory> learning) {
     const HostStatus current = impl_->status.load();
     if (current != HostStatus::Running) {
         return failed(host_error("invalid_state",
@@ -609,6 +612,13 @@ HostOutcome MiraHost::attach_workflow_surface(
     if (!atom_toolset) {
         return failed(host_error("invalid_argument", "atom toolset is null"));
     }
+    if (learning && !learning->memory)
+        return failed(host_error("invalid_argument", "workflow learning memory is null"));
+    if (learning && (learning->agent_subject_id.size() > 128 ||
+                     learning->agent_subject_id.find_first_not_of(
+                         "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._:-") !=
+                         std::string::npos))
+        return failed(host_error("invalid_argument", "invalid workflow learning subject"));
     if (!impl_->environment) {
         return failed(host_error("invalid_state", "host has no bound environment"));
     }
@@ -623,7 +633,19 @@ HostOutcome MiraHost::attach_workflow_surface(
     // Strict definitions carrying ToolCall steps are rejected at admission
     // while it is absent, so the registry installs before any run starts.
     runtime->set_tool_registry(atom_toolset->registry());
+    if (learning) {
+        const mira::MemoryScope scope{
+            learning->agent_subject_id.empty() ? mira::MemoryScopeKind::Session
+                                               : mira::MemoryScopeKind::Agent,
+            learning->agent_subject_id.empty() ? impl_->session_id.to_string()
+                                               : learning->agent_subject_id,
+            std::nullopt};
+        const auto installed = runtime->set_learning_context(learning->memory, scope);
+        if (!installed)
+            return failed(host_error("pinned_runtime", "workflow learning context rejected"));
+    }
     impl_->workflow_runtime = std::move(runtime);
+    impl_->workflow_learning = learning != nullptr;
     impl_->workflow_events = std::move(event_bridge);
     impl_->workflow_executor = &executor;
     return HostOutcome{true, {}};
@@ -981,7 +1003,11 @@ HostOutcome MiraHost::attach_workflow_recovery(
         options.model_call_deadline < std::chrono::milliseconds{1} ||
         options.model_call_deadline > std::chrono::seconds{30} ||
         options.max_decision_repairs > 1 || options.max_tracked_runs == 0 ||
-        options.max_tracked_runs > 32)
+        options.max_tracked_runs > 32 || options.max_output_tokens < 128 ||
+        options.max_output_tokens > 8192 ||
+        (options.decision_output_mode != "strict_json_schema" &&
+         options.decision_output_mode != "json_object" && options.decision_output_mode != "text") ||
+        (!options.thinking.empty() && options.thinking != "none" && options.thinking != "adaptive"))
         return failed(host_error("invalid_argument", "invalid recovery model or limits"));
     mira::WorkflowRecoveryConfig config;
     config.profile_id = model->profile_id;
@@ -990,6 +1016,14 @@ HostOutcome MiraHost::attach_workflow_recovery(
     config.max_decision_repairs = options.max_decision_repairs;
     config.max_tracked_runs = options.max_tracked_runs;
     config.max_concurrent_attempts = 1;
+    config.max_output_tokens = options.max_output_tokens;
+    config.decision_output_mode = options.decision_output_mode == "text" ? mira::OutputMode::Text
+                                  : options.decision_output_mode == "json_object"
+                                      ? mira::OutputMode::JsonObject
+                                      : mira::OutputMode::StrictJsonSchema;
+    if (!options.thinking.empty())
+        config.thinking = options.thinking == "none" ? mira::ThinkingMode::Disabled
+                                                     : mira::ThinkingMode::Adaptive;
     auto retained = std::make_shared<mirage::integration::WorkflowRecoveryModel>(*model);
     const auto guarded = mirage::integration::guard_workflow_recovery_provider(model->provider);
     if (!guarded)
@@ -1001,6 +1035,9 @@ HostOutcome MiraHost::attach_workflow_recovery(
         *impl_->workflow_executor, *impl_->workflow_runtime, impl_->runtime, *retained->gateway,
         impl_->session_id, config);
     recovery->set_event_store(impl_->workflow_events);
+    mira::WorkflowRecoveryHooks hooks;
+    hooks.project_parameters = retained->project_parameters;
+    recovery->set_hooks(std::move(hooks));
     impl_->recovery_model = std::move(retained);
     impl_->workflow_recovery = std::move(recovery);
     impl_->recovery_drained = false;
@@ -1019,6 +1056,16 @@ HostOutcome MiraHost::start_workflow_recovery(const std::string &run_id_hex) {
         return failed(pinned_error(view.error()));
     if (view.value().state != mira::WorkflowRunState::WaitingAgent)
         return failed(host_error("invalid_state", "workflow run is not waiting for Agent"));
+    {
+        // WaitingAgent precedes carrier epoch settlement and optional lesson
+        // retrieval. Consume the drive before taking a recovery snapshot.
+        const auto driven = impl_->workflow_runtime->wait_run(*id, std::chrono::milliseconds{1});
+        if (!driven) {
+            if (driven.error().code == mira::ErrorCode::DeadlineExceeded)
+                return failed(host_error("invalid_state", "workflow drive is still settling"));
+            return failed(pinned_error(driven.error()));
+        }
+    }
     // MIRA-20261112-003: the cache can hide a later budget-rejected result.
     // Keep this preview single-attempt without parallel attempt accounting.
     const auto previous =
@@ -1091,6 +1138,40 @@ HostOutcome MiraHost::shutdown_workflow_recovery() {
     if (!report.clean || report.event_emit_failures || report.hook_failures)
         return failed(host_error("pinned_runtime", "workflow recovery drain or audit failed"));
     return HostOutcome{true, {}};
+}
+
+WorkflowRecoveryLessonResult
+MiraHost::record_workflow_recovery_lesson(const std::string &run_id_hex) {
+    if (!impl_->workflow_surface_active())
+        return {false, {}, {}, {}, host_error("invalid_state", "workflow surface is not active")};
+    const auto id = mira::WorkflowRunId::parse(run_id_hex);
+    if (!id || id->is_nil())
+        return {false, {}, {}, {}, host_error("invalid_argument", "malformed run identity")};
+    if (impl_->workflow_learning) {
+        const auto driven = impl_->workflow_runtime->wait_run(*id, std::chrono::milliseconds{1});
+        if (!driven && driven.error().code == mira::ErrorCode::DeadlineExceeded)
+            return {
+                false, {}, {}, {}, host_error("invalid_state", "workflow drive is still settling")};
+        if (!driven)
+            return {false,
+                    {},
+                    {},
+                    {},
+                    host_error("pinned_runtime", "workflow learning run unavailable")};
+    }
+    const auto lesson = impl_->workflow_runtime->record_recovery_lesson(*id);
+    if (!lesson)
+        return {false,
+                {},
+                {},
+                {},
+                host_error("pinned_runtime", std::string(error_code_name(lesson.error().code)) +
+                                                 ": workflow learning operation failed")};
+    return {true,
+            run_id_hex,
+            lesson.value().lesson_id,
+            mira::recovery_lesson_digest(lesson.value()).to_string(),
+            {}};
 }
 
 HostOutcome MiraHost::shutdown_workflow_surface() {

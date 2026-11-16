@@ -253,7 +253,18 @@ M15-14 增加 Mira Supervisor 管理的有限写入、真实事件回执核对�
 长期总量准入/部分写入恢复的上游缺口已登记，产品默认仍不采集或持久保存截图。
 M15-15 提供 Host 的单次显式 Agent 恢复：失败等待、补丁校验、atom 续跑及取消/关闭，
 并验证修复后的 Run 可生成新候选；见[接线示例](docs/examples/workflow-agent-recovery.md)。
-产品模型共享、IPC/native 自动触发与在线验收仍待后续，多轮恢复受上游回执缺口限制。
+产品模型共享与 IPC/native 自动触发仍待后续；受控在线验收见下项，多轮恢复受上游回执缺口限制。
+2026-11-14（M15-16）：surface 可选注入会话内学习存储，复用 Mira 的终态 Episode、
+显式成功恢复 Lesson 和失败检索；后续模型能读取同签名经验，仍须通过当前权限门禁。
+该 Host 增量可选绑定；后续产品默认与持久 owner 按 M15-17 / DEC-146 接通。
+M15-17 默认开启 Workflow 元数据学习，长期保存于 state 目录的
+`workflow-learning/memory.sqlite`；文件长度总预算 64 MiB（4 MiB 维护预留）。
+同一 OS 用户的私有库采用固定 Agent scope，跨 Session 经验只作数据，不提升权限。
+在 `service.json` 的 `runtime` 中设置 `workflow_learning_enabled:false` 可关闭；缺省为 true。
+通过 `mirage workflow learning` 查询默认学习开关及文件长度/限额/维护预留/进程峰值，
+输出 JSON；查询不打开已关闭的存储，不返回路径或记忆正文（DEC-147/M15-18）。
+真实模型受控 Workflow 在线闭环及独立进程重开记录见
+[验收证据](docs/compatibility/workflow-learning-20261114.md)。截图长期采集与原生自动恢复另验。
 
 2026-10-11（M7-11 首增量）：产品 workflow 目录新增 `desktop.knowledge.activate`，
 IR 保存应用/页面/目标语义，执行时重新解析引用、权限判定、一次激活并验证新后条件，

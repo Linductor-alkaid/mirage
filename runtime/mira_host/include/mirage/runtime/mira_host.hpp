@@ -16,7 +16,8 @@ class Executor;
 
 namespace mirage::integration {
 struct WorkflowRecoveryModel;
-}
+struct WorkflowLearningMemory;
+} // namespace mirage::integration
 
 namespace mirage::runtime {
 
@@ -273,6 +274,9 @@ struct WorkflowRecoveryOptions {
     std::chrono::milliseconds model_call_deadline{5000};
     std::uint32_t max_decision_repairs = 0;
     std::size_t max_tracked_runs = 32;
+    std::string decision_output_mode = "strict_json_schema";
+    std::string thinking; ///< Empty inherits; "none" or "adaptive" is explicit.
+    std::uint64_t max_output_tokens = 2048;
 };
 
 struct WorkflowRecoveryAttemptView {
@@ -285,6 +289,12 @@ struct WorkflowRecoveryPollResult {
     bool ok = false;
     bool settled = false;
     WorkflowRecoveryAttemptView attempt;
+    HostError error;
+};
+
+struct WorkflowRecoveryLessonResult {
+    bool ok = false;
+    std::string run_id, lesson_id, digest;
     HostError error;
 };
 
@@ -399,11 +409,15 @@ class MiraHost {
     /// shutdown_workflow_surface(). Requires Running; fails closed when the
     /// surface is already attached. The executor is the service process's
     /// only instance (EXEC-01); the bridge handle is kept by the host, so it
-    /// must outlive shutdown_workflow_surface().
-    HostOutcome
-    attach_workflow_surface(kairo::Executor &executor,
-                            std::shared_ptr<mirage::integration::WorkflowEventBridge> event_bridge,
-                            std::shared_ptr<mirage::integration::DesktopAtomToolset> atom_toolset);
+    /// must outlive shutdown_workflow_surface(). DEC-145: optional learning
+    /// installs external memory before any Run, using the primary Session
+    /// unless a trusted product binding selects its private Agent subject.
+    /// Omitting it keeps learning off; no live replacement or product store.
+    HostOutcome attach_workflow_surface(
+        kairo::Executor &executor,
+        std::shared_ptr<mirage::integration::WorkflowEventBridge> event_bridge,
+        std::shared_ptr<mirage::integration::DesktopAtomToolset> atom_toolset,
+        std::shared_ptr<mirage::integration::WorkflowLearningMemory> learning = {});
 
     /// Appends one draft version of the IR v1 definition (DEC-023): strict
     /// pinned decode, then a NotValidated library record — resolvable but not
@@ -474,6 +488,8 @@ class MiraHost {
                                  WorkflowRecoveryOptions = {});
     /// One explicit attempt per Run (MIRA-20261112-003). Admission only;
     /// the caller must poll settlement and then inspect the Run.
+    /// With learning, waits up to 1ms for the drive/retrieval to settle;
+    /// invalid_state while settling does not admit a model attempt.
     HostOutcome start_workflow_recovery(const std::string &run_id_hex);
     /// Bounded 1ms poll of the last settled attempt, newer than after_ordinal.
     /// after_ordinal excludes already-read receipts, not an in-flight state.
@@ -485,6 +501,14 @@ class MiraHost {
     HostOutcome cancel_workflow_recovery(const std::string &run_id_hex);
     /// Producer-first drain before WorkflowRuntime and model/Gateway teardown.
     HostOutcome shutdown_workflow_recovery();
+
+    /// DEC-145: explicit host-only learning after observed successful recovery.
+    /// Mira owns admission, deterministic mutation IDs, persistence and audit.
+    /// Synchronous memory facade: backend uses its own Executor store worker.
+    /// A failure may follow a write; it never changes the settled Run.
+    /// With learning, a 1ms drive-settlement check can reject invalid_state
+    /// before any write; inspect readiness on the next host step.
+    WorkflowRecoveryLessonResult record_workflow_recovery_lesson(const std::string &run_id_hex);
 
     /// Ordered workflow-surface shutdown (DEC-023): stops run producers,
     /// cancels active runs through the control plane and drains drive futures

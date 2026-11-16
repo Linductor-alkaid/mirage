@@ -2,12 +2,18 @@
 
 > 状态：Active
 > 负责人：Mirage维护者
-> 更新日期：2026-11-12
+> 更新日期：2026-11-16
 > 维护规则：[工程规范9.4](../project/project-standards.md)
 > 本轮工作项：[Mira 上游同步 2026-11-11](../plans/mira-upstream-sync-20261111.md)（SYNC-01～05）；既有[依赖复用整改](../plans/dependency-reuse-remediation.md)（REUSE-16/17/18
 > 台账一致性收口）；既有条目分别溯源至 M6、M7-06、M8/M9 各工作项
 
 ## 分依赖台账
+
+2026-11-14～16（M15-17）：维护者授权补齐 Mira 并升级至 2c42627；DEC-111 的 SQLite
+元数据文件总量/预留/快照已由产品 owner 消费，默认 Workflow 学习开启。原
+MIRA-20261112-001 的视觉工件/EventStore/跨层恢复部分仍 Open，MIRA-20261112-002/003
+也未关闭；详见[验收](../compatibility/workflow-learning-20261114.md)和
+[升级审计](../supply-chain/mira-workflow-learning-20261114.md)。
 
 2026-11-12（M15-15）：本地登记
 [MIRA-20261112-002](mira.md#mira-20261112-002)（恢复异常可能穿透 future/关停）与

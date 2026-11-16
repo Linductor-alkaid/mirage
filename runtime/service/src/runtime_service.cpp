@@ -1518,6 +1518,22 @@ struct RuntimeService::Impl {
             handle_workflow_cancel(connection_id, correlation_id, std::move(request->run_id));
             return;
         }
+        if (std::holds_alternative<ipc::WorkflowLearningStatusRequest>(decoded.body)) {
+            ipc::WorkflowLearningStatus status;
+            if (core->workflow_learning) {
+                const auto snapshot = core->workflow_learning->capacity_snapshot();
+                if (!snapshot) {
+                    fail(connection_id, correlation_id, "unavailable",
+                         "workflow learning snapshot unavailable");
+                    return;
+                }
+                const auto &value = snapshot.value();
+                status = {true, value.file_bytes, value.limit_bytes, value.reserve_bytes,
+                          value.peak_admitted_file_bytes};
+            }
+            respond(connection_id, correlation_id, status);
+            return;
+        }
         if (auto *request = std::get_if<ipc::WorkflowGetRequest>(&decoded.body)) {
             handle_workflow_get(connection_id, correlation_id, std::move(request->workflow_id));
             return;
@@ -3791,7 +3807,12 @@ struct RuntimeService::Impl {
         // order: WorkflowRuntime shutdown -> MiraRuntime stop -> Executor
         // shutdown): cancel active runs and drain their drives while the
         // executor can still settle them.
-        (void)core->host.shutdown_workflow_surface();
+        const auto workflow_down = core->host.shutdown_workflow_surface();
+        bool learning_clean = workflow_down.ok;
+        if (workflow_down.ok && core->workflow_learning) {
+            std::string storage_error;
+            learning_clean = core->workflow_learning->close(storage_error);
+        }
         // The model layer's transport workers are executor-backed (DEC-027):
         // settle their in-flight exchanges while the executor can still
         // drain them, before the executor itself shuts down.
@@ -3827,12 +3848,15 @@ struct RuntimeService::Impl {
         publish_host_status(host_shutdown.ok && host_shutdown.report.clean ? HostStatus::Stopped
                                                                            : HostStatus::Failed);
         core->serial.shutdown();
-        run_report.clean = host_shutdown.ok && host_shutdown.report.clean && frontend_clean &&
-                           pet_clean && !product_failed.load() && core->actions->input_released();
+        run_report.clean = learning_clean && host_shutdown.ok && host_shutdown.report.clean &&
+                           frontend_clean && pet_clean && !product_failed.load() &&
+                           core->actions->input_released();
         if (!run_report.clean) {
             run_report.diagnostic =
                 host_shutdown.ok ? host_shutdown.report.diagnostic : host_shutdown.error.message;
         }
+        if (!learning_clean)
+            run_report.diagnostic = "workflow learning or workflow drain failed";
         if (!frontend_clean || !pet_clean || product_failed.load())
             run_report.diagnostic = "product carrier/action/frontend/pet teardown failed";
         if (!core->actions->input_released())
@@ -4214,6 +4238,10 @@ RuntimeService::start(std::shared_ptr<mirage::integration::DesktopEnvironmentBin
         }
         if (impl_->core->ocr_pipeline)
             impl_->core->ocr_pipeline->stop();
+        if (impl_->core->workflow_learning) {
+            std::string storage_error;
+            (void)impl_->core->workflow_learning->close(storage_error);
+        }
         impl_->core->executor.shutdown(false);
         outcome.error = hosted.error;
         impl_->lifecycle.store(Impl::Lifecycle::Terminal, std::memory_order_release);
@@ -4258,13 +4286,41 @@ RuntimeService::start(std::shared_ptr<mirage::integration::DesktopEnvironmentBin
         return permission->authorize(request, cancelled).allowed;
     };
     impl_->core->workflow_tools = mirage::integration::DesktopAtomToolset::build(workflow_desktop);
+    if (impl_->config.workflow_learning_enabled) {
+        const auto directory = impl_->config.workflow_learning_directory.empty()
+                                   ? persistence::default_state_directory() / "workflow-learning"
+                                   : impl_->config.workflow_learning_directory;
+        std::string error;
+        impl_->core->workflow_learning = mirage::integration::WorkflowLearningStore::open(
+            impl_->core->executor, directory, impl_->config.workflow_learning_max_bytes, error);
+        if (!impl_->core->workflow_learning) {
+            impl_->core->host.shutdown();
+            if (impl_->core->model_layer)
+                impl_->core->model_layer->shutdown();
+            if (impl_->core->ocr_pipeline)
+                impl_->core->ocr_pipeline->stop();
+            if (impl_->core->workflow_learning) {
+                std::string storage_error;
+                (void)impl_->core->workflow_learning->close(storage_error);
+            }
+            impl_->core->executor.shutdown(false);
+            outcome.error = {"internal", error};
+            impl_->lifecycle.store(Impl::Lifecycle::Terminal, std::memory_order_release);
+            return outcome;
+        }
+    }
     const HostOutcome workflow_surface = impl_->core->host.attach_workflow_surface(
-        impl_->core->executor, impl_->core->workflow_bridge, impl_->core->workflow_tools);
+        impl_->core->executor, impl_->core->workflow_bridge, impl_->core->workflow_tools,
+        impl_->core->workflow_learning ? impl_->core->workflow_learning->binding() : nullptr);
     if (!workflow_surface.ok) {
         impl_->core->host.shutdown();
         impl_->publish_host_status(impl_->core->host.status());
         if (impl_->core->ocr_pipeline)
             impl_->core->ocr_pipeline->stop();
+        if (impl_->core->workflow_learning) {
+            std::string storage_error;
+            (void)impl_->core->workflow_learning->close(storage_error);
+        }
         impl_->core->executor.shutdown(false);
         outcome.error = workflow_surface.error;
         impl_->lifecycle.store(Impl::Lifecycle::Terminal, std::memory_order_release);
@@ -4297,6 +4353,10 @@ RuntimeService::start(std::shared_ptr<mirage::integration::DesktopEnvironmentBin
         impl_->publish_host_status(impl_->core->host.status());
         if (impl_->core->ocr_pipeline)
             impl_->core->ocr_pipeline->stop();
+        if (impl_->core->workflow_learning) {
+            std::string storage_error;
+            (void)impl_->core->workflow_learning->close(storage_error);
+        }
         impl_->core->executor.shutdown(false);
         outcome.error = {"internal", std::move(diagnostic)};
         impl_->lifecycle.store(Impl::Lifecycle::Terminal, std::memory_order_release);
@@ -4330,6 +4390,10 @@ RuntimeService::start(std::shared_ptr<mirage::integration::DesktopEnvironmentBin
         impl_->publish_host_status(impl_->core->host.status());
         if (impl_->core->ocr_pipeline)
             impl_->core->ocr_pipeline->stop();
+        if (impl_->core->workflow_learning) {
+            std::string storage_error;
+            (void)impl_->core->workflow_learning->close(storage_error);
+        }
         impl_->core->executor.shutdown(false);
         outcome.error = {"internal", "blocking worker start failed: " +
                                          impl_->loop_worker.start_result().message};

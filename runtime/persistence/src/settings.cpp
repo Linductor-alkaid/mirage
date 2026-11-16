@@ -168,6 +168,8 @@ std::string encode_settings(const LocalSettings &settings) {
     if (settings.runtime.has_value()) {
         const RuntimeSettings &runtime = *settings.runtime;
         JsonValue runtime_object = make_object();
+        if (!runtime.workflow_learning_enabled)
+            put(runtime_object, "workflow_learning_enabled", JsonValue{false});
         if (runtime.event_queue_capacity > 0) {
             put(runtime_object, "event_queue_capacity",
                 JsonValue{static_cast<std::int64_t>(runtime.event_queue_capacity)});
@@ -503,6 +505,14 @@ SettingsDecode decode_settings(std::string_view body) {
             return result;
         }
         RuntimeSettings runtime;
+        if (const auto *value = member(*runtime_value, "workflow_learning_enabled")) {
+            const auto flag = value->as_boolean();
+            if (!flag) {
+                result.error = "member 'runtime.workflow_learning_enabled' must be a boolean";
+                return result;
+            }
+            runtime.workflow_learning_enabled = *flag;
+        }
         for (const auto &[key, target] :
              std::initializer_list<std::pair<std::string_view, std::size_t RuntimeSettings::*>>{
                  {"event_queue_capacity", &RuntimeSettings::event_queue_capacity},

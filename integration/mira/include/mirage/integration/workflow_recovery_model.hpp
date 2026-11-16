@@ -1,5 +1,6 @@
 #pragma once
 
+#include <functional>
 #include <memory>
 #include <mira/model_gateway.hpp>
 
@@ -14,6 +15,9 @@ struct WorkflowRecoveryModel {
     /// Same provider as the externally configured profile. Host registers a
     /// non-throwing recovery boundary before inference; no concurrent reuse.
     std::shared_ptr<mira::IModelProvider> provider;
+    /// Trusted, bounded host whitelist; empty keeps Mira's value-free
+    /// projection. Never populate this from model output or imported claims.
+    std::function<mira::JsonValue(const mira::JsonValue &)> project_parameters;
 };
 
 /// MIRA-20261112-002: temporary single-Adapter boundary until pinned recovery

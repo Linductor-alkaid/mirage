@@ -34,11 +34,15 @@ DryRun 只证明结构与规划可接受，不能代替真实桌面验证。一�
 Mirador pin `2a9f4830f4727498ed4cbad568a1d3ec357ece7e` 的本地公开契约与文档核对。
 它们不代表本轮重新执行上游测试或已验收完整产品。
 
+2026-11-14～16：维护者授权补齐 Mira 后，当前 pin 已升级为 2c42627。Mira DEC-111/112
+与 Mirage DEC-146 交付有界 SQLite 元数据、显式恢复协议及产品默认学习；下表接线状态
+随 M15-17 更新，早期基线与历史记录保留。
+
 | 原目标/能力 | 证据 | 当前 Mirage 接线 |
 | --- | --- | --- |
 | Agent 控制平面 + Workflow 执行平面，成功经验固化 | Mira [DEC-014](../../third_party/mira/docs/decisions/DEC-014-agent-harness-workflow-dual-plane.md)，2026-09-07 | 架构方向已有；原生 UI 后来优先 harness |
 | 成功 Run 捕获、编译、参数归纳、发布门禁 | Mira [M11](../../third_party/mira/docs/plans/m11-trajectory-compilation-and-task-induction.md)、[workflow_compiler.hpp](../../third_party/mira/include/mira/workflow_compiler.hpp) | Host 已发布/运行 Workflow；本轮新增只读编译候选 |
-| Episode、成功恢复 Lesson、失败检索 | Mira [M13](../../third_party/mira/docs/plans/m13-memory-and-learning-loop.md)、[workflow_learning.hpp](../../third_party/mira/include/mira/workflow_learning.hpp) | `attach_workflow_surface` 尚未设置 learning context |
+| Episode、成功恢复 Lesson、失败检索 | Mira [M13](../../third_party/mira/docs/plans/m13-memory-and-learning-loop.md)、[workflow_learning.hpp](../../third_party/mira/include/mira/workflow_learning.hpp) | M15-16 提供默认 Session 的可选 Host context；M15-17 产品默认注入私有 Agent scope 元数据 owner |
 | WaitingAgent 到模型恢复与续跑 | Mira [恢复 API](../../third_party/mira/docs/api/workflow-contracts.md#workflow-恢复编排workflow_recoveryhppm14dec-031) | M15-15 已接 Host 单次显式恢复；产品共享模型与自动触发待接 |
 | 普通 Agent 历史转成功轨迹 | Mira [DEC-038](../../third_party/mira/docs/decisions/DEC-038-unified-behavior-trace.md)，方向冻结、未实现 | 不能把 Task ID/聊天文本作为 Run 轨迹；[反馈](../dependency_feedback/mira.md#mira-20261111-001) |
 | 统一 Desktop Environment、产品 Workflow 面 | Mirage [原设计](Mirage：Linux%20-%20Windows%20桌面端设计方案.md) §2/12/14、[DEC-023](../decisions/DEC-023-workflow-contract-face.md) | CLI/IPC 已有发布、运行、取消；native 仍提示未接入 RPA |
@@ -149,11 +153,34 @@ provider，Host 保留强引用，不访问 ModelLayer 私有对象。受控修�
 完成分别观察，审计沿同一事件桥。provider 异常与旧回执缺口已登记
 [MIRA-20261112-002](../dependency_feedback/mira.md#mira-20261112-002)/
 [003](../dependency_feedback/mira.md#mira-20261112-003)，采用单 Adapter 异常边界与单次
-限制；未修改 pin。模型共享/重载、IPC/native/自动触发、长期 Lesson、真实接管和在线
-验收仍待 M15-06～09，见[接线示例](../examples/workflow-agent-recovery.md)。
+限制；M15-15 首增量未修改 pin。产品模型共享/重载、IPC/native/自动触发、真实接管
+仍待 M15-06～09，后续长期元数据/受控在线见 M15-17，见[接线示例](../examples/workflow-agent-recovery.md)。
 
 不确定副作用不能盲目重发；取消/接管阻止新动作，恢复前重新观察，终态不可被迟到结果
 复活。补丁只有在恢复成功后才可沉淀为 Lesson；旧错误版本保留来源和失效原因。
+
+[DEC-145](../decisions/DEC-145-host-workflow-learning.md) / M15-16 在 surface 装配期
+可选注入共享 IMemory，scope 固定为 primary Session，省略时行为不变。Mira 负责终态
+Episode 与失败检索；Host 显式 record_workflow_recovery_lesson 委托 Mira 写已成功恢复
+Run 的 Lesson，只返回 ID/digest 与固定错误说明。检索在途时恢复入口先以 Mira wait_run
+做至多 1ms 的驱动结算检查，尚未就绪返回 invalid_state，不消耗模型尝试。写入错误
+可能跟在真实提交之后，同 Run 的确定性 mutation ID 提供幂等；不伪造回滚或重复资产。
+受控 SQLite 验证后续同签名失败将 Lesson 带入模型，权限依然独立检查。M15-16 首增量仅外部
+注入存储；下述 M15-17 补产品长期元数据 owner、跨会话召回与受控在线验收。
+
+后续 [DEC-146](../decisions/DEC-146-default-workflow-learning.md) / M15-17 默认装配
+Runtime Service 的私有长期元数据 owner，使用 Mira 的文件总量接纳/预留/snapshot，
+64 MiB 含数据库/WAL/SHM/journal，4 MiB 维护预留。产品为同一 OS 用户的专用目录
+显式选择固定 Agent scope；直接 Host 的 Session 默认仍保留。普通新写入达限拒绝，
+错误不伪造回滚；先排空 Workflow，释放实际 Store 后再关 Executor。设置中明确 false
+关闭，缺省为 true。视觉工件、自动归档与物理块/跨层总量仍另验。
+
+专用 Workflow ModelLayer 模式只服务受控恢复，不与普通聊天并用；显式选择远端 Text/
+JsonObject/StrictJsonSchema，Text 回复仍走同源本地 schema 和补丁校验，无自动降级。
+默认生成 2048 token，思考模式可显式配置，期限与尝试预算独立。真实 deepseek-flash
+的两轮修复/续跑、Lesson 召回与独立进程重开已取证，见
+[在线验收](../compatibility/workflow-learning-20261114.md)。这不替代产品原生模型共享/
+热更/自动触发、真实桌面及通用 Agent 历史提取。
 
 ### Executor 与关闭
 
@@ -171,3 +198,11 @@ Host 调用示例见[经验草稿](../examples/workflow-experience-draft.md)。
 Run/普通 Task 拒绝和 surface 关闭拒绝。后续测试按 [M15 矩阵](../plans/m15-supervised-rpa-experience.md)
 覆盖原生历史、视觉重定位、持久删除、监督修复、取消和长期容量。Fake/契约测试不作为
 真实桌面、在线模型、Windows 或经验复用收益证明。
+
+
+## 默认学习存储的只读诊断
+
+[DEC-147](../decisions/DEC-147-workflow-learning-status.md) / M15-18 为产品 IPC/CLI
+提供启用状态与真实 SQLite 文件长度快照，直接委托 Mira 容量接口，不增加缓存、后台
+任务或数据库。现有服务串行请求路径调用有界 StoreChannel；未装配时不打开，错误明确
+返回 unavailable。查询不包含路径/主体/记忆正文，也不承担物理磁盘、清理或完整 M31 的保证。

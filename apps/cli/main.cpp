@@ -1471,6 +1471,31 @@ int command_workflow_run(int argc, char **argv) {
     return kExitOk;
 }
 
+int command_workflow_learning(int argc, char **argv) {
+    GlobalOptions options;
+    int index = 3;
+    std::vector<std::string> operands;
+    if (!consume_options(
+            argc, argv, index,
+            [&options](const std::string &name, const std::string &value) {
+                return parse_common_option(name, value, options);
+            },
+            operands) ||
+        !operands.empty())
+        return kExitUsage;
+    auto client = client_for(options);
+    const auto response =
+        client.call(mirage::runtime::ipc::WorkflowLearningStatusRequest{}, options.call_timeout);
+    if (const int code = report_response(response); code != kExitOk)
+        return code;
+    if (!std::holds_alternative<mirage::runtime::ipc::WorkflowLearningStatus>(response.payload)) {
+        std::cerr << kProgramName << ": service returned no workflow learning status\n";
+        return kExitFailure;
+    }
+    std::cout << mirage::runtime::ipc::encode_response(response) << '\n';
+    return kExitOk;
+}
+
 int command_workflow_cancel(int argc, char **argv) {
     std::string run_id;
     GlobalOptions options;
@@ -1551,6 +1576,7 @@ void print_usage(std::ostream &out) {
         << "  workflow delete <id> [--socket P]\n"
         << "                               Remove a workflow from the catalog\n"
         << "  workflow atoms [--socket P]  List the exposed atom (tool) catalog\n"
+        << "  workflow learning [--socket PATH]  Show learning storage capacity (JSON)\n"
         << "  workflow experience <run-id> --workflow-id ID --name NAME [--summary TEXT]\n"
         << "              [--socket P]     Export a review-only candidate IR to stdout\n"
         << "              [--also-run ID]... [--review]  Propose parameters; include review "
@@ -1645,6 +1671,9 @@ int mirage_cli_main(int argc, char **argv) {
         }
         if (command == "workflow" && argc >= 3) {
             const std::string_view subcommand{argv[2]};
+            if (subcommand == "learning") {
+                return command_workflow_learning(argc, argv);
+            }
             if (subcommand == "list") {
                 return command_workflow_list(argc, argv);
             }

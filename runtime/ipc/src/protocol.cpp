@@ -901,6 +901,15 @@ mira::JsonValue encode_payload(const ResponsePayload &payload) {
             } else if constexpr (std::is_same_v<T, WorkflowRunCancelled>) {
                 put(object, "run_id", value.run_id);
                 put(object, "state", value.state);
+            } else if constexpr (std::is_same_v<T, WorkflowLearningStatus>) {
+                auto learning = make_object();
+                put(learning, "enabled", value.enabled);
+                put(learning, "file_bytes", static_cast<std::int64_t>(value.file_bytes));
+                put(learning, "limit_bytes", static_cast<std::int64_t>(value.limit_bytes));
+                put(learning, "reserve_bytes", static_cast<std::int64_t>(value.reserve_bytes));
+                put(learning, "peak_admitted_file_bytes",
+                    static_cast<std::int64_t>(value.peak_admitted_file_bytes));
+                put(object, "learning", std::move(learning));
             } else if constexpr (std::is_same_v<T, WorkflowExperienceDraft>) {
                 auto draft = make_object();
                 put(draft, "validation", "candidate");
@@ -1174,6 +1183,8 @@ std::string encode_request(std::uint64_t id, const Request &body) {
             } else if constexpr (std::is_same_v<T, WorkflowCancelRunRequest>) {
                 put(object, "op", kOpWorkflowCancel);
                 put(object, "run_id", value.run_id);
+            } else if constexpr (std::is_same_v<T, WorkflowLearningStatusRequest>) {
+                put(object, "op", "workflow.learning.status");
             } else if constexpr (std::is_same_v<T, WorkflowGetRequest>) {
                 put(object, "op", kOpWorkflowGet);
                 put(object, "workflow_id", value.workflow_id);
@@ -1659,6 +1670,8 @@ RequestDecode decode_request(std::string_view payload) {
         }
         cancel.run_id = *run_id;
         result.body = std::move(cancel);
+    } else if (*op == "workflow.learning.status") {
+        result.body = WorkflowLearningStatusRequest{};
     } else if (*op == kOpWorkflowGet) {
         WorkflowGetRequest get;
         const auto workflow_id = string_member(object, "workflow_id");
@@ -2588,6 +2601,24 @@ ResponseDecode decode_response(std::string_view payload) {
             catalog.tools.push_back(std::move(tool));
         }
         response.payload = std::move(catalog);
+    } else if (const auto *learning = member(object, "learning"); learning != nullptr) {
+        const auto *flag = member(*learning, "enabled");
+        const auto enabled = flag ? flag->as_boolean() : std::nullopt;
+        const auto used = integer_member(*learning, "file_bytes");
+        const auto limit = integer_member(*learning, "limit_bytes");
+        const auto reserve = integer_member(*learning, "reserve_bytes");
+        const auto peak = integer_member(*learning, "peak_admitted_file_bytes");
+        if (!enabled || !used || !limit || !reserve || !peak || *used < 0 || *limit < 0 ||
+            *reserve < 0 || *peak < 0 ||
+            (*enabled ? (*limit < (1LL << 20) || *limit > (1LL << 40) || *reserve >= *limit ||
+                         *used > *limit || *peak > *limit)
+                      : (*used != 0 || *limit != 0 || *reserve != 0 || *peak != 0))) {
+            result.error = "invalid workflow learning capacity snapshot";
+            return result;
+        }
+        response.payload = WorkflowLearningStatus{
+            *enabled, static_cast<std::uint64_t>(*used), static_cast<std::uint64_t>(*limit),
+            static_cast<std::uint64_t>(*reserve), static_cast<std::uint64_t>(*peak)};
     } else if (const auto *experience = member(object, "experience"); experience != nullptr) {
         const auto validation = string_member(*experience, "validation");
         const auto source = string_member(*experience, "source_run_id");

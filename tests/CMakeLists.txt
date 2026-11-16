@@ -96,6 +96,31 @@ mirage_add_test(workflow_recovery_host_test
     LABELS "integration;runtime;security;workflow"
     TIMEOUT 120
     )
+mirage_add_test(workflow_learning_host_test
+    SOURCES runtime/workflow_learning_host_test.cpp
+    LIBS Mirage::mira_host Mira::simulator_adapter Mira::state_store Mirage::kairo_consumer
+    LABELS "integration;runtime;security;workflow;memory"
+    TIMEOUT 120
+    )
+mirage_add_test(mira_memory_capacity_contract_test
+    SOURCES ../third_party/mira/tests/m31/sqlite_memory_capacity_test.cpp
+    LIBS Mira::core Mira::state_store Mirage::kairo_consumer
+    LABELS "integration;memory;dependency"
+    TIMEOUT 60
+    )
+mirage_add_test(mira_recovery_contract_test
+    SOURCES ../third_party/mira/tests/m14/m14_recovery_test.cpp
+    LIBS Mira::core Mira::workflow Mira::simulator_adapter Mirage::kairo_consumer
+    LABELS "integration;workflow;dependency"
+    TIMEOUT 180
+    )
+target_include_directories(mira_recovery_contract_test PRIVATE ${CMAKE_SOURCE_DIR}/third_party/mira/tests)
+mirage_add_test(workflow_learning_store_test
+    SOURCES integration/workflow_learning_store_test.cpp
+    LIBS Mirage::mira_host Mirage::persistence Mira::simulator_adapter Mirage::kairo_consumer
+    LABELS "integration;workflow;memory"
+    TIMEOUT 60
+    )
 set_tests_properties(mira_host_test PROPERTIES
     LABELS "unit"
     TIMEOUT 120
@@ -839,7 +864,7 @@ endif()
 
 mirage_add_test(runtime_service_test
     SOURCES runtime/runtime_service_test.cpp
-    LIBS Mirage::runtime_service Mirage::integration_mira Mirage::platform Mirage::desktop Mirage::ipc Mirage::persistence Mirage::permission
+    LIBS Mirage::runtime_service Mirage::integration_mira Mirage::platform Mirage::desktop Mirage::ipc Mirage::persistence Mirage::permission Mirage::kairo_consumer
     LABELS "integration"
     TIMEOUT 300
     )
@@ -1759,6 +1784,12 @@ endif()
 # default presets, so suites and CI never dial out.
 option(MIRAGE_BUILD_MANUAL_ACCEPTANCE "Build the opt-in live acceptance driver" OFF)
 if(MIRAGE_BUILD_MANUAL_ACCEPTANCE)
+    add_executable(workflow_learning_online_acceptance manual/workflow_learning_online_acceptance.cpp)
+    target_compile_features(workflow_learning_online_acceptance PRIVATE cxx_std_20)
+    target_link_libraries(workflow_learning_online_acceptance PRIVATE Mirage::mira_host
+        Mira::simulator_adapter Mirage::integration_mira Mirage::persistence Mirage::platform
+        Mirage::kairo_consumer)
+    mirage_enable_warnings(workflow_learning_online_acceptance)
     add_executable(dec088_live_acceptance manual/dec088_live_acceptance.cpp)
     target_compile_features(dec088_live_acceptance PRIVATE cxx_std_20)
     target_link_libraries(dec088_live_acceptance PRIVATE Mirage::integration_mira Mirage::kairo_consumer)
