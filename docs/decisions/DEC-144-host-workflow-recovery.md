@@ -53,3 +53,9 @@ Host 结果一致。Debug/ASAN/UBSAN/TSAN、格式与公共头检查记录于 M1
 [M15](../plans/m15-supervised-rpa-experience.md)、
 [专项设计](../design/supervised-rpa-experience-and-visual-memory.md)、
 [Mira recovery API](../../third_party/mira/include/mira/workflow_recovery.hpp)。
+
+## 2026-11-16 后续产品增量
+
+[DEC-148](DEC-148-service-workflow-recovery.md) 在 ModelLayer 独占预留内复用本接口，
+增加显式 IPC/CLI 与 Lesson；绑定后模型配置固定至重启，未重建 Host 编排器或改变
+单 Run 一次限制。本页原验证记录保留其当时的 Host 范围。

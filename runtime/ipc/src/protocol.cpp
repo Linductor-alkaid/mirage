@@ -901,6 +901,21 @@ mira::JsonValue encode_payload(const ResponsePayload &payload) {
             } else if constexpr (std::is_same_v<T, WorkflowRunCancelled>) {
                 put(object, "run_id", value.run_id);
                 put(object, "state", value.state);
+            } else if constexpr (std::is_same_v<T, WorkflowRecoveryStatus>) {
+                auto recovery = make_object();
+                put(recovery, "run_id", value.run_id);
+                put(recovery, "action", value.action);
+                put(recovery, "settled", value.settled);
+                put(recovery, "ordinal", static_cast<std::int64_t>(value.ordinal));
+                put(recovery, "workflow_id", value.workflow_id);
+                put(recovery, "outcome", value.outcome);
+                put(recovery, "reason_code", value.reason_code);
+                put(recovery, "decision_digest", value.decision_digest);
+                put(recovery, "patch_id", value.patch_id);
+                put(recovery, "model_request_id", value.model_request_id);
+                put(recovery, "lesson_id", value.lesson_id);
+                put(recovery, "lesson_digest", value.lesson_digest);
+                put(object, "recovery", std::move(recovery));
             } else if constexpr (std::is_same_v<T, WorkflowLearningStatus>) {
                 auto learning = make_object();
                 put(learning, "enabled", value.enabled);
@@ -1182,6 +1197,9 @@ std::string encode_request(std::uint64_t id, const Request &body) {
                 }
             } else if constexpr (std::is_same_v<T, WorkflowCancelRunRequest>) {
                 put(object, "op", kOpWorkflowCancel);
+                put(object, "run_id", value.run_id);
+            } else if constexpr (std::is_same_v<T, WorkflowRecoveryRequest>) {
+                put(object, "op", "workflow.recovery." + value.action);
                 put(object, "run_id", value.run_id);
             } else if constexpr (std::is_same_v<T, WorkflowLearningStatusRequest>) {
                 put(object, "op", "workflow.learning.status");
@@ -1670,6 +1688,14 @@ RequestDecode decode_request(std::string_view payload) {
         }
         cancel.run_id = *run_id;
         result.body = std::move(cancel);
+    } else if (*op == "workflow.recovery.start" || *op == "workflow.recovery.status" ||
+               *op == "workflow.recovery.cancel" || *op == "workflow.recovery.lesson") {
+        const auto run_id = string_member(object, "run_id");
+        if (!run_id || !workflow_experience_hex(*run_id, 32, true)) {
+            result.error = "workflow.recovery requires a valid non-nil run_id";
+            return result;
+        }
+        result.body = WorkflowRecoveryRequest{*run_id, op->substr(18)};
     } else if (*op == "workflow.learning.status") {
         result.body = WorkflowLearningStatusRequest{};
     } else if (*op == kOpWorkflowGet) {
@@ -2601,6 +2627,47 @@ ResponseDecode decode_response(std::string_view payload) {
             catalog.tools.push_back(std::move(tool));
         }
         response.payload = std::move(catalog);
+    } else if (const auto *recovery = member(object, "recovery"); recovery != nullptr) {
+        const auto run_id = string_member(*recovery, "run_id");
+        const auto action = string_member(*recovery, "action");
+        const auto *flag = member(*recovery, "settled");
+        const auto settled = flag ? flag->as_boolean() : std::nullopt;
+        const auto ordinal = integer_member(*recovery, "ordinal");
+        const auto workflow = string_member(*recovery, "workflow_id");
+        const auto outcome = string_member(*recovery, "outcome");
+        const auto reason = string_member(*recovery, "reason_code");
+        const auto digest = string_member(*recovery, "decision_digest");
+        const auto patch = string_member(*recovery, "patch_id");
+        const auto model = string_member(*recovery, "model_request_id");
+        const auto lesson = string_member(*recovery, "lesson_id");
+        const auto lesson_digest = string_member(*recovery, "lesson_digest");
+        const auto optional_hex = [](const auto &v, std::size_t bytes) {
+            return v && (v->empty() || workflow_experience_hex(*v, bytes, bytes == 32));
+        };
+        if (!run_id || !workflow_experience_hex(*run_id, 32, true) || !action ||
+            (*action != "start" && *action != "status" && *action != "cancel" &&
+             *action != "lesson") ||
+            !settled || !ordinal || *ordinal < 0 || *ordinal > 1 || !workflow || !outcome ||
+            !reason || reason->size() > 128 || !optional_hex(digest, 64) ||
+            !optional_hex(patch, 32) || !optional_hex(model, 32) || !lesson ||
+            lesson->size() > 256 || !optional_hex(lesson_digest, 64) ||
+            (*settled
+                 ? (*action != "status" || *ordinal != 1 ||
+                    !workflow_experience_hex(*workflow, 32, true) ||
+                    (*outcome != "patched-and-resumed" && *outcome != "resumed-without-patch" &&
+                     *outcome != "cancel-requested" && *outcome != "deferred-to-host" &&
+                     *outcome != "aborted"))
+                 : (*ordinal != 0 || !workflow->empty() || !outcome->empty() || !reason->empty() ||
+                    !digest->empty() || !patch->empty() || !model->empty())) ||
+            (*action == "lesson" ? (lesson->empty() || lesson_digest->empty())
+                                 : (!lesson->empty() || !lesson_digest->empty()))) {
+            result.error = "invalid workflow recovery metadata";
+            return result;
+        }
+        response.payload = WorkflowRecoveryStatus{
+            *run_id,   *action,  *settled, static_cast<std::uint32_t>(*ordinal),
+            *workflow, *outcome, *reason,  *digest,
+            *patch,    *model,   *lesson,  *lesson_digest};
     } else if (const auto *learning = member(object, "learning"); learning != nullptr) {
         const auto *flag = member(*learning, "enabled");
         const auto enabled = flag ? flag->as_boolean() : std::nullopt;

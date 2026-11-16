@@ -1,7 +1,7 @@
 # 任务经验、视觉记忆与 Agent 监督的 RPA
 
-> 状态：Proposed（产品闭环）；首个 Host 草稿接口由 DEC-138 冻结
-> 日期：2026-11-11
+> 状态：Proposed（完整产品闭环）；已交付限定增量由 DEC-138～148 冻结
+> 日期：2026-11-11；更新：2026-11-16
 > 负责人：Mirage 维护者
 > 计划：[M15](../plans/m15-supervised-rpa-experience.md)
 > 依据：维护者要求重新推进早期 Workflow 目标，从已执行任务沉淀经验并记录视觉记忆
@@ -154,7 +154,11 @@ provider，Host 保留强引用，不访问 ModelLayer 私有对象。受控修�
 [MIRA-20261112-002](../dependency_feedback/mira.md#mira-20261112-002)/
 [003](../dependency_feedback/mira.md#mira-20261112-003)，采用单 Adapter 异常边界与单次
 限制；M15-15 首增量未修改 pin。产品模型共享/重载、IPC/native/自动触发、真实接管
-仍待 M15-06～09，后续长期元数据/受控在线见 M15-17，见[接线示例](../examples/workflow-agent-recovery.md)。
+在 M15-15 时仍待 M15-06～09，后续长期元数据/受控在线见 M15-17。
+M15-19 / [DEC-148](../decisions/DEC-148-service-workflow-recovery.md) 进一步将显式恢复和
+Lesson 接到产品 IPC/CLI，复用当前 ModelLayer 的独占预留，不绕开完整 turn 互斥。
+future 结算后释放预留；首次绑定后的模型配置固定至服务重启，不重建编排器重置预算。
+native、自动触发及真实桌面收益仍开放，见[接线示例](../examples/workflow-agent-recovery.md)。
 
 不确定副作用不能盲目重发；取消/接管阻止新动作，恢复前重新观察，终态不可被迟到结果
 复活。补丁只有在恢复成功后才可沉淀为 Lesson；旧错误版本保留来源和失效原因。
@@ -179,8 +183,8 @@ Runtime Service 的私有长期元数据 owner，使用 Mira 的文件总量接�
 JsonObject/StrictJsonSchema，Text 回复仍走同源本地 schema 和补丁校验，无自动降级。
 默认生成 2048 token，思考模式可显式配置，期限与尝试预算独立。真实 deepseek-flash
 的两轮修复/续跑、Lesson 召回与独立进程重开已取证，见
-[在线验收](../compatibility/workflow-learning-20261114.md)。这不替代产品原生模型共享/
-热更/自动触发、真实桌面及通用 Agent 历史提取。
+[在线验收](../compatibility/workflow-learning-20261114.md)。M15-19 后续补产品显式共享模型/IPC/CLI，
+配置固定至重启；native、无缝模型重绑/自动触发、真实桌面及通用 Agent 历史提取仍待验收。
 
 ### Executor 与关闭
 

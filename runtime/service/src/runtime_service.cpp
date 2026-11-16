@@ -31,6 +31,7 @@
 #include "service_loop.hpp"
 #include "task_driver.hpp"
 #include "tray_presenter.hpp"
+#include "workflow_recovery_control.hpp"
 
 #include <kairo/blocking_io.hpp>
 #include <kairo/comm.hpp>
@@ -1518,6 +1519,14 @@ struct RuntimeService::Impl {
             handle_workflow_cancel(connection_id, correlation_id, std::move(request->run_id));
             return;
         }
+        if (const auto *request = std::get_if<ipc::WorkflowRecoveryRequest>(&decoded.body)) {
+            auto result = detail::control_workflow_recovery(*core, *request);
+            if (result.ok)
+                respond(connection_id, correlation_id, std::move(result.payload));
+            else
+                fail(connection_id, correlation_id, result.error.code, result.error.message);
+            return;
+        }
         if (std::holds_alternative<ipc::WorkflowLearningStatusRequest>(decoded.body)) {
             ipc::WorkflowLearningStatus status;
             if (core->workflow_learning) {
@@ -2477,6 +2486,11 @@ struct RuntimeService::Impl {
 
     void handle_model_set(std::uint64_t connection, std::uint64_t correlation,
                           const ipc::SetModelRequest &request) {
+        if (core->workflow_recovery_bound) {
+            fail(connection, correlation, "invalid_state",
+                 "workflow recovery has bound this model; restart service before changing model");
+            return;
+        }
         auto decoded = persistence::decode_settings(request.settings_json);
         if (decoded.ok) {
             if (decoded.settings.model)
@@ -2666,6 +2680,12 @@ struct RuntimeService::Impl {
         }
         if (core->model_layer == nullptr || !core->model_layer->running()) {
             fail(connection_id, correlation_id, "unavailable", "model layer is not configured");
+            return;
+        }
+        const auto recovery = detail::refresh_workflow_recovery(*core);
+        if (!recovery.ok || !core->recovering_workflow_run.empty()) {
+            fail(connection_id, correlation_id, "unavailable",
+                 "workflow recovery is still settling");
             return;
         }
         const auto options = mirage::integration::reasoning_options(

@@ -613,6 +613,9 @@ ipc::Request request_from_body(const mira::JsonValue &body) {
         }
         return run;
     }
+    if (op.starts_with("workflow.recovery.")) {
+        return ipc::WorkflowRecoveryRequest{vector_string(body, "run_id"), op.substr(18)};
+    }
     if (op == "workflow.cancel") {
         return ipc::WorkflowCancelRunRequest{vector_string(body, "run_id")};
     }
@@ -846,6 +849,12 @@ void check_request_equal(const std::string &name, const ipc::Request &expected,
                 check_string_equal(name, "parameters_json", run.parameters_json,
                                    expected_value.parameters_json);
                 check_string_equal(name, "policy", run.policy, expected_value.policy);
+            } else if constexpr (std::is_same_v<T, ipc::WorkflowRecoveryRequest>) {
+                const auto &actual_value = std::get<T>(actual);
+                check_string_equal(name, "recovery run", actual_value.run_id,
+                                   expected_value.run_id);
+                check_string_equal(name, "recovery action", actual_value.action,
+                                   expected_value.action);
             } else if constexpr (std::is_same_v<T, ipc::WorkflowCancelRunRequest>) {
                 const auto &cancel = std::get<ipc::WorkflowCancelRunRequest>(actual);
                 check_string_equal(name, "run_id", cancel.run_id, expected_value.run_id);
@@ -1227,6 +1236,20 @@ ipc::Response response_from_vector(const mira::JsonValue &vector) {
         view.digest = vector_string(value, "digest");
         view.definition_json = mira::to_json_string(vector_member(value, "definition"));
         response.payload = std::move(view);
+    } else if (kind == "workflow-recovery") {
+        response.payload = ipc::WorkflowRecoveryStatus{
+            vector_string(value, "run_id"),
+            vector_string(value, "action"),
+            vector_boolean(value, "settled"),
+            static_cast<std::uint32_t>(vector_integer(value, "ordinal")),
+            vector_string(value, "workflow_id"),
+            vector_string(value, "outcome"),
+            vector_string(value, "reason_code"),
+            vector_string(value, "decision_digest"),
+            vector_string(value, "patch_id"),
+            vector_string(value, "model_request_id"),
+            vector_string(value, "lesson_id"),
+            vector_string(value, "lesson_digest")};
     } else if (kind == "workflow-experience-draft") {
         response.payload =
             ipc::WorkflowExperienceDraft{vector_string(value, "source_run_id"),
@@ -1641,6 +1664,9 @@ void check_response_equal(const std::string &name, const ipc::Response &expected
                 check_string_equal(name, "digest", actual_value.digest, expected_value.digest);
                 check_string_equal(name, "definition_json", actual_value.definition_json,
                                    expected_value.definition_json);
+            } else if constexpr (std::is_same_v<T, ipc::WorkflowRecoveryStatus>) {
+                check_string_equal(name, "recovery metadata", ipc::encode_response(actual),
+                                   ipc::encode_response(expected));
             } else if constexpr (std::is_same_v<T, ipc::WorkflowExperienceDraft>) {
                 check_string_equal(name, "source_run_id", actual_value.source_run_id,
                                    expected_value.source_run_id);

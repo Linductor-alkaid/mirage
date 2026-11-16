@@ -1,8 +1,8 @@
-# Host 显式 Workflow Agent 恢复（M15-15）
+# Workflow Agent 显式恢复：Host 与产品服务
 
 [DEC-144](../decisions/DEC-144-host-workflow-recovery.md) 将 Mira 的恢复编排接到
-[MiraHost](../../runtime/mira_host/include/mirage/runtime/mira_host.hpp)。这是受控宿主接口，
-当前 Runtime Service、IPC/CLI、native 和自动失败触发尚未接线。
+[MiraHost](../../runtime/mira_host/include/mirage/runtime/mira_host.hpp)。这是 M15-15 的受控宿主接口；
+M15-19 已增加文末的产品 IPC/CLI 接线，native 和自动失败触发仍开放。
 
 ## 装配和调用
 
@@ -103,7 +103,8 @@ M15-16 首增量验证了真实隔离 SQLite 的关闭/重开、会话作用域�
 M15-17 / DEC-146 已接产品默认 owner 和固定本地用户 Agent scope，见下节。
 
 受控测试验证修复后实际 atom 续跑、生成修正候选和显式 Lesson，下一次同签名失败能
-召回 Lesson 并进入模型上下文。没有在线模型、真实桌面变化/接管或 Windows 验收；
+召回 Lesson 并进入模型上下文。M15-16 当时未执行在线模型，后由 M15-17 补限定证据；
+真实桌面变化/接管和 Windows 仍未验收；
 当前范围和实际测试结果见 [M15](../plans/m15-supervised-rpa-experience.md)。
 
 ## 默认持久化与在线验收（M15-17）
@@ -141,3 +142,28 @@ reserve_bytes、peak_admitted_file_bytes。未装配时为 false 和四个零，
 或历史全生命周期峰值。库的路径、主体、记忆正文均不通过这个入口返回。旧服务不支持
 此操作时明确失败；此命令没有写入或清理选项。契约见
 [DEC-147](../decisions/DEC-147-workflow-learning-status.md)。
+
+## 产品服务显式恢复（M15-19）
+
+服务已配置模型，并且 `mirage workflow runs` 中的 Run 处于 waiting_agent 时：
+
+```bash
+mirage workflow recovery start RUN_ID --socket /path/to/service.sock
+mirage workflow recovery status RUN_ID --socket /path/to/service.sock
+mirage workflow runs --socket /path/to/service.sock
+# 确认 Run 实际 completed 后，单独保存成功恢复经验：
+mirage workflow recovery lesson RUN_ID --socket /path/to/service.sock
+# 等待期间可显式取消模型尝试；Run 仍留待用户决定：
+mirage workflow recovery cancel RUN_ID --socket /path/to/service.sock
+```
+
+命令输出完整 JSON，坏响应、旧服务、不匹配身份或输出失败均非零。start 只确认接纳；
+status.settled 只表示模型尝试结算，Run 结果仍读 workflow runs。驱动尚在结算时可能
+明确拒绝 start/lesson；用户查看状态后可再次显式调用，不自动消耗额外模型调用。
+失败 Lesson 写入独立报错，不能据 Run 成功推断写入成功。
+
+复用当前配置及 keyring 模型栈。恢复采用 Text 严格本地解析、thinking=none、30 秒、
+2048 输出 tokens、每 Run 一次；权限和动作验证沿既有 Workflow。尝试未结算前聊天被拒绝，
+取消后仍须等待结算。**首次绑定恢复后，切换模型需要重启服务**，包括已结算或取消后；
+已存在 Run 不跨服务重启恢复。此限制用于保留当前编排器的尝试预算，见
+[DEC-148](../decisions/DEC-148-service-workflow-recovery.md)。未接 native/自动恢复。

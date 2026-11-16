@@ -359,6 +359,13 @@ struct WorkflowCancelRunRequest {
 /// DEC-147: read-only product learning capacity; does not open a disabled store.
 struct WorkflowLearningStatusRequest {};
 
+/// DEC-148: explicit, single-attempt recovery control. Status is bounded;
+/// lesson is a separate write after observed successful Run completion.
+struct WorkflowRecoveryRequest {
+    std::string run_id;
+    std::string action; ///< start | status | cancel | lesson
+};
+
 /// Reads one catalog workflow's head definition (DEC-026, M5-06; DEC-023
 /// backlog item 1): the serialized IR v1 JSON the service last saved or
 /// published for the workflow. The pinned library keeps no definition-body
@@ -414,10 +421,11 @@ using Request = std::variant<
     CloseSessionRequest, DeleteSessionRequest, SessionChatRequest, ChatHistoryRequest,
     WorkflowListRequest, WorkflowSaveRequest, WorkflowPublishRequest, WorkflowDeleteRequest,
     WorkflowAtomCatalogRequest, WorkflowRunsRequest, WorkflowRunRequest, WorkflowCancelRunRequest,
-    WorkflowGetRequest, WorkflowLearningStatusRequest, CompileWorkflowExperienceRequest,
-    ImportWorkflowExperienceRequest, DesktopObserveRequest, GetPolicyRequest, SetPolicyRequest,
-    GetModelRequest, SetModelRequest, ListModelsRequest, CancelChatRequest, GetVisionRequest,
-    SetVisionRequest, GetDesktopAuthorizationRequest, SetDesktopAuthorizationRequest>;
+    WorkflowGetRequest, WorkflowLearningStatusRequest, WorkflowRecoveryRequest,
+    CompileWorkflowExperienceRequest, ImportWorkflowExperienceRequest, DesktopObserveRequest,
+    GetPolicyRequest, SetPolicyRequest, GetModelRequest, SetModelRequest, ListModelsRequest,
+    CancelChatRequest, GetVisionRequest, SetVisionRequest, GetDesktopAuthorizationRequest,
+    SetDesktopAuthorizationRequest>;
 
 // ---------------------------------------------------------------------------
 // Responses
@@ -805,6 +813,16 @@ struct WorkflowLearningStatus {
     std::uint64_t peak_admitted_file_bytes = 0;
 };
 
+/// DEC-148: metadata only. An accepted start/cancel is not completion.
+struct WorkflowRecoveryStatus {
+    std::string run_id;
+    std::string action;
+    bool settled = false;
+    std::uint32_t ordinal = 0;
+    std::string workflow_id, outcome, reason_code, decision_digest, patch_id, model_request_id;
+    std::string lesson_id, lesson_digest;
+};
+
 /// DEC-139: the experience envelope is explicitly a candidate, not a
 /// workflow.get library record. The IR can contain sensitive arguments;
 /// only the explicit requesting client receives it, never the event stream.
@@ -913,8 +931,8 @@ using ResponsePayload =
                  DialogTurnAccepted, DialogHistory, SessionHistory, WorkflowList, WorkflowSaved,
                  WorkflowPublished, WorkflowDeleted, WorkflowAtomCatalog, WorkflowRunList,
                  WorkflowRunStarted, WorkflowRunCancelled, WorkflowDefinitionView,
-                 WorkflowExperienceDraft, WorkflowLearningStatus, ObservationView, PolicyView,
-                 ModelConfiguration, ModelList, VisionConfiguration,
+                 WorkflowExperienceDraft, WorkflowLearningStatus, WorkflowRecoveryStatus,
+                 ObservationView, PolicyView, ModelConfiguration, ModelList, VisionConfiguration,
                  DesktopAuthorizationConfiguration>;
 
 /// Stable error surface (DEC-007 item 4). `code` is from the mirage.ipc

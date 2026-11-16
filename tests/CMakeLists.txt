@@ -862,6 +862,13 @@ mirage_add_test(update_client_http_test
     )
 endif()
 
+mirage_add_test(workflow_recovery_service_test
+    SOURCES runtime/workflow_recovery_service_test.cpp
+    LIBS Mirage::runtime_service Mirage::integration_mira Mirage::ipc Mirage::kairo_consumer
+    LABELS "integration"
+    TIMEOUT 120
+    )
+
 mirage_add_test(runtime_service_test
     SOURCES runtime/runtime_service_test.cpp
     LIBS Mirage::runtime_service Mirage::integration_mira Mirage::platform Mirage::desktop Mirage::ipc Mirage::persistence Mirage::permission Mirage::kairo_consumer
@@ -1862,6 +1869,10 @@ if(MIRAGE_WITH_YOLO AND TARGET ppocr_pipeline_test)
 endif()
 find_package(Python3 COMPONENTS Interpreter QUIET)
 if(UNIX AND Python3_Interpreter_FOUND)
+    add_test(NAME workflow_recovery_cli_test
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/runtime/workflow_recovery_cli_test.py"
+                --cli "$<TARGET_FILE:mirage>")
+    set_tests_properties(workflow_recovery_cli_test PROPERTIES LABELS "integration;protocol" TIMEOUT 120)
     add_test(NAME workflow_experience_cli_test
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/runtime/workflow_experience_cli_test.py"
             --cli $<TARGET_FILE:mirage> --service $<TARGET_FILE:mirage-service>)

@@ -1,10 +1,10 @@
 {
   "meta": {
     "schema": "mirage-ipc-protocol-golden-vectors",
-    "version": 26,
+    "version": 27,
     "protocol_version": 1,
     "source_of_truth": "docs/design/mirage-ipc-protocol-v1.md",
-    "decision": "DEC-012 (Accepted), DEC-007, DEC-020 (Accepted), DEC-021 (Accepted), DEC-023 (Accepted), DEC-025 (Accepted), DEC-026 (Accepted), DEC-038 (Accepted), DEC-039 (Accepted), DEC-045 (Accepted), DEC-051 (Accepted), DEC-066 (Accepted), DEC-080 (Accepted), DEC-084 (M8-01 first increment), DEC-089 (Accepted), DEC-139 (Accepted), DEC-140 (Accepted), DEC-141 (Accepted)",
+    "decision": "DEC-012 (Accepted), DEC-007, DEC-020 (Accepted), DEC-021 (Accepted), DEC-023 (Accepted), DEC-025 (Accepted), DEC-026 (Accepted), DEC-038 (Accepted), DEC-039 (Accepted), DEC-045 (Accepted), DEC-051 (Accepted), DEC-066 (Accepted), DEC-080 (Accepted), DEC-084 (M8-01 first increment), DEC-089 (Accepted), DEC-139 (Accepted), DEC-140 (Accepted), DEC-141 (Accepted), DEC-148 (Accepted)",
     "consumers": [
       "tests/runtime/ipc_protocol_golden_test.cpp"
     ],
@@ -36,7 +36,8 @@
       "v23 (M6-45 / DEC-102): context_usage.estimated marks a local estimate of the final successful input request; absent means provider-reported. Legacy strings are unchanged.",
       "v24 (M15-10 / DEC-139): workflow.experience.compile and an explicit candidate experience envelope; review-only, no library or memory mutation. Existing canonical strings are unchanged.",
       "v25 (M15-11 / DEC-140): optional additional_run_ids and paired sources/parameter_candidates support bounded review-only parameter induction; all v24 vectors unchanged.",
-      "v26 (M15-12 / DEC-141): workflow.experience.import embeds a bounded candidate review response; existing v25 vectors unchanged. Import creates only a NotValidated draft after content identity checks."
+      "v26 (M15-12 / DEC-141): workflow.experience.import embeds a bounded candidate review response; existing v25 vectors unchanged. Import creates only a NotValidated draft after content identity checks.",
+      "v27 (M15-19 / DEC-148): explicit workflow.recovery start/status/cancel/lesson metadata; previous canonical vectors unchanged."
     ]
   },
   "requests": [
@@ -742,6 +743,42 @@
       },
       "canonical": "{\"v\":1,\"id\":92,\"op\":\"workflow.experience.import\",\"archive\":{\"v\":1,\"id\":91,\"ok\":true,\"experience\":{\"validation\":\"candidate\",\"source_run_id\":\"11111111111111111111111111111111\",\"source_workflow_id\":\"33333333333333333333333333333333\",\"source_digest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"workflow_id\":\"22222222222222222222222222222222\",\"digest\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"definition\":{\"workflow_id\":\"22222222222222222222222222222222\",\"name\":\"review candidate\"},\"sources\":[{\"source_run_id\":\"11111111111111111111111111111111\",\"source_workflow_id\":\"33333333333333333333333333333333\",\"source_digest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},{\"source_run_id\":\"44444444444444444444444444444444\",\"source_workflow_id\":\"33333333333333333333333333333333\",\"source_digest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}],\"parameter_candidates\":[{\"name\":\"file_path\",\"observed_values\":[\"a.txt\",\"b.txt\"],\"pointer\":\"/path\",\"provenance\":\"provenance\",\"step_index\":0}]}}}",
       "id": 92
+    },
+    {
+      "name": "workflow-recovery-start",
+      "id": 93,
+      "body": {
+        "op": "workflow.recovery.start",
+        "run_id": "11111111111111111111111111111111"
+      },
+      "canonical": "{\"v\":1,\"id\":93,\"op\":\"workflow.recovery.start\",\"run_id\":\"11111111111111111111111111111111\"}"
+    },
+    {
+      "name": "workflow-recovery-status",
+      "id": 94,
+      "body": {
+        "op": "workflow.recovery.status",
+        "run_id": "11111111111111111111111111111111"
+      },
+      "canonical": "{\"v\":1,\"id\":94,\"op\":\"workflow.recovery.status\",\"run_id\":\"11111111111111111111111111111111\"}"
+    },
+    {
+      "name": "workflow-recovery-cancel",
+      "id": 95,
+      "body": {
+        "op": "workflow.recovery.cancel",
+        "run_id": "11111111111111111111111111111111"
+      },
+      "canonical": "{\"v\":1,\"id\":95,\"op\":\"workflow.recovery.cancel\",\"run_id\":\"11111111111111111111111111111111\"}"
+    },
+    {
+      "name": "workflow-recovery-lesson",
+      "id": 96,
+      "body": {
+        "op": "workflow.recovery.lesson",
+        "run_id": "11111111111111111111111111111111"
+      },
+      "canonical": "{\"v\":1,\"id\":96,\"op\":\"workflow.recovery.lesson\",\"run_id\":\"11111111111111111111111111111111\"}"
     }
   ],
   "request_failures": [
@@ -1169,6 +1206,21 @@
       "name": "experience-import-half-review",
       "payload": "{\"v\":1,\"id\":92,\"op\":\"workflow.experience.import\",\"archive\":{\"v\":1,\"id\":90,\"ok\":true,\"experience\":{\"validation\":\"candidate\",\"source_run_id\":\"11111111111111111111111111111111\",\"source_workflow_id\":\"33333333333333333333333333333333\",\"source_digest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"workflow_id\":\"22222222222222222222222222222222\",\"digest\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"definition\":{\"workflow_id\":\"22222222222222222222222222222222\",\"name\":\"review candidate\"},\"sources\":[]}}}",
       "error": "workflow.experience.import requires a valid candidate review response"
+    },
+    {
+      "name": "workflow-recovery-nil",
+      "payload": "{\"v\":1,\"id\":1,\"op\":\"workflow.recovery.start\",\"run_id\":\"00000000000000000000000000000000\"}",
+      "error": "workflow.recovery requires a valid non-nil run_id"
+    },
+    {
+      "name": "workflow-recovery-short",
+      "payload": "{\"v\":1,\"id\":1,\"op\":\"workflow.recovery.start\",\"run_id\":\"1\"}",
+      "error": "workflow.recovery requires a valid non-nil run_id"
+    },
+    {
+      "name": "workflow-recovery-typed",
+      "payload": "{\"v\":1,\"id\":1,\"op\":\"workflow.recovery.start\",\"run_id\":1}",
+      "error": "workflow.recovery requires a valid non-nil run_id"
     }
   ],
   "responses": [
@@ -2545,6 +2597,81 @@
         }
       },
       "canonical": "{\"v\":1,\"id\":91,\"ok\":true,\"experience\":{\"validation\":\"candidate\",\"source_run_id\":\"11111111111111111111111111111111\",\"source_workflow_id\":\"33333333333333333333333333333333\",\"source_digest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"workflow_id\":\"22222222222222222222222222222222\",\"digest\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"definition\":{\"workflow_id\":\"22222222222222222222222222222222\",\"name\":\"review candidate\"},\"sources\":[{\"source_run_id\":\"11111111111111111111111111111111\",\"source_workflow_id\":\"33333333333333333333333333333333\",\"source_digest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},{\"source_run_id\":\"44444444444444444444444444444444\",\"source_workflow_id\":\"33333333333333333333333333333333\",\"source_digest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}],\"parameter_candidates\":[{\"name\":\"file_path\",\"observed_values\":[\"a.txt\",\"b.txt\"],\"pointer\":\"/path\",\"provenance\":\"provenance\",\"step_index\":0}]}}"
+    },
+    {
+      "name": "workflow-recovery-pending",
+      "response": {
+        "id": 97,
+        "ok": true,
+        "payload": {
+          "kind": "workflow-recovery",
+          "value": {
+            "run_id": "11111111111111111111111111111111",
+            "action": "status",
+            "settled": false,
+            "ordinal": 0,
+            "workflow_id": "",
+            "outcome": "",
+            "reason_code": "",
+            "decision_digest": "",
+            "patch_id": "",
+            "model_request_id": "",
+            "lesson_id": "",
+            "lesson_digest": ""
+          }
+        }
+      },
+      "canonical": "{\"v\":1,\"id\":97,\"ok\":true,\"recovery\":{\"run_id\":\"11111111111111111111111111111111\",\"action\":\"status\",\"settled\":false,\"ordinal\":0,\"workflow_id\":\"\",\"outcome\":\"\",\"reason_code\":\"\",\"decision_digest\":\"\",\"patch_id\":\"\",\"model_request_id\":\"\",\"lesson_id\":\"\",\"lesson_digest\":\"\"}}"
+    },
+    {
+      "name": "workflow-recovery-repaired",
+      "response": {
+        "id": 98,
+        "ok": true,
+        "payload": {
+          "kind": "workflow-recovery",
+          "value": {
+            "run_id": "11111111111111111111111111111111",
+            "action": "status",
+            "settled": true,
+            "ordinal": 1,
+            "workflow_id": "22222222222222222222222222222222",
+            "outcome": "patched-and-resumed",
+            "reason_code": "",
+            "decision_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "patch_id": "33333333333333333333333333333333",
+            "model_request_id": "44444444444444444444444444444444",
+            "lesson_id": "",
+            "lesson_digest": ""
+          }
+        }
+      },
+      "canonical": "{\"v\":1,\"id\":98,\"ok\":true,\"recovery\":{\"run_id\":\"11111111111111111111111111111111\",\"action\":\"status\",\"settled\":true,\"ordinal\":1,\"workflow_id\":\"22222222222222222222222222222222\",\"outcome\":\"patched-and-resumed\",\"reason_code\":\"\",\"decision_digest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"patch_id\":\"33333333333333333333333333333333\",\"model_request_id\":\"44444444444444444444444444444444\",\"lesson_id\":\"\",\"lesson_digest\":\"\"}}"
+    },
+    {
+      "name": "workflow-recovery-lesson",
+      "response": {
+        "id": 99,
+        "ok": true,
+        "payload": {
+          "kind": "workflow-recovery",
+          "value": {
+            "run_id": "11111111111111111111111111111111",
+            "action": "lesson",
+            "settled": false,
+            "ordinal": 0,
+            "workflow_id": "",
+            "outcome": "",
+            "reason_code": "",
+            "decision_digest": "",
+            "patch_id": "",
+            "model_request_id": "",
+            "lesson_id": "workflow-lesson-fixture",
+            "lesson_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          }
+        }
+      },
+      "canonical": "{\"v\":1,\"id\":99,\"ok\":true,\"recovery\":{\"run_id\":\"11111111111111111111111111111111\",\"action\":\"lesson\",\"settled\":false,\"ordinal\":0,\"workflow_id\":\"\",\"outcome\":\"\",\"reason_code\":\"\",\"decision_digest\":\"\",\"patch_id\":\"\",\"model_request_id\":\"\",\"lesson_id\":\"workflow-lesson-fixture\",\"lesson_digest\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"}}"
     }
   ],
   "response_failures": [
@@ -2967,6 +3094,31 @@
       "name": "induction-null-observation",
       "payload": "{\"v\":1,\"id\":91,\"ok\":true,\"experience\":{\"validation\":\"candidate\",\"source_run_id\":\"11111111111111111111111111111111\",\"source_workflow_id\":\"33333333333333333333333333333333\",\"source_digest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"workflow_id\":\"22222222222222222222222222222222\",\"digest\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"definition\":{\"workflow_id\":\"22222222222222222222222222222222\",\"name\":\"review candidate\"},\"sources\":[{\"source_run_id\":\"11111111111111111111111111111111\",\"source_workflow_id\":\"33333333333333333333333333333333\",\"source_digest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},{\"source_run_id\":\"44444444444444444444444444444444\",\"source_workflow_id\":\"33333333333333333333333333333333\",\"source_digest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}],\"parameter_candidates\":[{\"name\":\"file_path\",\"observed_values\":[null,\"b.txt\"],\"pointer\":\"/path\",\"provenance\":\"provenance\",\"step_index\":0}]}}",
       "error": "workflow experience has invalid induction review"
+    },
+    {
+      "name": "workflow-recovery-ordinal",
+      "payload": "{\"v\":1,\"id\":1,\"ok\":true,\"recovery\":{\"run_id\":\"11111111111111111111111111111111\",\"action\":\"status\",\"settled\":false,\"ordinal\":2,\"workflow_id\":\"\",\"outcome\":\"\",\"reason_code\":\"\",\"decision_digest\":\"\",\"patch_id\":\"\",\"model_request_id\":\"\",\"lesson_id\":\"\",\"lesson_digest\":\"\"}}",
+      "error": "invalid workflow recovery metadata"
+    },
+    {
+      "name": "workflow-recovery-fake-settled",
+      "payload": "{\"v\":1,\"id\":1,\"ok\":true,\"recovery\":{\"run_id\":\"11111111111111111111111111111111\",\"action\":\"status\",\"settled\":true,\"ordinal\":0,\"workflow_id\":\"\",\"outcome\":\"\",\"reason_code\":\"\",\"decision_digest\":\"\",\"patch_id\":\"\",\"model_request_id\":\"\",\"lesson_id\":\"\",\"lesson_digest\":\"\"}}",
+      "error": "invalid workflow recovery metadata"
+    },
+    {
+      "name": "workflow-recovery-wrong-action",
+      "payload": "{\"v\":1,\"id\":1,\"ok\":true,\"recovery\":{\"run_id\":\"11111111111111111111111111111111\",\"action\":\"retry\",\"settled\":false,\"ordinal\":0,\"workflow_id\":\"\",\"outcome\":\"\",\"reason_code\":\"\",\"decision_digest\":\"\",\"patch_id\":\"\",\"model_request_id\":\"\",\"lesson_id\":\"\",\"lesson_digest\":\"\"}}",
+      "error": "invalid workflow recovery metadata"
+    },
+    {
+      "name": "workflow-recovery-missing-lesson",
+      "payload": "{\"v\":1,\"id\":1,\"ok\":true,\"recovery\":{\"run_id\":\"11111111111111111111111111111111\",\"action\":\"lesson\",\"settled\":false,\"ordinal\":0,\"workflow_id\":\"\",\"outcome\":\"\",\"reason_code\":\"\",\"decision_digest\":\"\",\"patch_id\":\"\",\"model_request_id\":\"\",\"lesson_id\":\"\",\"lesson_digest\":\"\"}}",
+      "error": "invalid workflow recovery metadata"
+    },
+    {
+      "name": "workflow-recovery-unexpected-lesson",
+      "payload": "{\"v\":1,\"id\":1,\"ok\":true,\"recovery\":{\"run_id\":\"11111111111111111111111111111111\",\"action\":\"status\",\"settled\":false,\"ordinal\":0,\"workflow_id\":\"\",\"outcome\":\"\",\"reason_code\":\"\",\"decision_digest\":\"\",\"patch_id\":\"\",\"model_request_id\":\"\",\"lesson_id\":\"extra\",\"lesson_digest\":\"\"}}",
+      "error": "invalid workflow recovery metadata"
     }
   ],
   "events": [

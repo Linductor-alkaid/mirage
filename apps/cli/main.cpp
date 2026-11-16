@@ -1496,6 +1496,44 @@ int command_workflow_learning(int argc, char **argv) {
     return kExitOk;
 }
 
+int command_workflow_recovery(int argc, char **argv) {
+    GlobalOptions options;
+    int index = 3;
+    std::vector<std::string> operands;
+    if (!consume_options(
+            argc, argv, index,
+            [&options](const std::string &name, const std::string &value) {
+                return parse_common_option(name, value, options);
+            },
+            operands) ||
+        operands.size() != 2 ||
+        (operands[0] != "start" && operands[0] != "status" && operands[0] != "cancel" &&
+         operands[0] != "lesson")) {
+        std::cerr << kProgramName
+                  << ": workflow recovery requires start|status|cancel|lesson and a run id\n";
+        return kExitUsage;
+    }
+    const auto request = mirage::runtime::ipc::WorkflowRecoveryRequest{operands[1], operands[0]};
+    if (!mirage::runtime::ipc::decode_request(mirage::runtime::ipc::encode_request(1, request)).ok)
+        return kExitUsage;
+    auto client = client_for(options);
+    const auto response = client.call(request, options.call_timeout);
+    if (const int code = report_response(response); code != kExitOk)
+        return code;
+    const auto *status =
+        std::get_if<mirage::runtime::ipc::WorkflowRecoveryStatus>(&response.payload);
+    if (!status || status->run_id != request.run_id || status->action != request.action) {
+        std::cerr << kProgramName << ": service returned no matching workflow recovery metadata\n";
+        return kExitFailure;
+    }
+    std::cout << mirage::runtime::ipc::encode_response(response) << '\n' << std::flush;
+    if (!std::cout) {
+        std::cerr << kProgramName << ": cannot write workflow recovery metadata\n";
+        return kExitFailure;
+    }
+    return kExitOk;
+}
+
 int command_workflow_cancel(int argc, char **argv) {
     std::string run_id;
     GlobalOptions options;
@@ -1576,6 +1614,9 @@ void print_usage(std::ostream &out) {
         << "  workflow delete <id> [--socket P]\n"
         << "                               Remove a workflow from the catalog\n"
         << "  workflow atoms [--socket P]  List the exposed atom (tool) catalog\n"
+        << "  workflow recovery start|status|cancel|lesson <run-id> [--socket PATH]\n"
+        << "                               Explicit recovery control (JSON); model pinned until "
+           "restart\n"
         << "  workflow learning [--socket PATH]  Show learning storage capacity (JSON)\n"
         << "  workflow experience <run-id> --workflow-id ID --name NAME [--summary TEXT]\n"
         << "              [--socket P]     Export a review-only candidate IR to stdout\n"
@@ -1671,6 +1712,8 @@ int mirage_cli_main(int argc, char **argv) {
         }
         if (command == "workflow" && argc >= 3) {
             const std::string_view subcommand{argv[2]};
+            if (subcommand == "recovery")
+                return command_workflow_recovery(argc, argv);
             if (subcommand == "learning") {
                 return command_workflow_learning(argc, argv);
             }

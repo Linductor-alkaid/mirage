@@ -263,6 +263,12 @@ M15-17 默认开启 Workflow 元数据学习，长期保存于 state 目录的
 在 `service.json` 的 `runtime` 中设置 `workflow_learning_enabled:false` 可关闭；缺省为 true。
 通过 `mirage workflow learning` 查询默认学习开关及文件长度/限额/维护预留/进程峰值，
 输出 JSON；查询不打开已关闭的存储，不返回路径或记忆正文（DEC-147/M15-18）。
+
+M15-19 提供 `mirage workflow recovery start|status|cancel|lesson RUN_ID`，在当前服务中
+显式恢复 waiting_agent Run，并单独保存已成功恢复的 Lesson。与聊天复用同一配置模型；
+恢复尝试结算前拒绝聊天，首次绑定后切换模型需重启服务。start 是接纳，status 是模型
+尝试结果，Run 完成状态另查 `workflow runs`。用法与限制见
+[产品恢复示例](docs/examples/workflow-agent-recovery.md#产品服务显式恢复m15-19)。
 真实模型受控 Workflow 在线闭环及独立进程重开记录见
 [验收证据](docs/compatibility/workflow-learning-20261114.md)。截图长期采集与原生自动恢复另验。
 

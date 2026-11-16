@@ -1786,3 +1786,14 @@ text_only OCR 不生成图、不退休已有输入意图；共享日志保持 25
 workflow.learning.status / mirage workflow learning，返回是否装配及 Mira 的文件长度、
 硬限额、维护预留与进程已接纳峰值；不返回路径/主体/记忆正文。未装配时不打开数据库，
 读取失败返回 unavailable，沿既有服务串行上下文和 Mira StoreChannel，不新增并发设施。
+
+### Workflow 产品显式恢复预览（M15-19）
+
+[DEC-148](../decisions/DEC-148-service-workflow-recovery.md) 将 Host 的恢复与 Lesson
+接到 Runtime Service 和 CLI 的 start/status/cancel/lesson。服务先拒绝未结算聊天，再
+通过 ModelLayer 的即时独占预留共享既有 Gateway/provider/profile；模型尝试结算前不
+解除预留，关闭先排空 Host 再释放模型。Mira 继续拥有尝试、校验、审计和取消事实，
+服务仅保留一个模型资源占用的 Run ID，不建立第二份尝试状态机。
+首次绑定后 model.set 先于凭据或配置写入拒绝；模型切换需重启服务，以保留单 Run 一次
+预算。固定 Text 本地严格 schema、30 秒、2048 tokens、thinking=none，无自动触发或
+native 新入口。lesson 明确单独写入且只接受已验证成功恢复；Run 状态另读 workflow.runs。

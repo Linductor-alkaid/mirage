@@ -6,13 +6,20 @@ native-release 与 DEB 交付完成；Release 120/120、真实推理与包校验
 
 2026-10-16：[M7-23](m7-yolo-integration.md) 接入真实 YOLO 与 Mirador 修复，In Progress，DEC-097。
 
-> 状态：Planned
+> 状态：In Progress
 > 版本：0.1
 > 负责人：Mirage 维护者
 > 依据：[《Mirage：Linux - Windows 桌面端设计方案》](../design/Mirage：Linux%20-%20Windows%20桌面端设计方案.md)（下称"设计文档"）
-> 更新日期：2026-11-14（推进 M15 Host 会话内学习；既有门禁保留）
+> 更新日期：2026-11-16（统一专项状态；推进 M15 产品恢复接线）
 
 ## 当前状态
+
+2026-11-16：总计划状态与专项计划统一为 In Progress。M1～M4（含 M1.5）保持
+原限定范围 Completed；M5～M10、M15 保持 In Progress。M10 的 DEC-095 已冻结，
+增量 A 与增量 B 的 Linux 后端/会话接入已交付，其余平台与退出门禁以专项计划为准。
+M15-01/02、10～19 已完成各自限定增量，M15-03～09 和真实桌面产品退出条件仍开放。
+基线 `7b5bc28` 已本地提交，尚未推送；历史验证记录保留当时结果，未执行项不升级状态。
+
 
 2026-11-11：维护者要求重新推进早期成功任务经验、视觉记忆与 Agent 监督 RPA，
 建立 [M15 专项计划](m15-supervised-rpa-experience.md)（In Progress）和
@@ -46,6 +53,11 @@ pin 至 2c42627，M15-17 限定增量完成，四配置各 15/15 与 Mira CI 12/
 工件长期总量仍未交付，不据此关闭 M15。M15-18 /
 [DEC-147](../decisions/DEC-147-workflow-learning-status.md) 补学习存储只读 IPC/CLI，
 提供开关与容量快照，不暴露记忆正文。
+2026-11-16：M15-19 / [DEC-148](../decisions/DEC-148-service-workflow-recovery.md) 完成
+Runtime Service 的显式恢复 IPC/CLI 与独立 Lesson 写入，复用当前模型栈的独占预留。
+首次绑定后模型配置固定至服务重启；四配置各 12/12 及范围见
+[验收记录](../compatibility/workflow-recovery-service-20261116.md)。native/自动触发及完整
+M15 退出门禁保持开放。
 长期视觉记忆、native 入口和原生在线监督恢复仍待后续实施，不将短期视觉缓存或上游
 模块交付视为产品闭环完成。
 
@@ -323,11 +335,11 @@ M8-06 按 [DEC-105](../decisions/DEC-105-wayland-pet-exclusion.md) 接入 GNOME 
 Windows 安装后呈现问题按[维护计划](maintenance-windows-presentation-20261014.md)推进：
 图形启动入口、通知承载重复图标、托盘菜单尺寸与间歇黑角分别跟踪，未取证项保持开放。
 
-新增 [M10：基础 Agent 工具集](m10-basic-agent-tools.md)（Proposed）：按维护者要求，
+2026-10-16 建立 [M10：基础 Agent 工具集](m10-basic-agent-tools.md)；当前 In Progress。按维护者要求，
 调研本地 ZCode / deepseek-harness、pi 固定提交与 OpenCode 官方文档，规划
 `exec` / `read` / `write` / `edit` 的 Provider 扩展、会话接入和 Linux/Windows 验收。
-M10-01 源码调研已完成，其他工作项未实施；公开契约、预算与默认权限待
-[DEC-095](../decisions/DEC-095-basic-agent-tools.md) 冻结，不改变当前产品授权与能力。
+M10-01～05、07 已交付；公开契约、预算与默认权限由
+[DEC-095](../decisions/DEC-095-basic-agent-tools.md) 冻结，Windows 后端与剩余产品验收仍开放。
 参见[调研与差距表](../research/2026-10-16-basic-agent-tools-survey.md)。
 
 维护者确认新增 [M9：持续任务与本地语义感知闭环](m9-continuous-tasks-and-local-perception.md)
@@ -703,7 +715,7 @@ closed，发布机取证补跑）；更新清单 ed25519 签名生成与 fail-cl
 - [ ] `SCOPE-08` mira_pet：独立受管进程、真实状态投影、透明置顶与分段循环动画；
       先交付 Linux X11 v5 九态预览，其他平台独立验收（M8）。
 - [ ] `SCOPE-09` 基础 Agent 工具：exec/read/write/edit 与桌面工具共存，具备文件
-      分页、修改前观察/冲突检查、进程取消及有界输出；M10 Proposed，待 DEC-095 冻结。
+      分页、修改前观察/冲突检查、进程取消及有界输出；M10 In Progress，DEC-095 已冻结，剩余验收见专项计划。
 
 明确不包含（由 pinned Mira 提供，Mirage 仅适配）：
 
@@ -772,14 +784,17 @@ Executor 由 pinned `third_party/mira/third_party/executor` 提供，能力路�
 | [M7](m7-visual-tools-and-input.md) | 会话桌面工具、真实视觉与完整键鼠输入 | 桌面工具预览版（标签未定） | In Progress | M2/M3、M6 Runtime owner |
 | [M8](m8-mira-pet.md) | mira_pet 独立置顶状态窗口、逐动作循环片段与真实执行投影 | Linux X11 桌宠预览版（标签未定） | In Progress | M1 IPC、M6 Runtime owner、M7 动作/观察执行缝 |
 | [M9](m9-continuous-tasks-and-local-perception.md) | 持续任务、请求级 compact、文本观察、变化/跟踪与本地动作/等待闭环 | Linux 持续任务与文本观察预览（标签未定） | In Progress | M1/M3/M6/M7 已交付能力；M9-02 Linux pin 消费已完成，产品接线另列 M9-03 |
-| [M10](m10-basic-agent-tools.md) | exec/read/write/edit、文件版本/提交、cwd/输出、会话与产品接线 | Linux 基础工具预览 → Windows 四工具预览（标签未定） | Proposed | M1/M5/M6/M7 已交付能力；不等待 M8/M9 整体关闭 |
-| [M15](m15-supervised-rpa-experience.md) | 已执行任务经验候选、视觉记忆与 Agent 监督 RPA；Run 草稿、参数归纳与候选文件导出/导入 | 经验候选文件预览，标签未定 | In Progress | 已交付 M5/M7 面与 Mira 编译/学习/恢复；普通 Agent 提取待上游，后续方案 Proposed |
+| [M10](m10-basic-agent-tools.md) | exec/read/write/edit、文件版本/提交、cwd/输出、会话与产品接线 | Linux 基础工具预览 → Windows 四工具预览（标签未定） | In Progress | M1/M5/M6/M7 已交付能力；不等待 M8/M9 整体关闭 |
+| [M15](m15-supervised-rpa-experience.md) | 已执行任务经验候选、视觉记忆与 Agent 监督 RPA；Run 草稿/候选文件、默认长期元数据与显式恢复 IPC/CLI | 经验/恢复 CLI 预览，标签未定 | In Progress | 已交付 M5/M7 面与 Mira 编译/学习/恢复；普通 Agent 提取待上游，后续方案 Proposed |
 
 拆分与合并顺序：先契约后实现（Desktop Environment 接口先于任何 Backend）、先骨架后
 功能（每个 Backend 先以最小动作打通 Observation -> Action -> Observation 闭环）、
 先 SPI/假实现后真实依赖（视觉后端先用 fake/identity backend 验证集成层）。
 
 ## 尚未冻结的决策（暂定默认值）
+
+DEC-095 已于 M10-02 冻结，不再列为待冻结项；其恢复规则部分由 DEC-113 替代。
+DEC-148 已冻结本轮 M15-19 的显式恢复预览；模型重绑、native 与自动触发仍需后续决策。
 
 2026-10-23 已接受 [DEC-114](../decisions/DEC-114-roi-ocr-ime-text-tool.md)，由
 [M7-35](m7-continuous-input-and-device-compatibility.md) 交付 ROI OCR 输入法复合工具。
@@ -800,7 +815,6 @@ Executor 由 pinned `third_party/mira/third_party/executor` 提供，能力路�
 | DEC-128 | Linux分层视觉生产配置 | [DEC-128](../decisions/DEC-128-layered-perception-production-profile.md)：Linux默认layered/5Hz/5s完整巡检/有界跟踪，稳定CLI和legacy回退；本机验收见生产记录，Windows/Portal/视频门禁保留 | Mirage维护者 | 本机配置已冻结；跨平台M9-33 |
 | DEC-119 | 有限容量的记忆、会话归档与清理 | [DEC-119](../decisions/DEC-119-bounded-memory-and-session-retention.md)：容量/生命周期原则 Accepted，部分替代 DEC-101；算法、部署预算、迁移与实际资源收敛验收待冻结，Mira #111 评审 | Mira/Mirage 维护者 | M11～M14 统一交互实施前 |
 | DEC-110 | 连续输入与设备兼容性 | Proposed：M7-25 已有契约冻结稿；2026-10-20 补全量键鼠默认本地自然时序、无模型时间参数与完整执行后返回/验证要求，契约及兼容迁移待修订；M7-26 已交付 X11/Portal 完整动作默认自然时序与裸修饰键 tap；持键/IME/设备及真实平台验收未完成 | Mirage 维护者 | M7-25 修订/评审；设备原型前 M7-29/30，任务阈值执行前 M7-31 |
-| DEC-095 | 基础 Agent 工具集 | Proposed：四工具/alias、观察与提交点、预算、权限迁移和平台边界见提案 | Mirage 维护者 | M10-02 |
 | DEC-090 | 持续任务与有界资源 | 方向 Accepted；无进展判定、公开循环 API/准入及存量在实施前冻结 | Mira/Mirage 维护者 | M9-01～04 |
 | DEC-091 | 文本观察与本地闭环 | 方向 Accepted；增量状态/事件驱动理解/按需 VLM，观察与事件契约、连续帧预算、语义绑定/跟踪及动作/等待 schema 待冻结（DEC-109 细化） | Mirage 维护者 | M9-05/07/08/09/10/13/18 |
 | DEC-092 | Native pet 完整交付 | 默认携带/自动启动 Accepted；聚合目标、布局、能力/版本诊断在实施前冻结；显式偏好另属 M8-08 | Mirage 维护者 | M8-12/08 |

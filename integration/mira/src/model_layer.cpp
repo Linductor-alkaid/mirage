@@ -722,6 +722,7 @@ struct ModelLayer::Impl {
     /// the gateway/provider/transport are released — destroying them under a
     /// running infer is a use-after-free the sanitizers rightly flag.
     std::mutex infer_mutex;
+    bool recovery_reserved = false; // DEC-148; protected by infer_mutex.
     ModelProviderOverride::Factory override_factory;
     std::shared_ptr<detail::ControlledInputWorker> controlled_input_worker;
     DesktopToolContext desktop;
@@ -823,7 +824,7 @@ DialogCompletion ModelLayer::complete_dialog_turn(
     }
     std::lock_guard drain(impl_->infer_mutex);
     if (impl_ == nullptr || !impl_->running || !impl_->gateway ||
-        impl_->config.workflow_recovery_only) {
+        (impl_->config.workflow_recovery_only || impl_->recovery_reserved)) {
         completion.failed = true;
         completion.error = "model layer is not running";
         return completion;
@@ -1029,7 +1030,7 @@ DialogCompletion ModelLayer::complete_harness_turn(
         return completion;
     }
     std::lock_guard drain(impl_->infer_mutex);
-    if (!impl_->running || impl_->config.workflow_recovery_only ||
+    if (!impl_->running || impl_->config.workflow_recovery_only || impl_->recovery_reserved ||
         transcript.size() + user_text.size() > impl_->config.max_input_bytes) {
         completion.failed = true;
         completion.error = "harness unavailable or input budget exceeded";
@@ -2005,11 +2006,27 @@ DialogCompletion ModelLayer::complete_harness_turn(
 } // namespace mirage::integration
 
 namespace mirage::integration {
+bool ModelLayer::reserve_workflow_recovery() {
+    if (!impl_)
+        return false;
+    std::unique_lock lock(impl_->infer_mutex, std::try_to_lock);
+    if (!lock || !impl_->running || impl_->recovery_reserved)
+        return false;
+    impl_->recovery_reserved = true;
+    return true;
+}
+void ModelLayer::release_workflow_recovery() {
+    if (!impl_)
+        return;
+    std::lock_guard lock(impl_->infer_mutex);
+    impl_->recovery_reserved = false;
+}
 std::shared_ptr<WorkflowRecoveryModel> ModelLayer::workflow_recovery_model() const {
     if (!impl_)
         return {};
     std::lock_guard lock(impl_->infer_mutex);
-    if (!impl_->running || !impl_->config.workflow_recovery_only || !impl_->gateway)
+    if (!impl_->running || (!impl_->config.workflow_recovery_only && !impl_->recovery_reserved) ||
+        !impl_->gateway)
         return {};
     auto result = std::make_shared<WorkflowRecoveryModel>();
     result->gateway = impl_->gateway;

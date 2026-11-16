@@ -2,7 +2,7 @@
 
 > 状态：Accepted（事实源自 `M1.5-01` 起生效；事件帧格式与订阅语义已随 `M1.5-02`
 > 落地冻结，2026-09-17）
-> 日期：2026-09-16
+> 日期：2026-09-16；更新：2026-11-16（DEC-148 / golden v27）
 > 负责人：Mirage 维护者
 > 依据：[DEC-007](../decisions/DEC-007-local-ipc-and-runtime-service.md)（协议 v1 与传输冻结）、
 > [DEC-012](../decisions/DEC-012-ipc-event-subscription-and-wire-schema.md)（事件订阅扩展，已
@@ -1171,3 +1171,46 @@ reserve_bytes、peak_admitted_file_bytes。启用时限额为 1 MiB～1 TiB，�
 这是数据库/WAL/SHM/journal 文件长度快照，不是物理块或全生命周期峰值。不返回路径、
 主体和记忆正文，不改变库或配置；沿既有本地 IPC 认证和串行上下文。CLI：
 `mirage workflow learning [--socket PATH]`，输出完整 JSON。旧服务明确报告不支持。
+
+## Workflow 显式恢复（DEC-148 / M15-19）
+
+四个加法请求为 `workflow.recovery.start`、`workflow.recovery.status`、
+`workflow.recovery.cancel`、`workflow.recovery.lesson`，均要求 `run_id` 为 32 位非 nil
+十六进制 ID，且属于当前服务登记的 Run。未知 Run 为 not_found，未配置模型为 unavailable；
+start 只允许 WaitingAgent，未结算的聊天/其他恢复明确拒绝。旧服务返回 unsupported。
+
+```json
+{"v":1,"id":1,"op":"workflow.recovery.start","run_id":"11111111111111111111111111111111"}
+```
+
+成功响应包含 `recovery` 对象，成员按下表顺序编码，全部必需：
+
+| 成员 | 类型与语义 |
+| --- | --- |
+| run_id | 当前 Run ID |
+| action | start / status / cancel / lesson，与请求相同 |
+| settled | boolean；仅 status 可为 true，表示恢复模型尝试已结算 |
+| ordinal | 0（无结算）或 1（本预览仅单次尝试） |
+| workflow_id | 结算时为非 nil Workflow ID，否则空字符串 |
+| outcome | 结算时为 patched-and-resumed / resumed-without-patch / cancel-requested / deferred-to-host / aborted，否则空 |
+| reason_code | 有界稳定诊断，最多 128 字节；未结算时为空 |
+| decision_digest | 可空的 64 位 hex；不含 rationale |
+| patch_id | 可空的 32 位非 nil hex |
+| model_request_id | 可空的 32 位非 nil hex |
+| lesson_id | 仅 lesson 返回非空 ID，最多 256 字节 |
+| lesson_digest | 仅 lesson 返回 64 位 hex |
+
+start/cancel 返回确认，settled=false、ordinal=0、所有尝试/学习字段为空；它们不保证
+Run 已完成或模型已停止。status 的未结算响应字段同样为空；未启动过的 Run 明确报错，
+不伪装为进行中。Mira 结算成功后可重复查询同一结果，Run 最终状态读 workflow.runs。
+lesson 是独立写请求，只能在成功恢复并实际 Completed 后记录，经 Mira 幂等与审计门禁；
+写失败或驱动仍结算时明确报错，不自动循环重试，不通过查询状态写记忆。
+
+恢复固定 Text + 严格本地 schema 校验，thinking=none，30 秒、2048 输出 tokens、
+0 决策修复、并发 1、跟踪 32、每 Run 一次。与聊天复用当前模型栈并独占预留；尝试
+future 未结算前不释放模型，取消不立即解除预留。start/status/cancel 或后续聊天可消费
+已结算结果并释放预留；不新增轮询 worker。首次绑定后 model.set 返回 invalid_state，
+必须重启服务再切换模型；拒绝先于配置/凭据变更。详见
+[DEC-148](../decisions/DEC-148-service-workflow-recovery.md)。没有 native 或自动触发入口。
+
+共享 golden v27 增加四请求、等待/修复/学习响应和负向语料；既有 canonical 不变。

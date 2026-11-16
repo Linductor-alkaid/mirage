@@ -60,6 +60,88 @@ void scenario_workflow_learning_status() {
     }
 }
 
+void scenario_workflow_recovery() {
+    const std::string run_id(32, '1');
+    for (const std::string action : {"start", "status", "cancel", "lesson"}) {
+        const auto request = ipc::decode_request(
+            ipc::encode_request(1, ipc::WorkflowRecoveryRequest{run_id, action}));
+        const auto *body = std::get_if<ipc::WorkflowRecoveryRequest>(&request.body);
+        MIRAGE_CHECK(request.ok && body && body->action == action && body->run_id == run_id);
+    }
+    for (const std::string &id :
+         {std::string{}, std::string{"bad"}, std::string(32, '0'), std::string(33, '1')})
+        MIRAGE_CHECK(
+            !ipc::decode_request(ipc::encode_request(1, ipc::WorkflowRecoveryRequest{id, "start"}))
+                 .ok);
+    MIRAGE_CHECK(
+        !ipc::decode_request(R"({"v":1,"id":1,"op":"workflow.recovery.start","run_id":3})").ok);
+    MIRAGE_CHECK(
+        !ipc::decode_request(ipc::encode_request(1, ipc::WorkflowRecoveryRequest{run_id, "retry"}))
+             .ok);
+    ipc::Response response;
+    response.ok = true;
+    response.id = 1;
+    ipc::WorkflowRecoveryStatus status;
+    status.run_id = run_id;
+    status.action = "status";
+    for (const bool settled : {false, true}) {
+        status.settled = settled;
+        status.ordinal = settled ? 1 : 0;
+        status.workflow_id = settled ? std::string(32, '2') : "";
+        status.outcome = settled ? "patched-and-resumed" : "";
+        response.payload = status;
+        const auto decoded = ipc::decode_response(ipc::encode_response(response));
+        const auto *value = std::get_if<ipc::WorkflowRecoveryStatus>(&decoded.response.payload);
+        MIRAGE_CHECK(decoded.ok && value && value->settled == settled);
+    }
+    for (unsigned i = 0; i < 11; ++i) {
+        auto bad = status;
+        if (i == 0)
+            bad.ordinal = 2;
+        if (i == 1)
+            bad.workflow_id = "bad";
+        if (i == 2)
+            bad.outcome = "success";
+        if (i == 3)
+            bad.action = "retry";
+        if (i == 4)
+            bad.action = "start";
+        if (i == 5)
+            bad.reason_code = std::string(129, 'a');
+        if (i == 6)
+            bad.decision_digest = "bad";
+        if (i == 7)
+            bad.patch_id = "bad";
+        if (i == 8)
+            bad.model_request_id = "bad";
+        if (i == 9)
+            bad.lesson_id = "unexpected";
+        if (i == 10)
+            bad.run_id = std::string(32, '0');
+        response.payload = bad;
+        MIRAGE_CHECK(!ipc::decode_response(ipc::encode_response(response)).ok);
+    }
+    response.payload = status;
+    const auto wire = ipc::encode_response(response);
+    for (const std::string broken : {"\"settled\":null", "\"settled\":1", "\"settled\":\"true\""}) {
+        auto bad = wire;
+        const auto pos = bad.find("\"settled\":true");
+        MIRAGE_CHECK(pos != std::string::npos);
+        if (pos != std::string::npos)
+            bad.replace(pos, 14, broken);
+        MIRAGE_CHECK(!ipc::decode_response(bad).ok);
+    }
+    status = {};
+    status.run_id = run_id;
+    status.action = "lesson";
+    response.payload = status;
+    MIRAGE_CHECK(!ipc::decode_response(ipc::encode_response(response)).ok);
+    status.lesson_id = "lesson-id";
+    status.lesson_digest = std::string(64, 'a');
+    response.payload = status;
+    MIRAGE_CHECK(ipc::decode_response(ipc::encode_response(response)).ok);
+}
+
 // --- framing ----------------------------------------------------------------
 
 void scenario_framing_round_trip() {
@@ -1615,6 +1697,7 @@ int main() {
     scenario_vision_configuration();
     run_scenario("chat_preview", scenario_chat_preview);
     run_scenario("framing_round_trip", scenario_framing_round_trip);
+    run_scenario("workflow_recovery", scenario_workflow_recovery);
     run_scenario("workflow_learning_status", scenario_workflow_learning_status);
     run_scenario("framing_little_endian_header", scenario_framing_little_endian_header);
     run_scenario("framing_empty_payload", scenario_framing_empty_payload);

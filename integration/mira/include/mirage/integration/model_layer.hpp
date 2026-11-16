@@ -232,9 +232,13 @@ class ModelLayer {
 
     [[nodiscard]] bool running() const;
     [[nodiscard]] const ModelLayerConfig &config() const;
-    /// Available only in workflow_recovery_only mode. Drain Host before
-    /// shutting down this layer; no concurrent native/session reuse.
+    /// Dedicated acceptance mode, or DEC-148 exclusive product reservation.
+    /// Drain Host before releasing the reservation or shutting down the layer.
     std::shared_ptr<WorkflowRecoveryModel> workflow_recovery_model() const;
+    /// Immediate admission, never waits for a dialog/harness turn. The owner
+    /// releases only after the recovery future settles (or Host shutdown).
+    bool reserve_workflow_recovery();
+    void release_workflow_recovery();
 
     /// One bounded dialog completion. `transcript` is the caller-rendered
     /// earlier-conversation block (may be empty); `user_text` is the new
