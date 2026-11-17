@@ -1,3 +1,4 @@
+#include <mirage/integration/workflow_document.hpp>
 #include <mirage/runtime/runtime_service.hpp>
 
 #include <mirage/runtime/basic_output_store.hpp>
@@ -15,6 +16,7 @@
 #include <mirage/runtime/persistence/session_state.hpp>
 #include <mirage/runtime/persistence/settings.hpp>
 #include <mirage/runtime/persistence/store.hpp>
+#include <mirage/runtime/persistence/workflow_catalog.hpp>
 
 // DEC-027 dialog task glue: the pinned operation-context and id types the
 // model layer's completion call consumes (runtime/service already links the
@@ -31,6 +33,7 @@
 #include "service_loop.hpp"
 #include "task_driver.hpp"
 #include "tray_presenter.hpp"
+#include "workflow_recovery_control.hpp"
 
 #include <kairo/blocking_io.hpp>
 #include <kairo/comm.hpp>
@@ -46,6 +49,7 @@
 #include <memory>
 #include <optional>
 #include <random>
+#include <set>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -618,7 +622,8 @@ struct RuntimeService::Impl {
         core->journal = std::make_shared<mirage::integration::SessionJournal>();
         {
             std::lock_guard lock(core->workflows.mutex);
-            core->workflows.capacity = config.max_workflow_definitions;
+            core->workflows.capacity =
+                std::min(config.max_workflow_definitions, persistence::kWorkflowCatalogMaxEntries);
         }
         {
             std::lock_guard lock(core->workflow_runs.mutex);
@@ -1518,8 +1523,40 @@ struct RuntimeService::Impl {
             handle_workflow_cancel(connection_id, correlation_id, std::move(request->run_id));
             return;
         }
+        if (const auto *request = std::get_if<ipc::WorkflowRecoveryRequest>(&decoded.body)) {
+            auto result = detail::control_workflow_recovery(*core, *request);
+            if (result.ok)
+                respond(connection_id, correlation_id, std::move(result.payload));
+            else
+                fail(connection_id, correlation_id, result.error.code, result.error.message);
+            return;
+        }
+        if (std::holds_alternative<ipc::WorkflowLearningStatusRequest>(decoded.body)) {
+            ipc::WorkflowLearningStatus status;
+            if (core->workflow_learning) {
+                const auto snapshot = core->workflow_learning->capacity_snapshot();
+                if (!snapshot) {
+                    fail(connection_id, correlation_id, "unavailable",
+                         "workflow learning snapshot unavailable");
+                    return;
+                }
+                const auto &value = snapshot.value();
+                status = {true, value.file_bytes, value.limit_bytes, value.reserve_bytes,
+                          value.peak_admitted_file_bytes};
+            }
+            respond(connection_id, correlation_id, status);
+            return;
+        }
         if (auto *request = std::get_if<ipc::WorkflowGetRequest>(&decoded.body)) {
             handle_workflow_get(connection_id, correlation_id, std::move(request->workflow_id));
+            return;
+        }
+        if (auto *request = std::get_if<ipc::CompileWorkflowExperienceRequest>(&decoded.body)) {
+            handle_workflow_experience(connection_id, correlation_id, *request);
+            return;
+        }
+        if (auto *request = std::get_if<ipc::ImportWorkflowExperienceRequest>(&decoded.body)) {
+            handle_workflow_experience_import(connection_id, correlation_id, *request);
             return;
         }
         if (auto *request = std::get_if<ipc::DesktopObserveRequest>(&decoded.body)) {
@@ -2453,6 +2490,11 @@ struct RuntimeService::Impl {
 
     void handle_model_set(std::uint64_t connection, std::uint64_t correlation,
                           const ipc::SetModelRequest &request) {
+        if (core->workflow_recovery_bound) {
+            fail(connection, correlation, "invalid_state",
+                 "workflow recovery has bound this model; restart service before changing model");
+            return;
+        }
         auto decoded = persistence::decode_settings(request.settings_json);
         if (decoded.ok) {
             if (decoded.settings.model)
@@ -2642,6 +2684,12 @@ struct RuntimeService::Impl {
         }
         if (core->model_layer == nullptr || !core->model_layer->running()) {
             fail(connection_id, correlation_id, "unavailable", "model layer is not configured");
+            return;
+        }
+        const auto recovery = detail::refresh_workflow_recovery(*core);
+        if (!recovery.ok || !core->recovering_workflow_run.empty()) {
+            fail(connection_id, correlation_id, "unavailable",
+                 "workflow recovery is still settling");
             return;
         }
         const auto options = mirage::integration::reasoning_options(
@@ -3121,6 +3169,8 @@ struct RuntimeService::Impl {
     /// state written by save/publish; the pinned library stays the
     /// execution-side authority.
     void handle_workflow_list(std::uint64_t connection_id, std::uint64_t correlation_id) {
+        if (!workflow_catalog_available(connection_id, correlation_id))
+            return;
         std::map<std::string, WorkflowCatalogEntry> entries;
         {
             std::lock_guard lock(core->workflows.mutex);
@@ -3141,9 +3191,152 @@ struct RuntimeService::Impl {
         respond(connection_id, correlation_id, std::move(list));
     }
 
-    /// Serial thread: append one draft version (DEC-023). Capacity and byte
-    /// budget are refused before the host call so a rejection never leaves a
-    /// pinned library record behind.
+    /// DEC-151: the serial owner validates/stores drafts without modifying the
+    /// runnable library. File failure leaves the previous catalog/calls intact.
+    std::unique_ptr<persistence::WorkflowCatalogStore> workflow_store;
+    std::map<std::string, std::set<std::string>> workflow_committed;
+    bool workflow_catalog_healthy = true; // serial owner, startup precedes listener
+    bool workflow_catalog_available(std::uint64_t connection, std::uint64_t correlation) {
+        if (workflow_catalog_healthy)
+            return true;
+        fail(connection, correlation, "unavailable",
+             "workflow catalog activation failed; restart service");
+        return false;
+    }
+    persistence::WorkflowCatalog workflow_catalog_snapshot() {
+        persistence::WorkflowCatalog result;
+        std::lock_guard lock(core->workflows.mutex);
+        for (const auto &[id, entry] : core->workflows.workflows)
+            result[id] = {entry.definition_json,  entry.head_digest, entry.published_json,
+                          entry.published_digest, entry.runnable,    entry.callable,
+                          entry.updated_at_ms};
+        return result;
+    }
+    static std::map<std::string, WorkflowCatalogEntry>
+    workflow_catalog_projection(const persistence::WorkflowCatalog &records) {
+        std::map<std::string, WorkflowCatalogEntry> result;
+        for (const auto &[id, record] : records) {
+            const auto document = integration::read_workflow_document(record.head_json);
+            WorkflowCatalogEntry entry;
+            entry.name = document.document.name;
+            entry.head_digest = record.head_digest;
+            entry.definition_json = record.head_json;
+            entry.runnable = record.head_published;
+            entry.validation = record.head_published ? "dry_run_passed" : "not_validated";
+            entry.published_json = record.published_json;
+            entry.published_digest = record.published_digest;
+            entry.callable = record.callable;
+            entry.updated_at_ms = record.updated_at_ms;
+            result.emplace(id, std::move(entry));
+        }
+        return result;
+    }
+    bool commit_workflow_catalog(std::uint64_t connection, std::uint64_t correlation,
+                                 const persistence::WorkflowCatalog &records,
+                                 const std::string &remove = {}) {
+        // Build the visible projection before durable commit; swapping it cannot allocate.
+        auto projection = workflow_catalog_projection(records);
+        auto committed = workflow_committed;
+        std::erase_if(committed, [&](const auto &entry) { return !records.contains(entry.first); });
+        for (const auto &[id, record] : records)
+            if (!record.published_digest.empty())
+                committed[id].insert(record.published_digest);
+        std::size_t versions = 0;
+        for (const auto &[id, hashes] : committed) {
+            (void)id;
+            versions += hashes.size();
+        }
+        if (versions > 1024) {
+            core->host.discard_workflow_publication();
+            fail(connection, correlation, "unavailable",
+                 "committed workflow version capacity exhausted");
+            return false;
+        }
+        persistence::SaveResult stored{true, {}};
+        if (workflow_store)
+            stored = workflow_store->save(records);
+        else {
+            const auto checked = persistence::decode_workflow_catalog(
+                persistence::encode_workflow_catalog(records), core->workflows.capacity);
+            stored = {checked.ok, checked.error};
+        }
+        if (!stored.ok) {
+            core->host.discard_workflow_publication();
+            fail(connection, correlation, "io_error", stored.error);
+            return false;
+        }
+        const auto activated = remove.empty() ? core->host.activate_workflow_publication()
+                                              : core->host.remove_workflow_call(remove);
+        if (!activated.ok) {
+            core->host.discard_workflow_publication();
+            workflow_catalog_healthy = false;
+            fail(connection, correlation, "unavailable",
+                 "workflow catalog activation failed; restart service");
+            return false;
+        }
+        std::lock_guard lock(core->workflows.mutex);
+        core->workflows.workflows.swap(projection);
+        workflow_committed.swap(committed);
+        return true;
+    }
+    HostOutcome restore_workflow_catalog() {
+        if (!config.persist_workflow_state)
+            return {true, {}};
+        const auto root = config.session_state_directory.empty()
+                              ? persistence::default_state_directory()
+                              : config.session_state_directory;
+        const auto directory = config.workflow_state_directory.empty()
+                                   ? root / "workflows"
+                                   : config.workflow_state_directory;
+        workflow_store = std::make_unique<persistence::WorkflowCatalogStore>(
+            directory, core->workflows.capacity);
+        const auto loaded = workflow_store->load();
+        if (!loaded.ok)
+            return {false, {"workflow_catalog", loaded.error}};
+        auto projection = workflow_catalog_projection(loaded.entries);
+        for (const auto &id : loaded.publish_order) {
+            const auto &record = loaded.entries.at(id);
+            workflow_committed[id].insert(record.published_digest);
+            const auto restored = core->host.publish_workflow_definition(
+                record.published_json, "restore durable workflow", record.callable);
+            if (!restored.ok || restored.digest != record.published_digest)
+                return {
+                    false,
+                    {"workflow_catalog", "cannot revalidate published workflow " + id +
+                                             (restored.ok ? "" : ": " + restored.error.message)}};
+        }
+        std::lock_guard lock(core->workflows.mutex);
+        core->workflows.workflows.swap(projection);
+        return {true, {}};
+    }
+
+    bool workflow_edit_preflight(std::uint64_t connection_id, std::uint64_t correlation_id,
+                                 const std::string &json,
+                                 const std::optional<std::string> &expected) {
+        if (!workflow_catalog_available(connection_id, correlation_id))
+            return false;
+        const auto parsed = integration::read_workflow_document(json);
+        if (!parsed) {
+            fail(connection_id, correlation_id, "invalid_argument", parsed.error);
+            return false;
+        }
+        std::lock_guard lock(core->workflows.mutex);
+        const auto found = core->workflows.workflows.find(parsed.document.id);
+        if (expected && ((found == core->workflows.workflows.end() && !expected->empty()) ||
+                         (found != core->workflows.workflows.end() &&
+                          found->second.head_digest != *expected))) {
+            fail(connection_id, correlation_id, "conflict",
+                 "workflow head changed; reopen before saving");
+            return false;
+        }
+        if (found == core->workflows.workflows.end() && core->workflows.full()) {
+            fail(connection_id, correlation_id, "unavailable",
+                 "workflow registry capacity exhausted");
+            return false;
+        }
+        return true;
+    }
+
     void handle_workflow_save(std::uint64_t connection_id, std::uint64_t correlation_id,
                               ipc::WorkflowSaveRequest request) {
         if (request.definition_json.size() > kMaxWorkflowDefinitionBytes) {
@@ -3152,33 +3345,19 @@ struct RuntimeService::Impl {
                      " byte budget");
             return;
         }
-        const auto saved =
-            core->host.save_workflow_definition(request.definition_json, "workflow.save draft");
-        if (!saved.ok) {
-            fail(connection_id, correlation_id, saved.error.code, saved.error.message);
+        if (!workflow_edit_preflight(connection_id, correlation_id, request.definition_json,
+                                     request.expected_head))
             return;
-        }
-        {
-            std::lock_guard lock(core->workflows.mutex);
-            if (!core->workflows.contains(saved.workflow_id) && core->workflows.full()) {
-                fail(connection_id, correlation_id, "unavailable",
-                     "workflow registry capacity exhausted (" +
-                         std::to_string(core->workflows.capacity) + ")");
-                return;
-            }
-            WorkflowCatalogEntry entry;
-            entry.name = saved.name;
-            entry.head_digest = saved.digest;
-            entry.validation = "not_validated";
-            entry.runnable = false;
-            entry.updated_at_ms = wall_now_ms();
-            // DEC-026: the head definition content rides the product index
-            // (the pinned library keeps version records only), so
-            // workflow.get can serve the cross-session editing face.
-            entry.definition_json = request.definition_json;
-            core->workflows.workflows[saved.workflow_id] = std::move(entry);
-        }
-        respond(connection_id, correlation_id, ipc::WorkflowSaved{saved.workflow_id, saved.digest});
+        const auto document = integration::read_workflow_document(request.definition_json).document;
+        auto records = workflow_catalog_snapshot();
+        auto &record = records[document.id];
+        record.head_json = request.definition_json;
+        record.head_digest = document.digest;
+        record.head_published = false;
+        record.updated_at_ms = wall_now_ms();
+        if (!commit_workflow_catalog(connection_id, correlation_id, records))
+            return;
+        respond(connection_id, correlation_id, ipc::WorkflowSaved{document.id, document.digest});
     }
 
     /// Serial thread: run the pinned publish gate on the definition (DEC-023).
@@ -3192,31 +3371,26 @@ struct RuntimeService::Impl {
                      " byte budget");
             return;
         }
-        const auto published = core->host.publish_workflow_definition(request.definition_json,
-                                                                      "workflow.publish gate");
+        if (!workflow_edit_preflight(connection_id, correlation_id, request.definition_json,
+                                     request.expected_head))
+            return;
+        const auto published = core->host.publish_workflow_definition(
+            request.definition_json, "workflow.publish gate", request.reusable, true);
         if (!published.ok) {
             fail(connection_id, correlation_id, published.error.code, published.error.message);
             return;
         }
-        {
-            std::lock_guard lock(core->workflows.mutex);
-            if (!core->workflows.contains(published.workflow_id) && core->workflows.full()) {
-                fail(connection_id, correlation_id, "unavailable",
-                     "workflow registry capacity exhausted (" +
-                         std::to_string(core->workflows.capacity) + ")");
-                return;
-            }
-            WorkflowCatalogEntry entry;
-            entry.name = published.name;
-            entry.head_digest = published.digest;
-            entry.validation = "dry_run_passed";
-            entry.runnable = true;
-            entry.updated_at_ms = wall_now_ms();
-            // DEC-026: head definition content for workflow.get (see
-            // handle_workflow_save).
-            entry.definition_json = request.definition_json;
-            core->workflows.workflows[published.workflow_id] = std::move(entry);
-        }
+        auto records = workflow_catalog_snapshot();
+        auto &record = records[published.workflow_id];
+        record.head_json = request.definition_json;
+        record.head_digest = published.digest;
+        record.published_json = request.definition_json;
+        record.published_digest = published.digest;
+        record.head_published = true;
+        record.callable = record.callable || request.reusable;
+        record.updated_at_ms = wall_now_ms();
+        if (!commit_workflow_catalog(connection_id, correlation_id, records))
+            return;
         ipc::WorkflowPublished payload;
         payload.workflow_id = published.workflow_id;
         payload.digest = published.digest;
@@ -3230,12 +3404,10 @@ struct RuntimeService::Impl {
     /// refuses deletion (the runs still reference their content).
     void handle_workflow_delete(std::uint64_t connection_id, std::uint64_t correlation_id,
                                 std::string workflow_id) {
-        bool known = false;
-        {
-            std::lock_guard lock(core->workflows.mutex);
-            known = core->workflows.contains(workflow_id);
-        }
-        if (!known) {
+        if (!workflow_catalog_available(connection_id, correlation_id))
+            return;
+        auto records = workflow_catalog_snapshot();
+        if (!records.contains(workflow_id)) {
             fail(connection_id, correlation_id, "not_found", "unknown workflow id");
             return;
         }
@@ -3243,10 +3415,20 @@ struct RuntimeService::Impl {
             fail(connection_id, correlation_id, "invalid_state", "workflow has non-terminal runs");
             return;
         }
-        {
-            std::lock_guard lock(core->workflows.mutex);
-            core->workflows.workflows.erase(workflow_id);
+        for (const auto &[id, record] : records) {
+            if (id == workflow_id || record.published_json.empty())
+                continue;
+            const auto document = integration::read_workflow_document(record.published_json);
+            for (const auto &node : document.document.nodes)
+                if (node.called_workflow_id == workflow_id) {
+                    fail(connection_id, correlation_id, "invalid_state",
+                         "workflow is referenced by a published workflow");
+                    return;
+                }
         }
+        records.erase(workflow_id);
+        if (!commit_workflow_catalog(connection_id, correlation_id, records, workflow_id))
+            return;
         respond(connection_id, correlation_id, ipc::WorkflowDeleted{std::move(workflow_id)});
     }
 
@@ -3255,11 +3437,21 @@ struct RuntimeService::Impl {
     /// start() (DEC-024). Empty only when the bound environment carries no
     /// mapped providers; the wire shape is the contract.
     void handle_workflow_atom_catalog(std::uint64_t connection_id, std::uint64_t correlation_id) {
+        if (!workflow_catalog_available(connection_id, correlation_id))
+            return;
         ipc::WorkflowAtomCatalog catalog;
+        catalog.safe_workflow_editor = true;
+        catalog.durable_catalog = workflow_store != nullptr;
         if (core->workflow_tools) {
             const auto atoms = core->workflow_tools->exposed_atoms();
             catalog.tools.reserve(atoms.size());
             for (const auto &atom : atoms) {
+                if (atom.wire_name.starts_with("workflow.")) {
+                    const auto records = workflow_catalog_snapshot();
+                    const auto found = records.find(atom.wire_name.substr(9));
+                    if (found == records.end() || !found->second.callable)
+                        continue;
+                }
                 ipc::ExposedTool tool;
                 tool.wire_name = atom.wire_name;
                 tool.version = atom.version;
@@ -3304,6 +3496,8 @@ struct RuntimeService::Impl {
     /// terminal entries before refusing admission.
     void handle_workflow_run(std::uint64_t connection_id, std::uint64_t correlation_id,
                              ipc::WorkflowRunRequest request) {
+        if (!workflow_catalog_available(connection_id, correlation_id))
+            return;
         std::string digest = request.digest;
         {
             std::lock_guard lock(core->workflows.mutex);
@@ -3313,8 +3507,19 @@ struct RuntimeService::Impl {
                 return;
             }
             if (digest.empty()) {
+                if (!entry->second.runnable) {
+                    fail(connection_id, correlation_id, "invalid_state",
+                         "workflow head is not published");
+                    return;
+                }
                 digest = entry->second.head_digest;
             }
+        }
+        const auto published = workflow_committed.find(request.workflow_id);
+        if (published == workflow_committed.end() || !published->second.contains(digest)) {
+            fail(connection_id, correlation_id, "invalid_state",
+                 "workflow version is not committed");
+            return;
         }
         if (!make_room_for_run()) {
             fail(connection_id, correlation_id, "unavailable",
@@ -3353,6 +3558,84 @@ struct RuntimeService::Impl {
         respond(connection_id, correlation_id, std::move(payload));
     }
 
+    /// DEC-141: preflight before mutating Mira; imported history is never
+    /// promoted to current-service Run evidence. All catalog writers use
+    /// this same serial request context.
+    void handle_workflow_experience_import(std::uint64_t connection_id,
+                                           std::uint64_t correlation_id,
+                                           const ipc::ImportWorkflowExperienceRequest &request) {
+        const auto archive = ipc::decode_response(request.archive_json);
+        const auto *draft = std::get_if<ipc::WorkflowExperienceDraft>(&archive.response.payload);
+        if (!archive.ok || !archive.response.ok || !draft ||
+            request.archive_json.size() > ipc::kWorkflowExperienceArchiveBytes) {
+            fail(connection_id, correlation_id, "invalid_argument",
+                 "invalid workflow experience archive");
+            return;
+        }
+        {
+            std::lock_guard lock(core->workflows.mutex);
+            if (core->workflows.contains(draft->workflow_id)) {
+                fail(connection_id, correlation_id, "invalid_state", "workflow already exists");
+                return;
+            }
+            if (core->workflows.full()) {
+                fail(connection_id, correlation_id, "unavailable",
+                     "workflow registry capacity exhausted");
+                return;
+            }
+        }
+        if (!workflow_edit_preflight(connection_id, correlation_id, draft->definition_json,
+                                     std::string{}))
+            return;
+        const auto document = integration::read_workflow_document(draft->definition_json);
+        if (!document || document.document.id != draft->workflow_id ||
+            document.document.digest != draft->digest) {
+            fail(connection_id, correlation_id, "invalid_argument",
+                 "workflow experience identity mismatch");
+            return;
+        }
+        auto records = workflow_catalog_snapshot();
+        records[draft->workflow_id] = {
+            document.document.json, document.document.digest, {}, {}, false, false, wall_now_ms()};
+        if (!commit_workflow_catalog(connection_id, correlation_id, records))
+            return;
+        respond(connection_id, correlation_id,
+                ipc::WorkflowSaved{draft->workflow_id, draft->digest});
+    }
+
+    /// DEC-139: bounded capture/compile on the existing serial request
+    /// context. The sensitive IR goes only to this requesting connection.
+    void handle_workflow_experience(std::uint64_t connection_id, std::uint64_t correlation_id,
+                                    const ipc::CompileWorkflowExperienceRequest &request) {
+        auto source_ids = request.additional_run_ids;
+        source_ids.insert(source_ids.begin(), request.source_run_id);
+        const auto draft =
+            request.additional_run_ids.empty()
+                ? core->host.compile_workflow_experience(request.source_run_id,
+                                                         request.target_workflow_id, request.name,
+                                                         request.summary)
+                : core->host.induce_workflow_experience(source_ids, request.target_workflow_id,
+                                                        request.name, request.summary);
+        if (!draft.ok) {
+            fail(connection_id, correlation_id, draft.error.code, draft.error.message);
+            return;
+        }
+        if (draft.definition_json.size() > ipc::kWorkflowExperienceDefinitionBytes) {
+            fail(connection_id, correlation_id, "unavailable",
+                 "workflow experience exceeds wire budget");
+            return;
+        }
+        ipc::WorkflowExperienceDraft payload{draft.source_run_id, draft.source_workflow_id,
+                                             draft.source_digest, draft.workflow_id,
+                                             draft.digest,        draft.definition_json};
+        for (const auto &source : draft.sources) {
+            payload.sources.push_back(
+                {source.source_run_id, source.source_workflow_id, source.source_digest});
+        }
+        payload.parameter_candidates_json = draft.parameter_candidates_json;
+        respond(connection_id, correlation_id, std::move(payload));
+    }
+
     /// Serial thread: the definition read face (DEC-026, DEC-023 backlog
     /// item 1) — the head definition content the service last saved or
     /// published for the workflow, projected from the product catalog. The
@@ -3361,6 +3644,8 @@ struct RuntimeService::Impl {
     /// source; an unknown id is the same stable not_found as workflow.run.
     void handle_workflow_get(std::uint64_t connection_id, std::uint64_t correlation_id,
                              std::string workflow_id) {
+        if (!workflow_catalog_available(connection_id, correlation_id))
+            return;
         WorkflowCatalogEntry entry;
         {
             std::lock_guard lock(core->workflows.mutex);
@@ -3704,7 +3989,12 @@ struct RuntimeService::Impl {
         // order: WorkflowRuntime shutdown -> MiraRuntime stop -> Executor
         // shutdown): cancel active runs and drain their drives while the
         // executor can still settle them.
-        (void)core->host.shutdown_workflow_surface();
+        const auto workflow_down = core->host.shutdown_workflow_surface();
+        bool learning_clean = workflow_down.ok;
+        if (workflow_down.ok && core->workflow_learning) {
+            std::string storage_error;
+            learning_clean = core->workflow_learning->close(storage_error);
+        }
         // The model layer's transport workers are executor-backed (DEC-027):
         // settle their in-flight exchanges while the executor can still
         // drain them, before the executor itself shuts down.
@@ -3740,12 +4030,15 @@ struct RuntimeService::Impl {
         publish_host_status(host_shutdown.ok && host_shutdown.report.clean ? HostStatus::Stopped
                                                                            : HostStatus::Failed);
         core->serial.shutdown();
-        run_report.clean = host_shutdown.ok && host_shutdown.report.clean && frontend_clean &&
-                           pet_clean && !product_failed.load() && core->actions->input_released();
+        run_report.clean = learning_clean && host_shutdown.ok && host_shutdown.report.clean &&
+                           frontend_clean && pet_clean && !product_failed.load() &&
+                           core->actions->input_released();
         if (!run_report.clean) {
             run_report.diagnostic =
                 host_shutdown.ok ? host_shutdown.report.diagnostic : host_shutdown.error.message;
         }
+        if (!learning_clean)
+            run_report.diagnostic = "workflow learning or workflow drain failed";
         if (!frontend_clean || !pet_clean || product_failed.load())
             run_report.diagnostic = "product carrier/action/frontend/pet teardown failed";
         if (!core->actions->input_released())
@@ -4127,6 +4420,10 @@ RuntimeService::start(std::shared_ptr<mirage::integration::DesktopEnvironmentBin
         }
         if (impl_->core->ocr_pipeline)
             impl_->core->ocr_pipeline->stop();
+        if (impl_->core->workflow_learning) {
+            std::string storage_error;
+            (void)impl_->core->workflow_learning->close(storage_error);
+        }
         impl_->core->executor.shutdown(false);
         outcome.error = hosted.error;
         impl_->lifecycle.store(Impl::Lifecycle::Terminal, std::memory_order_release);
@@ -4171,13 +4468,43 @@ RuntimeService::start(std::shared_ptr<mirage::integration::DesktopEnvironmentBin
         return permission->authorize(request, cancelled).allowed;
     };
     impl_->core->workflow_tools = mirage::integration::DesktopAtomToolset::build(workflow_desktop);
-    const HostOutcome workflow_surface = impl_->core->host.attach_workflow_surface(
-        impl_->core->executor, impl_->core->workflow_bridge, impl_->core->workflow_tools);
+    if (impl_->config.workflow_learning_enabled) {
+        const auto directory = impl_->config.workflow_learning_directory.empty()
+                                   ? persistence::default_state_directory() / "workflow-learning"
+                                   : impl_->config.workflow_learning_directory;
+        std::string error;
+        impl_->core->workflow_learning = mirage::integration::WorkflowLearningStore::open(
+            impl_->core->executor, directory, impl_->config.workflow_learning_max_bytes, error);
+        if (!impl_->core->workflow_learning) {
+            impl_->core->host.shutdown();
+            if (impl_->core->model_layer)
+                impl_->core->model_layer->shutdown();
+            if (impl_->core->ocr_pipeline)
+                impl_->core->ocr_pipeline->stop();
+            if (impl_->core->workflow_learning) {
+                std::string storage_error;
+                (void)impl_->core->workflow_learning->close(storage_error);
+            }
+            impl_->core->executor.shutdown(false);
+            outcome.error = {"internal", error};
+            impl_->lifecycle.store(Impl::Lifecycle::Terminal, std::memory_order_release);
+            return outcome;
+        }
+    }
+    HostOutcome workflow_surface = impl_->core->host.attach_workflow_surface(
+        impl_->core->executor, impl_->core->workflow_bridge, impl_->core->workflow_tools,
+        impl_->core->workflow_learning ? impl_->core->workflow_learning->binding() : nullptr);
+    if (workflow_surface.ok)
+        workflow_surface = impl_->restore_workflow_catalog();
     if (!workflow_surface.ok) {
         impl_->core->host.shutdown();
         impl_->publish_host_status(impl_->core->host.status());
         if (impl_->core->ocr_pipeline)
             impl_->core->ocr_pipeline->stop();
+        if (impl_->core->workflow_learning) {
+            std::string storage_error;
+            (void)impl_->core->workflow_learning->close(storage_error);
+        }
         impl_->core->executor.shutdown(false);
         outcome.error = workflow_surface.error;
         impl_->lifecycle.store(Impl::Lifecycle::Terminal, std::memory_order_release);
@@ -4210,6 +4537,10 @@ RuntimeService::start(std::shared_ptr<mirage::integration::DesktopEnvironmentBin
         impl_->publish_host_status(impl_->core->host.status());
         if (impl_->core->ocr_pipeline)
             impl_->core->ocr_pipeline->stop();
+        if (impl_->core->workflow_learning) {
+            std::string storage_error;
+            (void)impl_->core->workflow_learning->close(storage_error);
+        }
         impl_->core->executor.shutdown(false);
         outcome.error = {"internal", std::move(diagnostic)};
         impl_->lifecycle.store(Impl::Lifecycle::Terminal, std::memory_order_release);
@@ -4243,6 +4574,10 @@ RuntimeService::start(std::shared_ptr<mirage::integration::DesktopEnvironmentBin
         impl_->publish_host_status(impl_->core->host.status());
         if (impl_->core->ocr_pipeline)
             impl_->core->ocr_pipeline->stop();
+        if (impl_->core->workflow_learning) {
+            std::string storage_error;
+            (void)impl_->core->workflow_learning->close(storage_error);
+        }
         impl_->core->executor.shutdown(false);
         outcome.error = {"internal", "blocking worker start failed: " +
                                          impl_->loop_worker.start_result().message};

@@ -47,6 +47,7 @@ struct ModelSettings {
 struct RuntimeSettings {
     std::size_t event_queue_capacity = 0;
     std::size_t max_connections = 0;
+    bool workflow_learning_enabled = true; ///< DEC-146: absent keeps learning enabled.
 };
 
 struct VisionSettings {

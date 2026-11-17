@@ -613,11 +613,31 @@ ipc::Request request_from_body(const mira::JsonValue &body) {
         }
         return run;
     }
+    if (op.starts_with("workflow.recovery.")) {
+        return ipc::WorkflowRecoveryRequest{vector_string(body, "run_id"), op.substr(18)};
+    }
     if (op == "workflow.cancel") {
         return ipc::WorkflowCancelRunRequest{vector_string(body, "run_id")};
     }
     if (op == "workflow.get") {
         return ipc::WorkflowGetRequest{vector_string(body, "workflow_id")};
+    }
+    if (op == "workflow.experience.import") {
+        return ipc::ImportWorkflowExperienceRequest{mira::to_json_string(*body.find("archive"))};
+    }
+    if (op == "workflow.experience.compile") {
+        ipc::CompileWorkflowExperienceRequest request;
+        request.source_run_id = vector_string(body, "source_run_id");
+        request.target_workflow_id = vector_string(body, "target_workflow_id");
+        request.name = vector_string(body, "name");
+        if (body.find("summary") != nullptr) {
+            request.summary = vector_string(body, "summary");
+        }
+        if (const auto *additional = body.find("additional_run_ids")) {
+            for (const auto &item : *additional->as_array())
+                request.additional_run_ids.push_back(*item.as_string());
+        }
+        return request;
     }
     if (op == "desktop.observe") {
         ipc::DesktopObserveRequest observe;
@@ -829,6 +849,12 @@ void check_request_equal(const std::string &name, const ipc::Request &expected,
                 check_string_equal(name, "parameters_json", run.parameters_json,
                                    expected_value.parameters_json);
                 check_string_equal(name, "policy", run.policy, expected_value.policy);
+            } else if constexpr (std::is_same_v<T, ipc::WorkflowRecoveryRequest>) {
+                const auto &actual_value = std::get<T>(actual);
+                check_string_equal(name, "recovery run", actual_value.run_id,
+                                   expected_value.run_id);
+                check_string_equal(name, "recovery action", actual_value.action,
+                                   expected_value.action);
             } else if constexpr (std::is_same_v<T, ipc::WorkflowCancelRunRequest>) {
                 const auto &cancel = std::get<ipc::WorkflowCancelRunRequest>(actual);
                 check_string_equal(name, "run_id", cancel.run_id, expected_value.run_id);
@@ -836,6 +862,18 @@ void check_request_equal(const std::string &name, const ipc::Request &expected,
                 const auto &get = std::get<ipc::WorkflowGetRequest>(actual);
                 check_string_equal(name, "workflow_id", get.workflow_id,
                                    expected_value.workflow_id);
+            } else if constexpr (std::is_same_v<T, ipc::CompileWorkflowExperienceRequest>) {
+                const auto &request = std::get<T>(actual);
+                check_string_equal(name, "source_run_id", request.source_run_id,
+                                   expected_value.source_run_id);
+                check_string_equal(name, "target_workflow_id", request.target_workflow_id,
+                                   expected_value.target_workflow_id);
+                check_string_equal(name, "name", request.name, expected_value.name);
+                check_string_equal(name, "summary", request.summary, expected_value.summary);
+                MIRAGE_CHECK(request.additional_run_ids == expected_value.additional_run_ids);
+            } else if constexpr (std::is_same_v<T, ipc::ImportWorkflowExperienceRequest>) {
+                check_string_equal(name, "archive_json", std::get<T>(actual).archive_json,
+                                   expected_value.archive_json);
             } else if constexpr (std::is_same_v<T, ipc::DesktopObserveRequest>) {
                 const auto &observe = std::get<ipc::DesktopObserveRequest>(actual);
                 MIRAGE_CHECK(observe.semantic == expected_value.semantic);
@@ -1198,6 +1236,38 @@ ipc::Response response_from_vector(const mira::JsonValue &vector) {
         view.digest = vector_string(value, "digest");
         view.definition_json = mira::to_json_string(vector_member(value, "definition"));
         response.payload = std::move(view);
+    } else if (kind == "workflow-recovery") {
+        response.payload = ipc::WorkflowRecoveryStatus{
+            vector_string(value, "run_id"),
+            vector_string(value, "action"),
+            vector_boolean(value, "settled"),
+            static_cast<std::uint32_t>(vector_integer(value, "ordinal")),
+            vector_string(value, "workflow_id"),
+            vector_string(value, "outcome"),
+            vector_string(value, "reason_code"),
+            vector_string(value, "decision_digest"),
+            vector_string(value, "patch_id"),
+            vector_string(value, "model_request_id"),
+            vector_string(value, "lesson_id"),
+            vector_string(value, "lesson_digest")};
+    } else if (kind == "workflow-experience-draft") {
+        response.payload =
+            ipc::WorkflowExperienceDraft{vector_string(value, "source_run_id"),
+                                         vector_string(value, "source_workflow_id"),
+                                         vector_string(value, "source_digest"),
+                                         vector_string(value, "workflow_id"),
+                                         vector_string(value, "digest"),
+                                         mira::to_json_string(vector_member(value, "definition"))};
+        auto &draft = std::get<ipc::WorkflowExperienceDraft>(response.payload);
+        if (const auto *sources = value.find("sources")) {
+            for (const auto &source : *sources->as_array()) {
+                draft.sources.push_back({vector_string(source, "source_run_id"),
+                                         vector_string(source, "source_workflow_id"),
+                                         vector_string(source, "source_digest")});
+            }
+            draft.parameter_candidates_json =
+                mira::to_json_string(vector_member(value, "parameter_candidates"));
+        }
     } else if (kind == "observation-view") {
         ipc::ObservationView view;
         view.active_application = vector_string(value, "active_application");
@@ -1594,6 +1664,35 @@ void check_response_equal(const std::string &name, const ipc::Response &expected
                 check_string_equal(name, "digest", actual_value.digest, expected_value.digest);
                 check_string_equal(name, "definition_json", actual_value.definition_json,
                                    expected_value.definition_json);
+            } else if constexpr (std::is_same_v<T, ipc::WorkflowRecoveryStatus>) {
+                check_string_equal(name, "recovery metadata", ipc::encode_response(actual),
+                                   ipc::encode_response(expected));
+            } else if constexpr (std::is_same_v<T, ipc::WorkflowExperienceDraft>) {
+                check_string_equal(name, "source_run_id", actual_value.source_run_id,
+                                   expected_value.source_run_id);
+                check_string_equal(name, "source_workflow_id", actual_value.source_workflow_id,
+                                   expected_value.source_workflow_id);
+                check_string_equal(name, "source_digest", actual_value.source_digest,
+                                   expected_value.source_digest);
+                check_string_equal(name, "workflow_id", actual_value.workflow_id,
+                                   expected_value.workflow_id);
+                check_string_equal(name, "digest", actual_value.digest, expected_value.digest);
+                check_string_equal(name, "definition_json", actual_value.definition_json,
+                                   expected_value.definition_json);
+                check_string_equal(name, "parameter_candidates",
+                                   actual_value.parameter_candidates_json,
+                                   expected_value.parameter_candidates_json);
+                MIRAGE_CHECK(actual_value.sources.size() == expected_value.sources.size());
+                for (std::size_t index = 0;
+                     index < std::min(actual_value.sources.size(), expected_value.sources.size());
+                     ++index) {
+                    MIRAGE_CHECK(actual_value.sources[index].source_run_id ==
+                                 expected_value.sources[index].source_run_id);
+                    MIRAGE_CHECK(actual_value.sources[index].source_workflow_id ==
+                                 expected_value.sources[index].source_workflow_id);
+                    MIRAGE_CHECK(actual_value.sources[index].source_digest ==
+                                 expected_value.sources[index].source_digest);
+                }
             } else if constexpr (std::is_same_v<T, ipc::ObservationView>) {
                 check_string_equal(name, "active_application", actual_value.active_application,
                                    expected_value.active_application);

@@ -23,6 +23,7 @@ struct OperationContext;
 } // namespace mira
 
 namespace mirage::integration {
+struct WorkflowRecoveryModel;
 
 /// Configuration of the service-side model layer (DEC-027, M5-06; DEC-025
 /// backlog item 3). Mirrored onto `ServiceConfig::model` (a plain struct, no
@@ -32,6 +33,9 @@ namespace mirage::integration {
 /// for equipment-dependent faces).
 struct ModelLayerConfig {
     bool enabled = false;
+    /// DEC-146: isolated Workflow acceptance mode. Exports the existing
+    /// model stack; ordinary dialog/harness calls are disabled in this mode.
+    bool workflow_recovery_only = false;
     bool supports_reasoning = false;
     /// Pinned wire dialect of the profile (pinned protocol_dialect_from
     /// vocabulary): "openai.responses.v1" or "openai.chat-completions.v1".
@@ -228,6 +232,13 @@ class ModelLayer {
 
     [[nodiscard]] bool running() const;
     [[nodiscard]] const ModelLayerConfig &config() const;
+    /// Dedicated acceptance mode, or DEC-148 exclusive product reservation.
+    /// Drain Host before releasing the reservation or shutting down the layer.
+    std::shared_ptr<WorkflowRecoveryModel> workflow_recovery_model() const;
+    /// Immediate admission, never waits for a dialog/harness turn. The owner
+    /// releases only after the recovery future settles (or Host shutdown).
+    bool reserve_workflow_recovery();
+    void release_workflow_recovery();
 
     /// One bounded dialog completion. `transcript` is the caller-rendered
     /// earlier-conversation block (may be empty); `user_text` is the new

@@ -27,6 +27,121 @@ using mirage::testing::TempDir;
 
 constexpr auto kBudget = std::chrono::seconds{3};
 
+void scenario_workflow_learning_status() {
+    const auto request =
+        ipc::decode_request(ipc::encode_request(1, ipc::WorkflowLearningStatusRequest{}));
+    MIRAGE_CHECK(request.ok &&
+                 std::holds_alternative<ipc::WorkflowLearningStatusRequest>(request.body));
+    for (const bool enabled : {true, false}) {
+        ipc::Response response;
+        response.id = 1;
+        response.ok = true;
+        response.payload = enabled ? ipc::WorkflowLearningStatus{true, 100, 1ULL << 20, 65536, 200}
+                                   : ipc::WorkflowLearningStatus{};
+        const auto decoded = ipc::decode_response(ipc::encode_response(response));
+        MIRAGE_CHECK(decoded.ok);
+        const auto *status = std::get_if<ipc::WorkflowLearningStatus>(&decoded.response.payload);
+        MIRAGE_CHECK(status && status->enabled == enabled &&
+                     status->file_bytes == (enabled ? 100U : 0U));
+    }
+    for (
+        const std::string bad :
+        {R"({"enabled":true})",
+         R"({"enabled":"true","file_bytes":0,"limit_bytes":1048576,"reserve_bytes":0,"peak_admitted_file_bytes":0})",
+         R"({"enabled":true,"file_bytes":-1,"limit_bytes":1048576,"reserve_bytes":0,"peak_admitted_file_bytes":0})",
+         R"({"enabled":true,"file_bytes":0,"limit_bytes":1048576,"reserve_bytes":1048576,"peak_admitted_file_bytes":0})",
+         R"({"enabled":true,"file_bytes":1048577,"limit_bytes":1048576,"reserve_bytes":0,"peak_admitted_file_bytes":0})",
+         R"({"enabled":false,"file_bytes":0,"limit_bytes":1048576,"reserve_bytes":0,"peak_admitted_file_bytes":0})",
+         R"({"enabled":true,"file_bytes":0.5,"limit_bytes":1048576,"reserve_bytes":0,"peak_admitted_file_bytes":0})",
+         R"({"enabled":true,"file_bytes":0,"limit_bytes":1099511627777,"reserve_bytes":0,"peak_admitted_file_bytes":0})",
+         R"({"enabled":true,"file_bytes":0,"limit_bytes":1048576,"reserve_bytes":0,"peak_admitted_file_bytes":1048577})"}) {
+        MIRAGE_CHECK(
+            !ipc::decode_response(R"({"v":1,"id":1,"ok":true,"learning":)" + bad + "}").ok);
+    }
+}
+
+void scenario_workflow_recovery() {
+    const std::string run_id(32, '1');
+    for (const std::string action : {"start", "status", "cancel", "lesson"}) {
+        const auto request = ipc::decode_request(
+            ipc::encode_request(1, ipc::WorkflowRecoveryRequest{run_id, action}));
+        const auto *body = std::get_if<ipc::WorkflowRecoveryRequest>(&request.body);
+        MIRAGE_CHECK(request.ok && body && body->action == action && body->run_id == run_id);
+    }
+    for (const std::string &id :
+         {std::string{}, std::string{"bad"}, std::string(32, '0'), std::string(33, '1')})
+        MIRAGE_CHECK(
+            !ipc::decode_request(ipc::encode_request(1, ipc::WorkflowRecoveryRequest{id, "start"}))
+                 .ok);
+    MIRAGE_CHECK(
+        !ipc::decode_request(R"({"v":1,"id":1,"op":"workflow.recovery.start","run_id":3})").ok);
+    MIRAGE_CHECK(
+        !ipc::decode_request(ipc::encode_request(1, ipc::WorkflowRecoveryRequest{run_id, "retry"}))
+             .ok);
+    ipc::Response response;
+    response.ok = true;
+    response.id = 1;
+    ipc::WorkflowRecoveryStatus status;
+    status.run_id = run_id;
+    status.action = "status";
+    for (const bool settled : {false, true}) {
+        status.settled = settled;
+        status.ordinal = settled ? 1 : 0;
+        status.workflow_id = settled ? std::string(32, '2') : "";
+        status.outcome = settled ? "patched-and-resumed" : "";
+        response.payload = status;
+        const auto decoded = ipc::decode_response(ipc::encode_response(response));
+        const auto *value = std::get_if<ipc::WorkflowRecoveryStatus>(&decoded.response.payload);
+        MIRAGE_CHECK(decoded.ok && value && value->settled == settled);
+    }
+    for (unsigned i = 0; i < 11; ++i) {
+        auto bad = status;
+        if (i == 0)
+            bad.ordinal = 2;
+        if (i == 1)
+            bad.workflow_id = "bad";
+        if (i == 2)
+            bad.outcome = "success";
+        if (i == 3)
+            bad.action = "retry";
+        if (i == 4)
+            bad.action = "start";
+        if (i == 5)
+            bad.reason_code = std::string(129, 'a');
+        if (i == 6)
+            bad.decision_digest = "bad";
+        if (i == 7)
+            bad.patch_id = "bad";
+        if (i == 8)
+            bad.model_request_id = "bad";
+        if (i == 9)
+            bad.lesson_id = "unexpected";
+        if (i == 10)
+            bad.run_id = std::string(32, '0');
+        response.payload = bad;
+        MIRAGE_CHECK(!ipc::decode_response(ipc::encode_response(response)).ok);
+    }
+    response.payload = status;
+    const auto wire = ipc::encode_response(response);
+    for (const std::string broken : {"\"settled\":null", "\"settled\":1", "\"settled\":\"true\""}) {
+        auto bad = wire;
+        const auto pos = bad.find("\"settled\":true");
+        MIRAGE_CHECK(pos != std::string::npos);
+        if (pos != std::string::npos)
+            bad.replace(pos, 14, broken);
+        MIRAGE_CHECK(!ipc::decode_response(bad).ok);
+    }
+    status = {};
+    status.run_id = run_id;
+    status.action = "lesson";
+    response.payload = status;
+    MIRAGE_CHECK(!ipc::decode_response(ipc::encode_response(response)).ok);
+    status.lesson_id = "lesson-id";
+    status.lesson_digest = std::string(64, 'a');
+    response.payload = status;
+    MIRAGE_CHECK(ipc::decode_response(ipc::encode_response(response)).ok);
+}
+
 // --- framing ----------------------------------------------------------------
 
 void scenario_framing_round_trip() {
@@ -592,6 +707,80 @@ void scenario_workflow_requests_round_trip() {
     }
 }
 
+void scenario_workflow_experience_budgets() {
+    ipc::CompileWorkflowExperienceRequest request{
+        std::string(32, '1'), std::string(32, '2'),
+        std::string(ipc::kWorkflowExperienceMetadataBytes, 'n'), ""};
+    MIRAGE_CHECK(ipc::decode_request(ipc::encode_request(90, request)).ok);
+    request.name.push_back('x');
+    MIRAGE_CHECK(!ipc::decode_request(ipc::encode_request(90, request)).ok);
+    request.name = "candidate";
+    request.summary.assign(ipc::kWorkflowExperienceMetadataBytes, 's');
+    MIRAGE_CHECK(ipc::decode_request(ipc::encode_request(90, request)).ok);
+    request.summary.push_back('x');
+    MIRAGE_CHECK(!ipc::decode_request(ipc::encode_request(90, request)).ok);
+
+    ipc::WorkflowExperienceDraft draft{
+        std::string(32, '1'),
+        std::string(32, '3'),
+        std::string(64, 'a'),
+        std::string(32, '2'),
+        std::string(64, 'b'),
+        "{\"data\":\"" + std::string(ipc::kWorkflowExperienceDefinitionBytes - 11, 'x') + "\"}"};
+    ipc::Response response;
+    response.id = 90;
+    response.ok = true;
+    response.payload = draft;
+    MIRAGE_CHECK(ipc::decode_response(ipc::encode_response(response)).ok);
+    // The complete review archive has its own budget, including envelope
+    // extensions. Preserve the exact boundary and reject one extra byte.
+    auto archive = ipc::encode_response(response);
+    archive.pop_back();
+    archive += ",\"padding\":\"";
+    archive.append(ipc::kWorkflowExperienceArchiveBytes - archive.size() - 2, 'x');
+    archive += "\"}";
+    MIRAGE_CHECK(archive.size() == ipc::kWorkflowExperienceArchiveBytes);
+    MIRAGE_CHECK(
+        ipc::decode_request(ipc::encode_request(91, ipc::ImportWorkflowExperienceRequest{archive}))
+            .ok);
+    archive.insert(archive.size() - 2, "x");
+    MIRAGE_CHECK(
+        !ipc::decode_request(ipc::encode_request(91, ipc::ImportWorkflowExperienceRequest{archive}))
+             .ok);
+    draft.definition_json.insert(draft.definition_json.size() - 2, "x");
+    response.payload = draft;
+    MIRAGE_CHECK(!ipc::decode_response(ipc::encode_response(response)).ok);
+    draft.definition_json = "{}";
+    draft.sources = {{draft.source_run_id, draft.source_workflow_id, draft.source_digest},
+                     {std::string(32, '4'), draft.source_workflow_id, draft.source_digest}};
+    const std::string prefix =
+        R"([{"name":"value","step_index":0,"pointer":"/path","provenance":"structural","observed_values":[")";
+    const std::string suffix = R"(","b"]}])";
+    draft.parameter_candidates_json =
+        prefix +
+        std::string(ipc::kWorkflowExperienceReviewBytes - prefix.size() - suffix.size(), 'x') +
+        suffix;
+    response.payload = draft;
+    MIRAGE_CHECK(ipc::decode_response(ipc::encode_response(response)).ok);
+    draft.parameter_candidates_json =
+        prefix +
+        std::string(ipc::kWorkflowExperienceReviewBytes - prefix.size() - suffix.size() + 1, 'x') +
+        suffix;
+    response.payload = draft;
+    MIRAGE_CHECK(!ipc::decode_response(ipc::encode_response(response)).ok);
+    draft.parameter_candidates_json = "[]";
+    response.payload = draft;
+    MIRAGE_CHECK(ipc::decode_response(ipc::encode_response(response)).ok);
+    draft.sources.clear();
+    response.payload = draft;
+    MIRAGE_CHECK(!ipc::decode_response(ipc::encode_response(response)).ok);
+    // An experience envelope must not degrade to a library read response.
+    MIRAGE_CHECK(
+        !ipc::decode_response(
+             R"({"v":1,"id":90,"ok":true,"experience":null,"workflow_id":"other","digest":"other","definition":{}})")
+             .ok);
+}
+
 void scenario_workflow_requests_reject_malformed_payloads() {
     const char *invalid_payloads[] = {
         R"({"v":1,"id":5,"op":"workflow.save"})",
@@ -690,12 +879,19 @@ void scenario_workflow_responses_round_trip() {
         const auto *back = std::get_if<ipc::WorkflowAtomCatalog>(&decoded.response.payload);
         MIRAGE_CHECK(back != nullptr);
         if (back != nullptr) {
+            MIRAGE_CHECK(!back->safe_workflow_editor && !back->durable_catalog);
             MIRAGE_CHECK(back->tools.size() == 1);
             if (back->tools.size() == 1) {
                 MIRAGE_CHECK(back->tools[0].wire_name == "filesystem.read");
                 MIRAGE_CHECK(back->tools[0].parameters_schema_json == R"({"type":"object"})");
             }
         }
+        catalog.safe_workflow_editor = true;
+        catalog.durable_catalog = true;
+        const auto durable =
+            ipc::decode_response(ipc::encode_response(ipc::Response{true, 44, catalog, {}}));
+        MIRAGE_CHECK(durable.ok &&
+                     std::get<ipc::WorkflowAtomCatalog>(durable.response.payload).durable_catalog);
     }
     // Run list / started / cancelled.
     {
@@ -1508,6 +1704,8 @@ int main() {
     scenario_vision_configuration();
     run_scenario("chat_preview", scenario_chat_preview);
     run_scenario("framing_round_trip", scenario_framing_round_trip);
+    run_scenario("workflow_recovery", scenario_workflow_recovery);
+    run_scenario("workflow_learning_status", scenario_workflow_learning_status);
     run_scenario("framing_little_endian_header", scenario_framing_little_endian_header);
     run_scenario("framing_empty_payload", scenario_framing_empty_payload);
     run_scenario("framing_partial_feeds", scenario_framing_partial_feeds);
@@ -1517,6 +1715,7 @@ int main() {
     run_scenario("request_round_trips", scenario_request_round_trips);
     run_scenario("request_rejects_malformed_payloads", scenario_request_rejects_malformed_payloads);
     run_scenario("workflow_requests_round_trip", scenario_workflow_requests_round_trip);
+    run_scenario("workflow_experience_budgets", scenario_workflow_experience_budgets);
     run_scenario("workflow_requests_reject_malformed_payloads",
                  scenario_workflow_requests_reject_malformed_payloads);
     run_scenario("workflow_responses_round_trip", scenario_workflow_responses_round_trip);

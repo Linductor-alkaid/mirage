@@ -17,6 +17,12 @@ namespace mirage::runtime::ipc {
 /// a mismatch is a protocol error, never a best-effort decode.
 inline constexpr int kProtocolVersion = 1;
 
+/// DEC-139: budgets for review-only Workflow experience exports.
+inline constexpr std::size_t kWorkflowExperienceMetadataBytes = 8192;
+inline constexpr std::size_t kWorkflowExperienceDefinitionBytes = 256 * 1024;
+inline constexpr std::size_t kWorkflowExperienceReviewBytes = 64 * 1024;
+inline constexpr std::size_t kWorkflowExperienceArchiveBytes = 384 * 1024;
+
 /// Wire projection budget for one observation semantic snapshot (DEC-026,
 /// RULE-07): the desktop.observe response stays well inside the 1 MiB frame
 /// cap even alongside a full visual generation, so the service projects at
@@ -291,13 +297,13 @@ struct SetPolicyRequest {
 /// the catalog is the product index of what passed through this service.
 struct WorkflowListRequest {};
 
-/// Appends one draft version of the definition (DEC-023): strict pinned IR
-/// decode, then a NotValidated library record — resolvable but not runnable
-/// (W-04). `definition_json` carries the serialized Workflow IR v1 JSON
-/// object; the decoder canonicalizes it, the service enforces the 256 KiB
-/// byte budget.
+/// DEC-151: stores a structurally validated editing head in the product catalog.
+/// Drafts are not executable; the last published version stays callable, even
+/// when its bytes equal the draft. Expected-head CAS is optional for legacy clients.
+/// Definition size is capped at 256 KiB. No desktop action is executed.
 struct WorkflowSaveRequest {
     std::string definition_json;
+    std::optional<std::string> expected_head = std::nullopt;
 };
 
 /// Runs the pinned publish gate on the definition (DEC-023): structural
@@ -306,6 +312,8 @@ struct WorkflowSaveRequest {
 /// and evidence settles as an idempotent NoOp.
 struct WorkflowPublishRequest {
     std::string definition_json;
+    bool reusable = false;
+    std::optional<std::string> expected_head = std::nullopt;
 };
 
 /// Removes the product catalog entry (DEC-023). The pinned append-only
@@ -350,6 +358,16 @@ struct WorkflowCancelRunRequest {
     std::string run_id;
 };
 
+/// DEC-147: read-only product learning capacity; does not open a disabled store.
+struct WorkflowLearningStatusRequest {};
+
+/// DEC-148: explicit, single-attempt recovery control. Status is bounded;
+/// lesson is a separate write after observed successful Run completion.
+struct WorkflowRecoveryRequest {
+    std::string run_id;
+    std::string action; ///< start | status | cancel | lesson
+};
+
 /// Reads one catalog workflow's head definition (DEC-026, M5-06; DEC-023
 /// backlog item 1): the serialized IR v1 JSON the service last saved or
 /// published for the workflow. The pinned library keeps no definition-body
@@ -358,6 +376,23 @@ struct WorkflowCancelRunRequest {
 /// index that projects workflow.list. Unknown ids are a stable not_found.
 struct WorkflowGetRequest {
     std::string workflow_id;
+};
+
+/// DEC-139: review-only candidate from one successful, actually executed
+/// Run. No library append, memory mutation or action is performed.
+struct CompileWorkflowExperienceRequest {
+    std::string source_run_id;
+    std::string target_workflow_id;
+    std::string name;
+    std::string summary;
+    /// DEC-140: 1..15 additional distinct successful runs enable induction.
+    std::vector<std::string> additional_run_ids{};
+};
+
+/// DEC-141: complete review response from a user-owned file. Import checks
+/// content identity and creates a NotValidated draft, without restoring Runs.
+struct ImportWorkflowExperienceRequest {
+    std::string archive_json;
 };
 
 /// Assembles one on-demand desktop observation (DEC-026, M5-06; design doc
@@ -388,9 +423,11 @@ using Request = std::variant<
     CloseSessionRequest, DeleteSessionRequest, SessionChatRequest, ChatHistoryRequest,
     WorkflowListRequest, WorkflowSaveRequest, WorkflowPublishRequest, WorkflowDeleteRequest,
     WorkflowAtomCatalogRequest, WorkflowRunsRequest, WorkflowRunRequest, WorkflowCancelRunRequest,
-    WorkflowGetRequest, DesktopObserveRequest, GetPolicyRequest, SetPolicyRequest, GetModelRequest,
-    SetModelRequest, ListModelsRequest, CancelChatRequest, GetVisionRequest, SetVisionRequest,
-    GetDesktopAuthorizationRequest, SetDesktopAuthorizationRequest>;
+    WorkflowGetRequest, WorkflowLearningStatusRequest, WorkflowRecoveryRequest,
+    CompileWorkflowExperienceRequest, ImportWorkflowExperienceRequest, DesktopObserveRequest,
+    GetPolicyRequest, SetPolicyRequest, GetModelRequest, SetModelRequest, ListModelsRequest,
+    CancelChatRequest, GetVisionRequest, SetVisionRequest, GetDesktopAuthorizationRequest,
+    SetDesktopAuthorizationRequest>;
 
 // ---------------------------------------------------------------------------
 // Responses
@@ -722,6 +759,8 @@ struct ExposedTool {
 /// desktop capability tools are registered.
 struct WorkflowAtomCatalog {
     std::vector<ExposedTool> tools;
+    bool safe_workflow_editor = false; // DEC-150: CAS writes, current-target calls and DAG gate.
+    bool durable_catalog = false;      // DEC-151: persisted heads/publications, not Run recovery.
 };
 
 /// One workflow run as reported by workflow.runs (DEC-023). `state` is the
@@ -767,6 +806,45 @@ struct WorkflowDefinitionView {
     std::string workflow_id;
     std::string digest;
     std::string definition_json;
+};
+
+/// DEC-147: file lengths only, no paths or memory contents.
+struct WorkflowLearningStatus {
+    bool enabled = false;
+    std::uint64_t file_bytes = 0;
+    std::uint64_t limit_bytes = 0;
+    std::uint64_t reserve_bytes = 0;
+    std::uint64_t peak_admitted_file_bytes = 0;
+};
+
+/// DEC-148: metadata only. An accepted start/cancel is not completion.
+struct WorkflowRecoveryStatus {
+    std::string run_id;
+    std::string action;
+    bool settled = false;
+    std::uint32_t ordinal = 0;
+    std::string workflow_id, outcome, reason_code, decision_digest, patch_id, model_request_id;
+    std::string lesson_id, lesson_digest;
+};
+
+/// DEC-139: the experience envelope is explicitly a candidate, not a
+/// workflow.get library record. The IR can contain sensitive arguments;
+/// only the explicit requesting client receives it, never the event stream.
+struct WorkflowExperienceSource {
+    std::string source_run_id;
+    std::string source_workflow_id;
+    std::string source_digest;
+};
+
+struct WorkflowExperienceDraft {
+    std::string source_run_id;
+    std::string source_workflow_id;
+    std::string source_digest;
+    std::string workflow_id;
+    std::string digest;
+    std::string definition_json;
+    std::vector<WorkflowExperienceSource> sources{};
+    std::string parameter_candidates_json{};
 };
 
 /// Rectangle in global desktop coordinates as carried by the observation
@@ -856,8 +934,9 @@ using ResponsePayload =
                  PermissionPendingList, SessionList, SessionOpened, SessionClosed, SessionDeleted,
                  DialogTurnAccepted, DialogHistory, SessionHistory, WorkflowList, WorkflowSaved,
                  WorkflowPublished, WorkflowDeleted, WorkflowAtomCatalog, WorkflowRunList,
-                 WorkflowRunStarted, WorkflowRunCancelled, WorkflowDefinitionView, ObservationView,
-                 PolicyView, ModelConfiguration, ModelList, VisionConfiguration,
+                 WorkflowRunStarted, WorkflowRunCancelled, WorkflowDefinitionView,
+                 WorkflowExperienceDraft, WorkflowLearningStatus, WorkflowRecoveryStatus,
+                 ObservationView, PolicyView, ModelConfiguration, ModelList, VisionConfiguration,
                  DesktopAuthorizationConfiguration>;
 
 /// Stable error surface (DEC-007 item 4). `code` is from the mirage.ipc

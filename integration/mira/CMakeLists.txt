@@ -23,12 +23,16 @@ add_library(mirage_integration_mira STATIC
     src/desktop_region_tools.cpp
     src/desktop_visual_knowledge.cpp
     src/desktop_png.cpp
+    src/visual_memory.cpp
+    src/visual_memory_write.cpp
     src/mira_environment_binding.cpp
     src/model_layer.cpp
     src/model_catalog.cpp
     src/tool_alias_provider.cpp
     src/session_journal.cpp
     src/workflow_event_bridge.cpp
+    src/workflow_recovery_model.cpp
+    src/workflow_learning_store.cpp
     # The model layer's credential resolver reads the environment per
     # platform (MSVC raises the CRT getenv as a warnings-as-errors
     # deprecation; DEC-017 / M4-06 toolchain fact).
@@ -63,6 +67,7 @@ target_link_libraries(mirage_integration_mira
         Mira::core
         Mira::workflow
     PRIVATE
+        Mira::state_store
         # DEC-027 model layer: the pinned portable socket HTTP/SSE transport
         # (POSIX + Winsock). https endpoints fail closed unless a TLS channel
         # adapter was built by the pinned dependency (OpenSSL adapter on UNIX
@@ -77,3 +82,11 @@ if(TARGET Mira::openssl_transport)
 endif()
 
 target_link_libraries(mirage_integration_mira PUBLIC Mirage::conversation)
+
+# DEC-150: pure standard-library facade for native Workflow IR editing.
+add_library(mirage_workflow_document STATIC src/workflow_document.cpp)
+add_library(Mirage::workflow_document ALIAS mirage_workflow_document)
+target_include_directories(mirage_workflow_document PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_link_libraries(mirage_workflow_document PRIVATE Mira::workflow)
+target_compile_features(mirage_workflow_document PUBLIC cxx_std_20)
+mirage_enable_warnings(mirage_workflow_document)

@@ -2,6 +2,7 @@
 
 #include <mira/adapters/simulator/simulator_environment.hpp>
 #include <mira/environment.hpp>
+#include <mira/workflow_ir.hpp>
 
 #include <mirage/integration/desktop_atom_toolset.hpp>
 #include <mirage/integration/mira_adapter.hpp>
@@ -551,7 +552,7 @@ std::string tool_call_definition(const std::string &workflow_id, const std::stri
            R"(","kind":"tool_call","arguments":{"tool":"desktop.clipboard.write_text","text":")" +
            text +
            R"("},"verification":{"signal":"run_parameter:confirm","op":"eq","value":true})"
-           R"(}],"default_policy":"strict","allowed_policies":["strict","dry_run"]})";
+           R"(}],"default_policy":"strict","allowed_policies":["strict","recoverable","dry_run"]})";
 }
 
 void scenario_tool_call_steps_dispatch_desktop_atoms() {
@@ -575,9 +576,13 @@ void scenario_tool_call_steps_dispatch_desktop_atoms() {
     // A switchable RULE-05 gate: run A executes under allow, run B lands
     // after the flip and must fail closed without touching the clipboard.
     std::atomic<bool> allow{true};
+    std::atomic<std::size_t> permission_checks{0};
     mirage::integration::AtomPermissionGate gate =
-        [&allow](const std::string &, const std::string &,
-                 const mirage::integration::AtomCancelProbe &) { return allow.load(); };
+        [&](const std::string &, const std::string &,
+            const mirage::integration::AtomCancelProbe &) {
+            permission_checks.fetch_add(1);
+            return allow.load();
+        };
     const auto tools = mirage::integration::DesktopAtomToolset::build(&environment, gate);
 
     auto bridge = std::make_shared<mirage::integration::WorkflowEventBridge>();
@@ -622,6 +627,86 @@ void scenario_tool_call_steps_dispatch_desktop_atoms() {
     MIRAGE_CHECK(environment.clipboard_has_text);
     MIRAGE_CHECK(environment.clipboard_text == "from workflow");
 
+    // M15-02 / DEC-138: compilation is review-only. It reuses the pinned
+    // successful run snapshot, keeps provenance, and bakes effective values
+    // without creating a runnable version or dispatching another atom.
+    const auto checks_before = permission_checks.load();
+    const auto events_before = bridge->delivered_events();
+    const std::string target_id = mira::WorkflowId::generate().to_string();
+    const auto draft = host.compile_workflow_experience(
+        run.run_id, target_id, "clipboard candidate", "one observed execution");
+    check_ok("compile experience", draft);
+    MIRAGE_CHECK(draft.source_run_id == run.run_id);
+    MIRAGE_CHECK(draft.source_workflow_id == workflow_id);
+    MIRAGE_CHECK(draft.source_digest == published.digest);
+    MIRAGE_CHECK(draft.workflow_id == target_id);
+    const auto definition = mira::parse_workflow_definition(draft.definition_json);
+    MIRAGE_CHECK(definition);
+    if (definition) {
+        MIRAGE_CHECK(definition.value().workflow_id.to_string() == target_id);
+        MIRAGE_CHECK(definition.value().summary == "one observed execution");
+        MIRAGE_CHECK(mira::workflow_definition_digest(definition.value()).to_string() ==
+                     draft.digest);
+        MIRAGE_CHECK(definition.value().steps.size() == 1);
+        if (definition.value().steps.size() == 1) {
+            MIRAGE_CHECK(mira::canonical_json_string(definition.value().steps[0].arguments) ==
+                         R"({"text":"from workflow","tool":"desktop.clipboard.write_text"})");
+        }
+        const auto bound = mira::bind_workflow_parameters(
+            definition.value(), mira::JsonValue{mira::JsonValue::Object{}});
+        MIRAGE_CHECK(bound);
+        if (bound) {
+            MIRAGE_CHECK(mira::canonical_json_string(bound.value().values) ==
+                         R"({"confirm":true})");
+        }
+    }
+    const auto repeated = host.compile_workflow_experience(
+        run.run_id, target_id, "clipboard candidate", "one observed execution");
+    check_ok("recompile experience", repeated);
+    MIRAGE_CHECK(repeated.digest == draft.digest);
+    MIRAGE_CHECK(repeated.definition_json == draft.definition_json);
+    MIRAGE_CHECK(permission_checks.load() == checks_before);
+    MIRAGE_CHECK(bridge->delivered_events() == events_before);
+    const auto before_import = host.start_workflow_run(target_id, draft.digest, "{}", "strict");
+    MIRAGE_CHECK(!before_import.ok);
+    for (const auto &bad :
+         {host.import_workflow_experience(draft.definition_json, target_id, std::string(64, '0')),
+          host.import_workflow_experience(draft.definition_json, workflow_id, draft.digest),
+          host.import_workflow_experience("{}", target_id, draft.digest)}) {
+        MIRAGE_CHECK(!bad.ok && bad.error.code == "invalid_argument");
+        MIRAGE_CHECK(bad.workflow_id.empty() && bad.digest.empty());
+    }
+    const auto absent = host.start_workflow_run(target_id, draft.digest, "{}", "strict");
+    MIRAGE_CHECK(!absent.ok);
+    MIRAGE_CHECK(absent.error.code == before_import.error.code &&
+                 absent.error.message == before_import.error.message);
+    MIRAGE_CHECK(permission_checks.load() == checks_before);
+    MIRAGE_CHECK(bridge->delivered_events() == events_before);
+    MIRAGE_CHECK(environment.clipboard_text == "from workflow");
+
+    // Non-successful execution and DryRun planning cannot become experience.
+    const auto planned_draft =
+        host.compile_workflow_experience(published.dry_run_id, target_id, "planned candidate");
+    MIRAGE_CHECK(!planned_draft.ok && planned_draft.definition_json.empty());
+    MIRAGE_CHECK(!host.compile_workflow_experience("bad", target_id, "candidate").ok);
+    MIRAGE_CHECK(!host.compile_workflow_experience(run.run_id, "bad", "candidate").ok);
+    MIRAGE_CHECK(!host.compile_workflow_experience(run.run_id, "00000000000000000000000000000000",
+                                                   "candidate")
+                      .ok);
+    MIRAGE_CHECK(!host.compile_workflow_experience(run.run_id, workflow_id, "overwrite source").ok);
+    MIRAGE_CHECK(!host.compile_workflow_experience(run.run_id, target_id, "").ok);
+    MIRAGE_CHECK(
+        !host.compile_workflow_experience(run.run_id, target_id, std::string(8193, 'x')).ok);
+    MIRAGE_CHECK(!host.compile_workflow_experience(run.run_id, target_id, "candidate",
+                                                   std::string(8193, 'x'))
+                      .ok);
+    MIRAGE_CHECK(!host.compile_workflow_experience(mira::WorkflowRunId::generate().to_string(),
+                                                   target_id, "unknown candidate")
+                      .ok);
+    const auto task = host.submit_task("a completed Agent Task has no Workflow Run trajectory");
+    MIRAGE_CHECK(task.ok && host.complete_task(task.task, true).ok);
+    MIRAGE_CHECK(!host.compile_workflow_experience(task.task.id, target_id, "task candidate").ok);
+
     // Deny path: the same atom fails closed under a denying gate; the run
     // settles failed and the clipboard keeps the earlier content.
     allow.store(false);
@@ -629,17 +714,19 @@ void scenario_tool_call_steps_dispatch_desktop_atoms() {
     // single async slot, so admission here can race it; the capacity
     // rejection is transient (sub-millisecond epilogue) and the bounded
     // retry waits it out. Any other rejection fails fast through check_ok.
-    mirage::runtime::WorkflowRunStartResult denied_run;
-    bool denied_admitted = false;
-    for (int waited = 0; waited <= 5000 && !denied_admitted; waited += 10) {
-        denied_run =
-            host.start_workflow_run(workflow_id, published.digest, R"({"confirm":true})", "strict");
-        denied_admitted =
-            denied_run.ok || denied_run.error.message.find("capacity") == std::string::npos;
-        if (!denied_admitted) {
+    auto start_with_policy = [&](const std::string &policy) {
+        mirage::runtime::WorkflowRunStartResult started;
+        for (int waited = 0; waited <= 5000; waited += 10) {
+            started = host.start_workflow_run(workflow_id, published.digest, R"({"confirm":true})",
+                                              policy);
+            if (started.ok || started.error.message.find("capacity") == std::string::npos) {
+                return started;
+            }
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
-    }
+        return started;
+    };
+    const auto denied_run = start_with_policy("strict");
     check_ok("denied tool-call run", denied_run);
     bool denied_seen = false;
     MIRAGE_CHECK(wait_until([&] {
@@ -654,12 +741,129 @@ void scenario_tool_call_steps_dispatch_desktop_atoms() {
     MIRAGE_CHECK(environment.clipboard_text == "from workflow");
 
     // Terminal projections stay honest for both runs.
+    const auto failed_draft =
+        host.compile_workflow_experience(denied_run.run_id, target_id, "failed candidate");
+    MIRAGE_CHECK(!failed_draft.ok && failed_draft.definition_json.empty());
     const auto view = host.workflow_run_view(denied_run.run_id);
     MIRAGE_CHECK(view.ok);
     MIRAGE_CHECK(view.view.state == "failed");
     MIRAGE_CHECK(bridge->sink_failures() == 0);
 
+    // Recoverable refusal hands off at a stable nonterminal boundary. A
+    // waiting run and the same run after cancellation cannot be compiled.
+    const auto cancelling_run = start_with_policy("recoverable");
+    check_ok("cancelling tool-call run", cancelling_run);
+    MIRAGE_CHECK(wait_until([&] {
+        const auto waiting = host.workflow_run_view(cancelling_run.run_id);
+        return waiting.ok && waiting.view.state == "waiting_agent";
+    }));
+    const auto active_draft =
+        host.compile_workflow_experience(cancelling_run.run_id, target_id, "active candidate");
+    MIRAGE_CHECK(!active_draft.ok && active_draft.definition_json.empty());
+    MIRAGE_CHECK(host.cancel_workflow_run(cancelling_run.run_id).ok);
+    MIRAGE_CHECK(wait_until([&] {
+        std::lock_guard lock(events_mutex);
+        for (const auto &event : sink_events) {
+            if (event.run_id == cancelling_run.run_id && event.state == "cancelled") {
+                return true;
+            }
+        }
+        return false;
+    }));
+    const auto cancelled_draft =
+        host.compile_workflow_experience(cancelling_run.run_id, target_id, "cancelled candidate");
+    MIRAGE_CHECK(!cancelled_draft.ok && cancelled_draft.definition_json.empty());
+    MIRAGE_CHECK(host.workflow_run_view(cancelling_run.run_id).view.state == "cancelled");
+    MIRAGE_CHECK(environment.clipboard_text == "from workflow");
+
+    // DEC-140: direct Host admission and whole-review budgeting. Nine
+    // distinct observed text parameters exceed 64 KiB across two samples.
+    MIRAGE_CHECK(!host.induce_workflow_experience({}, target_id, "empty").ok);
+    MIRAGE_CHECK(!host.induce_workflow_experience({run.run_id}, target_id, "single").ok);
+    MIRAGE_CHECK(
+        !host.induce_workflow_experience({run.run_id, run.run_id}, target_id, "duplicate").ok);
+    MIRAGE_CHECK(!host.induce_workflow_experience(std::vector<std::string>(17, run.run_id),
+                                                  target_id, "too many")
+                      .ok);
+    allow.store(true);
+    const auto budget_id = mira::WorkflowId::generate().to_string();
+    mira::JsonValue::Array parameters{mira::JsonValue{
+        mira::JsonValue::Object{{"name", "confirm"}, {"type", "boolean"}, {"required", false}}}};
+    mira::JsonValue::Array steps;
+    mira::JsonValue first{mira::JsonValue::Object{{"confirm", true}}};
+    mira::JsonValue second{mira::JsonValue::Object{{"confirm", true}}};
+    for (int index = 0; index < 9; ++index) {
+        const auto parameter = "text_" + std::to_string(index);
+        parameters.emplace_back(mira::JsonValue::Object{
+            {"name", parameter}, {"type", "string"}, {"required", false}, {"default", "a"}});
+        steps.emplace_back(mira::JsonValue::Object{
+            {"step_id", mira::StepId::generate().to_string()},
+            {"kind", "tool_call"},
+            {"arguments",
+             mira::JsonValue{mira::JsonValue::Object{
+                 {"tool", "desktop.clipboard.write_text"},
+                 {"text", mira::JsonValue{mira::JsonValue::Object{{"$param", parameter}}}}}}},
+            {"verification",
+             mira::JsonValue{mira::JsonValue::Object{
+                 {"signal", "run_parameter:confirm"}, {"op", "eq"}, {"value", true}}}}});
+        first.set(parameter, std::string(5000, 'a'));
+        second.set(parameter, std::string(5000, 'b'));
+    }
+    const mira::JsonValue budget_definition{mira::JsonValue::Object{
+        {"schema_version", mira::JsonValue{mira::JsonValue::Object{{"major", 1}, {"minor", 0}}}},
+        {"workflow_id", budget_id},
+        {"name", "review budget"},
+        {"parameters", mira::JsonValue{std::move(parameters)}},
+        {"steps", mira::JsonValue{std::move(steps)}},
+        {"default_policy", "strict"},
+        {"allowed_policies", mira::JsonValue{mira::JsonValue::Array{"strict", "dry_run"}}}}};
+    const auto budget_version = host.publish_workflow_definition(
+        mira::to_json_string(budget_definition), "review budget fixture");
+    check_ok("publish review budget fixture", budget_version);
+    auto sample = [&](const mira::JsonValue &values) {
+        mirage::runtime::WorkflowRunStartResult started;
+        for (int waited = 0; waited <= 5000; waited += 10) {
+            started = host.start_workflow_run(budget_id, budget_version.digest,
+                                              mira::to_json_string(values), "strict");
+            if (started.ok || started.error.message.find("capacity") == std::string::npos)
+                break;
+            std::this_thread::sleep_for(std::chrono::milliseconds{10});
+        }
+        check_ok("start review budget sample", started);
+        MIRAGE_CHECK(wait_until([&] {
+            const auto sample_view = host.workflow_run_view(started.run_id);
+            return sample_view.ok && sample_view.view.state == "completed";
+        }));
+        return started.run_id;
+    };
+    const auto first_sample = sample(first);
+    const auto second_sample = sample(second);
+    const auto checks_before_induction = permission_checks.load();
+    const auto oversized =
+        host.induce_workflow_experience({first_sample, second_sample}, target_id, "large review");
+    MIRAGE_CHECK(!oversized.ok && oversized.error.code == "unavailable");
+    MIRAGE_CHECK(oversized.definition_json.empty() && oversized.sources.empty() &&
+                 oversized.parameter_candidates_json.empty());
+    MIRAGE_CHECK(permission_checks.load() == checks_before_induction);
+
+    const auto events_before_import = bridge->delivered_events();
+    const auto imported =
+        host.import_workflow_experience(draft.definition_json, target_id, draft.digest);
+    check_ok("import checked draft", imported);
+    MIRAGE_CHECK(imported.workflow_id == target_id && imported.digest == draft.digest);
+    MIRAGE_CHECK(!host.start_workflow_run(target_id, draft.digest, "{}", "strict").ok);
+    MIRAGE_CHECK(permission_checks.load() == checks_before_induction);
+    MIRAGE_CHECK(bridge->delivered_events() == events_before_import);
+
     MIRAGE_CHECK(host.shutdown_workflow_surface().ok);
+    const auto closed_import =
+        host.import_workflow_experience(draft.definition_json, target_id, draft.digest);
+    MIRAGE_CHECK(!closed_import.ok && closed_import.error.code == "invalid_state");
+    MIRAGE_CHECK(
+        !host.induce_workflow_experience({first_sample, second_sample}, target_id, "late").ok);
+    const auto after_down =
+        host.compile_workflow_experience(run.run_id, target_id, "late candidate");
+    MIRAGE_CHECK(!after_down.ok && after_down.error.code == "invalid_state");
     MIRAGE_CHECK(host.shutdown().ok);
     executor.shutdown(true);
 }

@@ -2,7 +2,7 @@
 
 > 状态：Active
 > 负责人：Mirage维护者；处理方：Mira上游
-> 更新日期：2026-10-27
+> 更新日期：2026-11-12
 > 工作项：台账维护性收口见[依赖复用整改计划](../plans/dependency-reuse-remediation.md)
 > （REUSE-16/17/18）；既有条目分别溯源至 M6-10、M7、M8/M9 各工作项。
 > 总入口：[依赖反馈](ledger.md)；维护规则：[工程规范9.4](../project/project-standards.md)
@@ -88,6 +88,10 @@
 
 | 编号 | 主题 | 类型/分级 | 状态 | 本轮证据 | 上游 |
 | --- | --- | --- | --- | --- | --- |
+| MIRA-20261112-002 | Workflow 恢复的 provider/future 异常结算与关停 | P2：恢复异常生命周期缺口 | Open | provider 故障注入导致 future.get 穿透并在析构阶段 abort；Adapter 临时边界防护 | 本地登记，未发送 |
+| MIRA-20261112-003 | 异步恢复 wait 返回旧缓存，无法可靠关联新尝试 | P2：多轮恢复接线缺口 | Open | 第二轮先返回旧 ordinal，游标过滤后仍等不到次数耗尽的新回执 | 本地登记，未发送；Host 单 Run 限一次 |
+| MIRA-20261112-001 | 持久视觉记忆的总量准入与部分写入恢复 | P2：产品长期存储接线缺口 | Open（SQLite 元数据已补） | 单字节工件正文上限下反复擦除，目录元数据仍增长；公开接口无统一预留/盘点 | 本地登记，未发送；扩展既有 MIRA-20261027-001 / M31 |
+| MIRA-20261111-001 | 普通 Agent 执行事实到成功轨迹的公开提取 | P2：经验生成接线缺口 | Open | 当前 Run 捕获可用；普通历史提取仍为上游 DEC-038 未实现方向 | 本地登记，未发送 |
 | MIRA-20261015-002 | ConversationLoop 缺少不按累计步骤/工具次数终止的模式 | P1：长程任务循环能力缺口 | Resolved | a29374a 消费契约：1,025 轮/1,024 工具；干净 Debug 82/82，ASAN/UBSAN 各 5/5 | [Mira PR #99](https://github.com/Linductor-alkaid/mira/pull/99) 已合并；[升级 PR #97](https://github.com/Linductor-alkaid/mirage/pull/97)、[接线 PR #103](https://github.com/Linductor-alkaid/mirage/pull/103) |
 | MIRA-20260922-001 | Executor MinGW POSIX native_handle转换 | 构建缺陷 | Open | 最小编译复现同类错误 | [#75](https://github.com/Linductor-alkaid/mira/issues/75)，已提交 |
 | MIRA-20260927-001 | 同digest草稿遮蔽已验证workflow记录 | 版本语义缺陷 | Resolved | 公共版本API离线复现 | [#74](https://github.com/Linductor-alkaid/mira/issues/74)，已提交 |
@@ -1071,3 +1075,146 @@ Failed + MaxOutputTokens，删除 summary 锚点；其它原因不误报 output_
 复核未解决项：MIRA-20260922-001、20261008-002、20261012-002、20261013-001、
 20261016-003/004 在 `a29374a..68a8bf1` 无对应接口或嵌套依赖变更；维持 Open，
 编译告警抑制、熔断测试重建及 Result 使用纪律保留。不能因其他上游修复关闭。
+
+<a id="mira-20261111-001"></a>
+
+## MIRA-20261111-001：普通 Agent 执行事实到成功轨迹的公开提取能力
+
+- 状态：Open（本地登记，未发送上游）；日期：2026-11-11；负责人：Mirage 维护者；
+  处理方：Mira 上游。关联：Mira DEC-038 / 其文档引用的 Issue #56，Mirage
+  [M15-03](../plans/m15-supervised-rpa-experience.md)、
+  [专项设计](../design/supervised-rpa-experience-and-visual-memory.md)。
+- 核对版本：pinned Mira `be44e36044eaf8e5ab09bc0a22f134a3c8545111`。
+  公开 `workflow_compiler.hpp` 支持宿主构造 `WorkflowTrajectory`；
+  `workflow_runtime.hpp::capture_trajectory` 只接受本 Runtime 运行表中的成功 Run。
+  API `workflow-contracts.md` 与 M11 范围明确：自动抽取 Agent 工具调用轨迹不在
+  已交付范围。DEC-038 冻结通用 L0/L1/L2 方向并明确“实现未开始”。
+  `tests/m11/m11_compile_test.cpp` 验证的是已存在 Workflow Run 的捕获/编译，
+  没有普通 Agent 事件提取入口。
+- 复现/核对方法：
+  `rg -n 'capture_trajectory|compile_workflow|BehaviorTrace|behavior_trace'
+  third_party/mira/include/mira`，再对照上述 API/DEC 和 m11 测试。先完成一个普通
+  Mira Task，再将它的 ID 传给 Run 捕获不能得到该 Task 的执行轨迹。Mirage 本轮
+  `mira_host_test` 增加普通已完成 Task 的拒绝用例；静态 API 缺口不等于已运行
+  上游所有测试。补充真实历史证据样本由 M15-03 跟踪。
+- 影响：普通 native Agent 的既有成功任务无法仅凭公开 Task/会话 ID 自动转换为
+  有来源的 `WorkflowTrajectory`。当前 Host 能独立推进成功 Workflow Run -> 候选，
+  但不能宣称“所有历史任务自动学习”。有界聊天摘要也可能已失去实参、配对结果、
+  任务边界与验证事实，不能还原为真实成功轨迹。
+- 职责排除：桌面目标/权限/应用与页面匹配、截图供给和产品审阅属 Mirage；通用
+  Agent 事件配对、顺序/终态/验证判定和可重建行为投影属于 Mira DEC-038 的已规划
+  责任。`WorkflowTrajectory` 宿主构造入口能承载结果，但不提供通用事实提取本身。
+  不要求 Mira 识别平台 UI 或替 Mirage 生成模板资源。
+- 最小期望能力：在 DEC-038 路线内提供有界、可取消的事实投影/成功轨迹提取公开
+  接口，输入为有权限的 Task/Session 事件范围，输出已存在的 `WorkflowTrajectory`
+  候选及来源事件/验证证据、缺失/截断/不支持原因。相同事实前缀确定性重建，失败、
+  取消、中间态、迟到结果不能被提升为成功，模型生成解释保留派生标记。
+- 延期影响与临时处置：M15-03 保持未实现；只接已交付 Run 编译接口，不私建通用
+  Trace、不修改第三方、不补造历史。不新增线程、队列或调度器。没有需要未来删除
+  的临时编译器；上游交付后直接装配公开提取接口。
+- 可验收结果：同任务配对工具执行/验证产生带来源候选；多任务混合、前缀缺失、
+  截断、未知工具、失败/取消、重放及迟到结果返回明确结果；回放零副作用，预算、
+  执行中取消、接纳拒绝、超时、shutdown 可观察。Mirage 在获准 pin 消费后以真实
+  原生历史样本验证提取 -> 审阅 -> 编译，旧证据不足时明确拒绝。
+- 补跑负责人/条件：Mira/Mirage 维护者；上游契约与实现交付、依赖升级获准，随后
+  执行契约/生命周期矩阵和 native 样本验收。登记不代表上游接受或排期。
+
+<a id="mira-20261112-001"></a>
+
+## MIRA-20261112-001：持久视觉记忆总量准入与部分写入恢复
+
+2026-11-14 进展：维护者已明确授权补齐 Mira 并升级 pin；Mira DEC-111/M31-13 的
+SQLite 元数据文件长度硬限额、预留、快照与重开计量已随 2c42627 消费，Mirage
+DEC-146 默认装配私有长期元数据 owner。本文原始单字节 ArtifactStore 复现未被
+SQLite 增量修复，视觉工件、EventStore 和跨层恢复/清理仍 Open；不把本条整体关闭。
+实现与验证见[升级审计](../supply-chain/mira-workflow-learning-20261114.md)。
+
+- 状态：Open；日期：2026-11-12；负责人：Mirage 维护者，处理方 Mira；P2，阻碍长期
+  owner 接线的能力缺口，非已上线功能故障。仅本地登记，没有向上游发送消息。
+  扩展 MIRA-20261027-001 的 M31 分项，不替代其主体交互部分已交付状态。
+- 基线：pinned be44e36044eaf8e5ab09bc0a22f134a3c8545111。核对公共
+  IArtifactStore/FileArtifactStore、IMemory/SqliteMemoryStoreOptions、
+  ContextMemorySupervisor，以及上游 DEC-069、M31/记忆维护计划和 M4 存储/监督测试。
+  未修改依赖或读取/迁移用户数据。
+- 复现：[visual_memory_write_test](../../tests/integration/visual_memory_write_test.cpp)
+  的 durable_sources_and_capacity_gap，在独占临时目录构造 FileArtifactStore(root, 1)，
+  依次提交不同的单字节工件并立即 erase，共 16 次；每次旧工件 open 均失败。通过
+  filesystem API 统计整个目录的普通文件字节，8 轮后大于正文上限，16 轮后继续增长。
+  不依赖某个内部表或私有文件名，不以逻辑 erase 证明物理收敛。
+- 复现命令：构建 visual_memory_write_test 后执行
+  `ctest --preset debug -R '^visual_memory_write_test$' --output-on-failure`；输出含
+  payload cap / 8 与 16 次擦除后的目录字节。实际四配置结果见 M15-14 验收。
+- 接口事实：FileArtifactStore 的 max_total_bytes 没有提供跨正文/manifest/墓碑的
+  整目录预留与回收回执；SqliteMemoryStoreOptions 只有单次请求/扫描、版本与 TTL
+  参数，缺少全库/主体总字节、WAL/索引/幂等台账配额。Supervisor max_in_flight 只管
+  在途操作；不能作为持久容量。IArtifactStore 无有界 inventory 或按稳定提交键查询，
+  commit 报错/进程中断且无 descriptor 时，公开入口不足以确认自有孤儿是否已写入。
+- 期望语义：跨层预留与结算覆盖正常完成、拒绝、未知部分写入、重启恢复和共享引用；
+  所有元数据/台账、数据库/WAL、临时峰值/回收预留均计量；逻辑有效载荷、可重用空间
+  与实际占用分别报告。容量回收和隐私擦除 Pending 各自结算，不互相冒充。
+- 最小能力建议：M31 的有界持久准入/恢复 facade，提供稳定操作身份、预留/结算结果、
+  可限量盘点/续扫的恢复水位及引用安全删除；具体 API 由 Mira 冻结，Mirage 只提供部署
+  数值、目录/磁盘测量和产品状态。现有 TTL/compact/sweep/erase 继续复用。
+- 应用职责排除：部署预算、选择保留对象、授权和 Secret 分类由 Mirage 决定；把每条
+  上限或进程内计数当成总量、绕过公开接口扫描并删除依赖私有文件、另建 JSON/SQLite
+  图片库、在 Host 实现第二套通用配额引擎均不是可接受接线。
+- 影响/延期：M15-13/14 的受控候选与有限 Supervisor 写入可独立验证；产品自动视觉
+  记忆 owner、重启孤儿回收、全局容量和共享证据隐私删除保持未交付。不存在绕过缺口
+  的临时存储实现；当前路径返回已知工件 ID/失败阶段，禁止自动清理/重试不确定写入。
+- 验收：微配额持续提交/擦除、共享引用、全受保护、磁盘满、未知 commit/apply、
+  延迟写入、并发预留、关闭和断电/重启后仍在预算内；拒绝与实际占用/峰值可观察，
+  已删证据不复活。负责人 Mira/Mirage 维护者，待上游公开实现与授权升级后补跑。
+  本地登记不代表上游已接受/排期。
+
+<a id="mira-20261112-002"></a>
+
+## MIRA-20261112-002：Workflow 恢复的异常结算与关停
+
+- 状态：Open；日期：2026-11-12；负责人 Mirage 维护者，处理方 Mira；P2，产品未启用
+  恢复前的故障注入发现。仅本地记录，没有发送上游消息、改 pin 或修改依赖。
+- 基线 be44e36044eaf8e5ab09bc0a22f134a3c8545111。核对 IModelProvider、ModelGateway、
+  WorkflowRecoveryOrchestrator 公共头、M14 测试和 Workflow API；实际复现后定点核对
+  workflow_recovery.cpp 的 wait_recovery/shutdown，两处 shared_future.get 没有异常
+  转 Result 边界，析构也调用 shutdown。
+- 实际证据：M15-15 首轮 workflow_recovery_host_test 的脚本 provider 在 infer 抛
+  runtime_error，CTest 报 Subprocess aborted，错误在关停/析构的 future.get 再次穿透。
+  这是测试内固定错误标记，无用户/凭据数据。最小路径：构造 WaitingAgent Run，注册
+  抛异常的公开 IModelProvider，start_recovery -> wait_recovery -> shutdown。
+- 可重复输入见[恢复 Host 测试](../../tests/runtime/workflow_recovery_host_test.cpp) 的
+  throw 场景；在独立临时 checkout 中让 Gateway 注册原 provider、跳过 Mirage guard，
+  构建 workflow_recovery_host_test 后执行相同 CTest 即可恢复原始路径。当前正式测试
+  通过 guard 覆盖异常不再逃逸，不以测试已加防护宣称上游已修复。
+- 期望：provider/gateway/任务异常必须转为有审计关联的 Aborted/Error，取消/在途计数/
+  latest result/future 全部结算；wait 和 shutdown 不传播异常，析构不终止进程；模型
+  异常正文不入事件或用户诊断。任务失败和审计失败分别可观察，不伪造恢复成功。
+- 临时边界：仅 integration/workflow_recovery_model.cpp 捕获 provider infer/诊断
+  虚调用异常，推理异常转固定 Internal，已有 Error 保留 code/retryable 并替换正文；
+  诊断读取异常降为空。不创建线程/队列/调度器、不接管 Mira 状态机，Gateway 内部的
+  泛化异常收敛仍属上游。行为差异是异常成为普通模型失败且没有原始异常正文。
+- 移除条件/验收：上游公开异常结算语义、M14 同步/异步/provider/审计/取消/关闭故障
+  测试通过且授权升级后，移除临时 guard。延期影响：当前只交付受控 Host 单次恢复，
+  产品 ModelLayer 共享和自动触发保持关闭。负责人 Mira/Mirage 维护者。
+
+<a id="mira-20261112-003"></a>
+
+## MIRA-20261112-003：异步恢复的新尝试回执不可可靠关联
+
+- 状态：Open；日期：2026-11-12；负责人 Mirage 维护者，处理方 Mira；P2，多轮恢复
+  接线缺口。基线同 002，仅本地登记，未发送/改依赖。
+- 公共 wait_recovery 文档描述最近尝试的有界结果。首轮 need_user 后再 start，实际
+  先得到上一轮 ordinal/reason；Host 加 after_ordinal 过滤后，在次数耗尽场景等待
+  10 秒仍没有新回执。日志保留在本机 build/m15-recovery-debug-test-guarded.log；
+  原始错误预期与收口结果均记录于 M15-15，不把超时冒充 pending 状态证明。
+- 复现：同一 WaitingAgent Run，第一次异步 need_user 完成并读回；再次异步启动（可
+  故意保持 provider 阻塞，也可达到尝试次数上限），调用 wait_recovery。当前实现在
+  检查最新 pending future 前直接返回 tracking.last_result；即使消费方增加游标也
+  无法保证次数耗尽等新结果可以读到。该定点实现核对仅用于已复现缺陷归因。
+- 期望/最小能力：start 返回稳定尝试身份，wait/query 明确接收身份或游标，旧结算与
+  新 pending 区分；包括 admission/预算拒绝在内的每个异步结果均可读、可与审计关联，
+  在途计数与关闭结算一致。保留最近历史查询，但不能拿旧结果冒充新的恢复结算。
+- 应用边界：Host 提供只排除已读结果的无状态游标，且每 Run 限一次恢复、已结算后
+  拒绝再开；不建立平行 tracking、私有 future 队列或偷偷换 Run/重绑重置预算。这是
+  明确缩小的预览范围，不声称多轮问题已解决。
+- 验收/移除限制条件：同 Run 连续异步尝试、第二轮阻塞/完成/预算耗尽/拒绝、迟到结果、
+  重复通知/关闭，查询必须返回对应 ordinal/attempt 而非旧缓存；上游交付并授权升级后
+  再开放 Host 多轮配置。负责人 Mira/Mirage 维护者；不代表上游接受/排期。

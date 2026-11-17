@@ -2,7 +2,7 @@
 
 > 状态：Accepted（事实源自 `M1.5-01` 起生效；事件帧格式与订阅语义已随 `M1.5-02`
 > 落地冻结，2026-09-17）
-> 日期：2026-09-16
+> 日期：2026-09-16；更新：2026-11-16（DEC-148 / golden v27）
 > 负责人：Mirage 维护者
 > 依据：[DEC-007](../decisions/DEC-007-local-ipc-and-runtime-service.md)（协议 v1 与传输冻结）、
 > [DEC-012](../decisions/DEC-012-ipc-event-subscription-and-wire-schema.md)（事件订阅扩展，已
@@ -100,6 +100,8 @@
 | `workflow.run` | `workflow_id`（string，非空），`digest`（可选 string，非空；缺省取 head），`parameters`（可选 object），`policy`（可选封闭策略名，§6.5；M5-05 落地） | `{"run_id"}`（§6.5） | `not_found`（未知工作流）、`unavailable`（运行注册表饱和，§6.5）、`pinned_runtime`（准入 / 提交拒绝，透传） |
 | `workflow.cancel` | `run_id`（string，非空，M5-05 落地） | `{"run_id","state"}`（§6.5） | `pinned_runtime`（透传；幂等取消含终态重申） |
 | `workflow.get` | `workflow_id`（string，非空，M5-06 落地，DEC-026） | `{"workflow_id","digest","definition"}`（§6.6） | `not_found`（未知工作流） |
+| `workflow.experience.compile` | `source_run_id`、`target_workflow_id`、`name`；可选 `summary`、`additional_run_ids`（DEC-139/140） | `{"experience":{...}}` 候选及参数审阅（§6.5.1/2） | `protocol_error`（字段/预算）、Host 原错误（来源/编译不合格） |
+| `workflow.experience.import` | `archive`：完整成功候选响应对象（DEC-141） | 既有 `WorkflowSaved`（§6.5.3），只创建草稿 | `protocol_error`（文件形状/预算）、`invalid_argument`（IR 身份）、`invalid_state`（目标已存在）、`unavailable`（满目录） |
 | `desktop.observe` | `semantic`（可选 boolean，缺省 true）、`visual`（可选 boolean，缺省 false；M5-06 落地，DEC-026；编码端恒写出两成员） | `ObservationView`（§6.6） | `unavailable`（环境未绑定、组件不可交付或桌宠排除/恢复失败，fail closed）、`permission_denied`（视觉捕获权限拒绝） |
 
 协议层（`decode_request`）只约束参数的存在与类型（如 `task.submit` 缺 `goal` 即
@@ -310,6 +312,77 @@ action_id、verification 与 knowledge_digest。该形式兼容 Mira 的标量 s
 歧义、页面失效、已存在后条件或拒绝不会产生动作；不确定效果失败，Recoverable 可停在
 waiting_agent。示例不声明 Retry/循环，当前不自动选择资产或恢复 Agent；版本目录重启
 仍为空。参见[示例与操作](../examples/local-semantic-workflow.md)。
+
+#### 6.5.1 经验候选导出（M15-10，DEC-139）
+
+`workflow.experience.compile` 必填来源 Run ID、不同的目标 Workflow ID 和非空 name，
+summary 缺省为空。两个 ID 均为非 nil 的 32 位小写十六进制；name/summary 各不超过
+8192 字节。请求字段闭集为 v/id/op/source_run_id/target_workflow_id/name/summary，
+归纳扩展还允许 additional_run_ids（见 §6.5.2）；
+未知字段、缺失或错误类型和预算超限由 codec 拒绝（protocol_error）。Host 再校验当前
+服务 Run 的 Completed/真实执行资格、目标不同于来源与 pinned 编译规则；失败透传。
+
+成功响应按顺序携带独立 `experience` 对象，内部字段顺序固定：
+
+```json
+{"experience":{"validation":"candidate","source_run_id":"<32 hex>","source_workflow_id":"<32 hex>","source_digest":"<64 hex>","workflow_id":"<32 hex>","digest":"<64 hex>","definition":{}}}
+```
+
+以上 definition 只是形状示例；实际为 pinned 编译产生的完整 IR。三个 ID 非 nil；
+两个 digest 为 64 位小写十六进制。definition 必须是对象，紧凑 JSON 序列化不超过
+256 KiB。validation 只允许 candidate；缺字段、错误类型/身份或超限响应拒绝。
+该信封与 workflow.get 的已入库定义不同，不能把候选解码为已发布资产。
+
+调用只在现有串行上下文捕获和编译，不写目录/版本/记忆、不派发动作或产生新事件；
+只有请求连接取得可能含敏感实参的正文。失败不返回候选。源 Run 随当前服务生命周期，
+重启后不承诺可读。旧服务返回既有未知 op 错误，不回退执行其他能力；不新增 hello 位。
+Golden v24 锁定新字节与拒绝语义，旧向量不变。详见
+[DEC-139](../decisions/DEC-139-workflow-experience-export.md)。
+
+#### 6.5.2 多来源参数归纳（M15-11，DEC-140）
+
+可选 additional_run_ids 是 1～15 个非 nil 的 32 位小写十六进制 Run ID；不能与 anchor
+source_run_id 或彼此重复。缺席保持原字面量模式。提供后调用 Host 参数归纳：2～16 个
+来源必须真实执行且 Completed，Workflow ID、创建时 digest、生效策略相同；目标不同于
+来源。Mira 负责同骨架、标量差异与参数化编译；首项为默认值 anchor，不自动排序样本。
+
+归纳成功时 experience 在 definition 后同时追加 sources、parameter_candidates：
+
+- sources：2～16 个对象，每项按 source_run_id/source_workflow_id/source_digest 顺序；
+  首项与已有 anchor 字段一致，Run ID 不重复，所有 Workflow ID/digest 与 anchor 一致。
+- parameter_candidates：0～64 个候选位置，数组紧凑 JSON 不超过 64 KiB。每项必须有
+  name（`[a-z][a-z0-9_]{0,63}`）、step_index（0～255 整数）、pointer（`/` 开头，
+  不超过 8192 字节）、provenance（provenance/structural/explicit 闭集）及
+  observed_values（非 null 标量数组，长度等于来源数，顺序与 sources 相同）。同名参数
+  可出现于多个位置；空候选数组表示样本没有可归纳差异，不代表已证明未来仍为常量。
+
+两个成员必须同现同缺；错误形状、关联、类型、数目或预算拒绝，不能降格为旧候选。
+Host 也校验完整候选审阅预算，超限拒绝整个请求，不截断观测。实际宿主只产生 pinned
+归纳输出；codec 不替代 Mira 的参数编译/绑定语义。候选和观测是审阅数据，不入可执行
+IR 元数据或事件；IR 仍限 256 KiB。sources 的版本一致性不构成跨任务泛化保证。
+
+单 Run wire 保持不变。旧服务按 DEC-139 字段闭集拒绝 additional_run_ids，新 CLI 不
+回退成单样本。CLI 的 `--also-run` 显式添加来源，`--review` 返回完整响应 JSON；
+默认仍为 IR，不能把 review 信封直接交给 publish。Golden v25 冻结新向量，v24 的
+309 个样本保持原字节。见 [DEC-140](../decisions/DEC-140-workflow-experience-parameter-induction.md)。
+
+#### 6.5.3 候选文件导入（M15-12，DEC-141）
+
+`workflow.experience.import` 请求字段闭集为 v/id/op/archive；archive 是 `--review`
+产生的完整成功响应对象，其紧凑 JSON 上限 384 KiB。沿用 §6.5.1/2 reader 校验候选
+与审阅数据，失败响应、其他载荷、错形状/预算均 `protocol_error`。CLI 文件本身也
+限 384 KiB；无旧服务 fallback。
+
+Host 用 Mira 解析 IR，核对 IR workflow_id 等于候选 workflow_id、规范化 digest
+等于候选 digest，错误 `invalid_argument` 且不写库。服务先检查目标未在目录中及
+目录有容量，分别拒绝 `invalid_state` / `unavailable`，然后调用原 draft save；
+成功返回 `{"workflow_id":"...","digest":"..."}`（WorkflowSaved）。目录 validation
+为 not_validated、runnable=false；重新显式 publish 才可运行。无导入事件或额外 Run。
+
+source IDs/observations 只作为用户文件中的历史声明，不恢复旧 Run、验证等级或版本
+历史，也不自动写入 Memory。Digest 是内容身份校验，不是来源认证。新服务可显式
+导入原文件，但不会自动扫描/恢复目录。Golden v26 在 v25 的 332 个未改样本上新增
+13 个导入向量；见 [DEC-141](../decisions/DEC-141-workflow-experience-archive-import.md)。
 
 ### 6.6 观察面与定义读取面载荷（M5-06，DEC-026）
 
@@ -1085,3 +1158,59 @@ inference 是公开 provider 调用的累计用时（含失败、取消和内部
 
 这些字段说明原条件的含义，不授予额外输入权限，也不改变不确定副作用、取消或
 最终收尾验证门禁。模型应按本次用户目标说明实际证据，已核验条件不要求机械重复。
+
+
+## Workflow 学习容量（DEC-147 / M15-18）
+
+请求 `{"v":1,"id":1,"op":"workflow.learning.status"}`，无操作数。成功响应的
+learning 对象包含 enabled（布尔）与四个整数字节字段：file_bytes、limit_bytes、
+reserve_bytes、peak_admitted_file_bytes。启用时限额为 1 MiB～1 TiB，预留小于限额，
+当前量与进程已接纳峰值均不超限；关闭时四项为零且不打开库。字段缺失、类型错误、
+负数或不一致的容量响应拒绝。底层读取错误用 unavailable，与 disabled 区分。
+
+这是数据库/WAL/SHM/journal 文件长度快照，不是物理块或全生命周期峰值。不返回路径、
+主体和记忆正文，不改变库或配置；沿既有本地 IPC 认证和串行上下文。CLI：
+`mirage workflow learning [--socket PATH]`，输出完整 JSON。旧服务明确报告不支持。
+
+## Workflow 显式恢复（DEC-148 / M15-19）
+
+四个加法请求为 `workflow.recovery.start`、`workflow.recovery.status`、
+`workflow.recovery.cancel`、`workflow.recovery.lesson`，均要求 `run_id` 为 32 位非 nil
+十六进制 ID，且属于当前服务登记的 Run。未知 Run 为 not_found，未配置模型为 unavailable；
+start 只允许 WaitingAgent，未结算的聊天/其他恢复明确拒绝。旧服务返回 unsupported。
+
+```json
+{"v":1,"id":1,"op":"workflow.recovery.start","run_id":"11111111111111111111111111111111"}
+```
+
+成功响应包含 `recovery` 对象，成员按下表顺序编码，全部必需：
+
+| 成员 | 类型与语义 |
+| --- | --- |
+| run_id | 当前 Run ID |
+| action | start / status / cancel / lesson，与请求相同 |
+| settled | boolean；仅 status 可为 true，表示恢复模型尝试已结算 |
+| ordinal | 0（无结算）或 1（本预览仅单次尝试） |
+| workflow_id | 结算时为非 nil Workflow ID，否则空字符串 |
+| outcome | 结算时为 patched-and-resumed / resumed-without-patch / cancel-requested / deferred-to-host / aborted，否则空 |
+| reason_code | 有界稳定诊断，最多 128 字节；未结算时为空 |
+| decision_digest | 可空的 64 位 hex；不含 rationale |
+| patch_id | 可空的 32 位非 nil hex |
+| model_request_id | 可空的 32 位非 nil hex |
+| lesson_id | 仅 lesson 返回非空 ID，最多 256 字节 |
+| lesson_digest | 仅 lesson 返回 64 位 hex |
+
+start/cancel 返回确认，settled=false、ordinal=0、所有尝试/学习字段为空；它们不保证
+Run 已完成或模型已停止。status 的未结算响应字段同样为空；未启动过的 Run 明确报错，
+不伪装为进行中。Mira 结算成功后可重复查询同一结果，Run 最终状态读 workflow.runs。
+lesson 是独立写请求，只能在成功恢复并实际 Completed 后记录，经 Mira 幂等与审计门禁；
+写失败或驱动仍结算时明确报错，不自动循环重试，不通过查询状态写记忆。
+
+恢复固定 Text + 严格本地 schema 校验，thinking=none，30 秒、2048 输出 tokens、
+0 决策修复、并发 1、跟踪 32、每 Run 一次。与聊天复用当前模型栈并独占预留；尝试
+future 未结算前不释放模型，取消不立即解除预留。start/status/cancel 或后续聊天可消费
+已结算结果并释放预留；不新增轮询 worker。首次绑定后 model.set 返回 invalid_state，
+必须重启服务再切换模型；拒绝先于配置/凭据变更。详见
+[DEC-148](../decisions/DEC-148-service-workflow-recovery.md)。没有 native 或自动触发入口。
+
+共享 golden v27 增加四请求、等待/修复/学习响应和负向语料；既有 canonical 不变。

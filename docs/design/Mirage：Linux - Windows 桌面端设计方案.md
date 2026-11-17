@@ -1437,6 +1437,40 @@ Platform Backend 可选链接系统 XRes，按下前保存有界可见根窗口�
 分别见 [IPC 契约](mirage-ipc-protocol-v1.md)和[原生指南](../../apps/native/README.md)。
 本项提供 Linux Xorg 产品预览入口，任意应用、其他平台及本地知识/workflow 组合另验。
 
+## 任务经验、视觉记忆与监督 RPA 的恢复推进
+
+2026-11-11：维护者要求恢复早期 Workflow 方向，独立以
+[M15](../plans/m15-supervised-rpa-experience.md) 推进；目标、历史证据与职责见
+[专项设计](supervised-rpa-experience-and-visual-memory.md)。
+[DEC-138](../decisions/DEC-138-workflow-experience-draft.md) 首先冻结成功 Workflow
+Run 到只读候选 IR 的 Host 接口，复用 Mira 捕获/编译，不自动发布/执行或写记忆。
+[DEC-139](../decisions/DEC-139-workflow-experience-export.md) 继续提供候选 IPC/CLI
+导出，用户显式取得正文并审阅后经既有 publish 门禁使用；候选与已发布定义分别编码。
+[DEC-140](../decisions/DEC-140-workflow-experience-parameter-induction.md) 提供同版本/
+策略下多次成功 Run 的参数归纳；[DEC-141](../decisions/DEC-141-workflow-experience-archive-import.md)
+提供用户候选文件跨服务重启导入，核对内容身份后创建 NotValidated 草稿，须再次发布。
+自动资产目录、旧 Run/验证等级恢复仍未实现。
+2026-11-12：[DEC-142](../decisions/DEC-142-visual-action-evidence-candidate.md) 增加动作前后图
+的单工件/Task Episode 候选适配器。Mira 负责工件与记忆持久化；历史图读取核对完整性、
+来源、作用域与失效，无可执行引用。仅在隔离存储中验证关闭重开和擦除，产品自动采集、
+全局预算与存储 owner 仍按 M15-04/06 推进。
+[DEC-143](../decisions/DEC-143-supervised-visual-memory-write.md) 将有限视觉写入接入
+Mira Supervisor 并核对真实来源回执；[DEC-144](../decisions/DEC-144-host-workflow-recovery.md)
+提供 Host 单次显式 Agent 恢复、补丁续跑及取消/关闭，修复后成功 Run 可编译新候选。
+模型由外部 owner 注入，产品共享/重载和自动触发尚未装配；多轮回执、异常生命周期和
+长期存储总量的上游缺口见 M15 反馈。受控测试不代替在线模型或真实桌面接管。
+2026-11-14：[DEC-145](../decisions/DEC-145-host-workflow-learning.md) 允许 surface
+装配时可选注入外部 Memory，固定 primary Session scope，接通 Mira Episode、失败检索
+与宿主显式成功恢复 Lesson。检索经验能进入后续同签名恢复的模型上下文，仍不赋予动作
+权限；直接 Host 省略 binding 时保持未绑定。后续
+[DEC-146](../decisions/DEC-146-default-workflow-learning.md) 默认开启产品 Workflow
+元数据学习，在私有 state 目录持有共享 SQLite owner，文件长度合计 64 MiB/4 MiB 维护
+预留；同一 OS 用户使用固定 Agent scope。明确 false 可关闭，不开启后台截图。新 pin
+支持显式恢复输出协议与同源本地校验，真实模型受控闭环和第二进程重开已通过；原生
+自动触发、跨层回收、真实桌面/接管和设备验收仍待 M15。
+原生 Agent 历史自动提取仍依赖 Mira DEC-038 的未交付能力，长期视觉保存与监督恢复
+继续按专项计划设计验证。既有 M7/M9 临时引用、新观察、权限和动作后核验约束保持适用。
+
 ## M7-11 本地语义 Workflow 首增量
 
 [DEC-067](../decisions/DEC-067-local-semantic-workflow-grounding.md)通过现有 DesktopAtomToolset
@@ -1744,3 +1778,22 @@ vision.state 读取当前分析状态与日志，vision.wait 在既有生产者�
 text_only OCR 不生成图、不退休已有输入意图；共享日志保持 256 条/256 KiB/120 秒，
 消费者 ACK 不删除其他任务所需记录。平台 damage、真实 Portal 长任务及低端资源
 仍按 M9 验收，不能把长期采样声称为静态零取帧或固定低功耗。
+
+
+### Workflow 学习存储状态（M15-18）
+
+[DEC-147](../decisions/DEC-147-workflow-learning-status.md) 增加只读
+workflow.learning.status / mirage workflow learning，返回是否装配及 Mira 的文件长度、
+硬限额、维护预留与进程已接纳峰值；不返回路径/主体/记忆正文。未装配时不打开数据库，
+读取失败返回 unavailable，沿既有服务串行上下文和 Mira StoreChannel，不新增并发设施。
+
+### Workflow 产品显式恢复预览（M15-19）
+
+[DEC-148](../decisions/DEC-148-service-workflow-recovery.md) 将 Host 的恢复与 Lesson
+接到 Runtime Service 和 CLI 的 start/status/cancel/lesson。服务先拒绝未结算聊天，再
+通过 ModelLayer 的即时独占预留共享既有 Gateway/provider/profile；模型尝试结算前不
+解除预留，关闭先排空 Host 再释放模型。Mira 继续拥有尝试、校验、审计和取消事实，
+服务仅保留一个模型资源占用的 Run ID，不建立第二份尝试状态机。
+首次绑定后 model.set 先于凭据或配置写入拒绝；模型切换需重启服务，以保留单 Run 一次
+预算。固定 Text 本地严格 schema、30 秒、2048 tokens、thinking=none，无自动触发或
+native 新入口。lesson 明确单独写入且只接受已验证成功恢复；Run 状态另读 workflow.runs。

@@ -144,6 +144,7 @@ mirage::runtime::ServiceConfig make_config(const mirage::testing::TempDir &dir) 
     // Recovery state stays inside the scenario's temp tree (the M1-07
     // discipline of runtime_service_test).
     config.recovery_directory = dir.root() / "recovery";
+    config.workflow_state_directory = dir.root() / "workflows";
     return config;
 }
 
@@ -426,7 +427,7 @@ void scenario_workflow_face_round_trip() {
     draft_run.digest = saved_payload->digest;
     const ipc::Response draft_rejected = session.client->call(draft_run, kCallBudget).get();
     MIRAGE_CHECK(!draft_rejected.ok);
-    MIRAGE_CHECK(draft_rejected.error.code == "pinned_runtime");
+    MIRAGE_CHECK(draft_rejected.error.code == "invalid_state");
 
     // An unknown workflow is a stable not_found.
     ipc::WorkflowRunRequest unknown_run;

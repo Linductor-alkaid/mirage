@@ -1,5 +1,6 @@
 add_library(mirage_runtime_persistence STATIC
     src/recovery.cpp
+    src/workflow_catalog.cpp
     src/session_state.cpp
     src/session_store.cpp
     src/settings.cpp
@@ -31,6 +32,7 @@ mirage_enable_warnings(mirage_runtime_persistence)
 target_link_libraries(mirage_runtime_persistence
     PRIVATE
         Mira::core
+        Mirage::workflow_document
 )
 
 target_link_libraries(mirage_runtime_persistence PUBLIC Mirage::conversation)

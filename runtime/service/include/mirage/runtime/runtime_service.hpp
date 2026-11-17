@@ -176,6 +176,9 @@ struct ServiceConfig {
     /// the per-session `sessions/<id>.json` documents (DEC-101). Empty selects
     /// the DEC-011 default state directory (the recovery document's sibling).
     std::filesystem::path session_state_directory;
+    /// DEC-151: durable workflow heads and latest publications, independent of Run recovery.
+    bool persist_workflow_state = true;
+    std::filesystem::path workflow_state_directory;
     /// M10-06 (DEC-095): controlled storage root for retained command
     /// output (basic agent tools). Empty keeps exec preview-only — the
     /// retention seam stays dark and `read` refuses output_ref arguments.
@@ -187,6 +190,11 @@ struct ServiceConfig {
     /// When false, the session state document is neither persisted nor
     /// hydrated (tests).
     bool persist_session_state = true;
+    /// DEC-146: metadata learning is on by default. Empty directory selects
+    /// workflow-learning under the state directory. False performs no open.
+    bool workflow_learning_enabled = true;
+    std::filesystem::path workflow_learning_directory;
+    std::uint64_t workflow_learning_max_bytes = 64ULL * 1024ULL * 1024ULL;
     mirage::integration::ModelLayerConfig model;
     std::string model_catalog_json; ///< DEC-037: bounded settings document with models catalog
     /// Optional scripted-provider seam (DEC-027): when set, the model layer

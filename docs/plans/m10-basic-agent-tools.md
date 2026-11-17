@@ -5,7 +5,7 @@
 > 所属计划：[Mirage 实施总计划](mirage-implementation-plan.md)
 > 前置：M1 Provider/权限、M5 异步确认、M6 会话 owner、M7 会话工具注册的已交付能力
 > 建议发布点：Linux 基础工具预览 → Windows 四工具预览；标签未定
-> 更新日期：2026-10-16
+> 更新日期：2026-11-16（状态索引对齐；原验收范围保留）
 
 ## 目标
 
@@ -32,7 +32,7 @@ DEC-095 冻结取代，冻结值见该决策与下文预算表。
 ## 设计与决策依据
 
 - [四项目调研与 Mirage 差距](../research/2026-10-16-basic-agent-tools-survey.md)。
-- [DEC-095 提案](../decisions/DEC-095-basic-agent-tools.md)：本里程碑的待冻结选择。
+- [DEC-095](../decisions/DEC-095-basic-agent-tools.md)：M10-02 已冻结；恢复规则部分由 DEC-113 替代。
 - [主设计](../design/Mirage：Linux%20-%20Windows%20桌面端设计方案.md)第 5/12/15 节：
   Provider、Runtime owner 与权限边界。
 - [DEC-009](../decisions/DEC-009-provider-scope-budget-cancellation.md)、
@@ -450,3 +450,8 @@ exec 输出可能在字符中间触及字节预算，或本身包含非 UTF-8 �
 已释放执行不确定时，exec/write/edit 等待当前桌面观察后可重新规划执行；基础副作用
 清除旧桌面结算检查点。共享撤权、释放无法确认与未知回执仍明确拒绝，不使用命令词
 白名单。验收见[自主恢复记录](../compatibility/autonomous-action-recovery-20261022.md)。
+
+### 2026-11-16：总计划状态对齐
+
+仅同步总计划中滞后的 M10/DEC-095 状态和本页决策链接说明；已交付范围与
+未完成门禁按原工作项保留。未新增平台验证，不改变历史验收结论。

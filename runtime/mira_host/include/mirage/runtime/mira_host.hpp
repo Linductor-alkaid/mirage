@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <memory>
 #include <string>
+#include <vector>
 
 #include <mirage/integration/desktop_atom_toolset.hpp>
 #include <mirage/integration/mira_adapter.hpp>
@@ -12,6 +13,11 @@
 namespace kairo {
 class Executor;
 }
+
+namespace mirage::integration {
+struct WorkflowRecoveryModel;
+struct WorkflowLearningMemory;
+} // namespace mirage::integration
 
 namespace mirage::runtime {
 
@@ -207,6 +213,31 @@ struct WorkflowDefinitionResult {
     HostError error;
 };
 
+/// Provenance of one completed execution, never a repeatability guarantee.
+struct WorkflowExperienceSource {
+    std::string source_run_id;
+    std::string source_workflow_id;
+    std::string source_digest;
+};
+
+/// A review-only experience candidate (DEC-138/140). The definition and
+/// parameter review may contain sensitive data; use only for trusted review,
+/// never diagnostic logging. Compilation creates no library or memory record.
+struct WorkflowExperienceDraftResult {
+    bool ok = false;
+    std::string source_run_id;
+    std::string source_workflow_id;
+    std::string source_digest;
+    std::string workflow_id;
+    std::string digest;
+    std::string definition_json;
+    HostError error;
+    /// DEC-140: induction only, anchor first. Observation values live only
+    /// in the bounded review JSON, not in logs or executable IR metadata.
+    std::vector<WorkflowExperienceSource> sources{};
+    std::string parameter_candidates_json{};
+};
+
 /// Result of start_workflow_run() (DEC-023): the new run's identity.
 struct WorkflowRunStartResult {
     bool ok = false;
@@ -236,6 +267,34 @@ struct WorkflowRunView {
 struct WorkflowRunViewResult {
     bool ok = false;
     WorkflowRunView view;
+    HostError error;
+};
+
+struct WorkflowRecoveryOptions {
+    std::chrono::milliseconds model_call_deadline{5000};
+    std::uint32_t max_decision_repairs = 0;
+    std::size_t max_tracked_runs = 32;
+    std::string decision_output_mode = "strict_json_schema";
+    std::string thinking; ///< Empty inherits; "none" or "adaptive" is explicit.
+    std::uint64_t max_output_tokens = 2048;
+};
+
+struct WorkflowRecoveryAttemptView {
+    std::string run_id, workflow_id, outcome, reason_code;
+    std::uint32_t ordinal = 0;
+    std::string decision_digest, patch_id, model_request_id;
+};
+
+struct WorkflowRecoveryPollResult {
+    bool ok = false;
+    bool settled = false;
+    WorkflowRecoveryAttemptView attempt;
+    HostError error;
+};
+
+struct WorkflowRecoveryLessonResult {
+    bool ok = false;
+    std::string run_id, lesson_id, digest;
     HostError error;
 };
 
@@ -350,11 +409,15 @@ class MiraHost {
     /// shutdown_workflow_surface(). Requires Running; fails closed when the
     /// surface is already attached. The executor is the service process's
     /// only instance (EXEC-01); the bridge handle is kept by the host, so it
-    /// must outlive shutdown_workflow_surface().
-    HostOutcome
-    attach_workflow_surface(kairo::Executor &executor,
-                            std::shared_ptr<mirage::integration::WorkflowEventBridge> event_bridge,
-                            std::shared_ptr<mirage::integration::DesktopAtomToolset> atom_toolset);
+    /// must outlive shutdown_workflow_surface(). DEC-145: optional learning
+    /// installs external memory before any Run, using the primary Session
+    /// unless a trusted product binding selects its private Agent subject.
+    /// Omitting it keeps learning off; no live replacement or product store.
+    HostOutcome attach_workflow_surface(
+        kairo::Executor &executor,
+        std::shared_ptr<mirage::integration::WorkflowEventBridge> event_bridge,
+        std::shared_ptr<mirage::integration::DesktopAtomToolset> atom_toolset,
+        std::shared_ptr<mirage::integration::WorkflowLearningMemory> learning = {});
 
     /// Appends one draft version of the IR v1 definition (DEC-023): strict
     /// pinned decode, then a NotValidated library record — resolvable but not
@@ -362,13 +425,49 @@ class MiraHost {
     WorkflowDefinitionResult save_workflow_definition(const std::string &definition_json,
                                                       const std::string &reason);
 
+    /// DEC-141: check the IR identity and canonical digest before appending
+    /// a NotValidated draft. Provenance is an imported claim, not a restored Run.
+    WorkflowDefinitionResult import_workflow_experience(const std::string &definition_json,
+                                                        const std::string &workflow_id,
+                                                        const std::string &expected_digest);
+
     /// Runs the pinned publish gate on the definition (DEC-023): structural
     /// validation, the empty-parameter DryRun drive (synchronous on the
     /// calling context) and a DryRunPassed library record with
     /// content-derived evidence; head-same-content replays settle idempotent.
     /// Requires the workflow surface.
     WorkflowDefinitionResult publish_workflow_definition(const std::string &definition_json,
-                                                         const std::string &reason);
+                                                         const std::string &reason,
+                                                         bool reusable = false,
+                                                         bool defer_activation = false);
+
+    /// DEC-151: activate only after durable product commit; discard leaves calls unchanged.
+    HostOutcome activate_workflow_publication();
+    void discard_workflow_publication();
+    HostOutcome remove_workflow_call(const std::string &workflow_id);
+
+    /// Captures a completed, actually executed Workflow Run and delegates
+    /// literal compilation to pinned Mira (DEC-138, M15-02). Returns an IR
+    /// draft plus source provenance, without saving, publishing, executing
+    /// or writing memory. DryRun/non-completed/unknown runs fail closed.
+    /// The target must be a non-nil workflow identity distinct from
+    /// the source. Repeating the same request gives the same draft digest.
+    /// This bounded synchronous operation follows the host's owner-thread
+    /// discipline; it creates no asynchronous task. Normal Agent Task IDs
+    /// and conversation history are not supported by this entry point.
+    WorkflowExperienceDraftResult
+    compile_workflow_experience(const std::string &source_run_id,
+                                const std::string &target_workflow_id, const std::string &name,
+                                const std::string &summary = "") const;
+
+    /// DEC-140: 2..16 distinct successful runs of one version and effective
+    /// policy; first is the anchor. Delegates induction and parameterized
+    /// compilation to Mira. Review metadata is capped at 64 KiB; failure
+    /// returns no partial artifact. No save, publish, execution or memory write.
+    WorkflowExperienceDraftResult
+    induce_workflow_experience(const std::vector<std::string> &source_run_ids,
+                               const std::string &target_workflow_id, const std::string &name,
+                               const std::string &summary = "") const;
 
     /// Starts one asynchronous run from the library (DEC-023): the version is
     /// pinned by `digest_hex` (W-03) and must be runnable (W-04);
@@ -389,6 +488,35 @@ class MiraHost {
     /// cancel is idempotent and never revives a terminal run.
     WorkflowRunCancelResult cancel_workflow_run(const std::string &run_id_hex);
 
+    /// DEC-144: explicit, once-per-Host binding. External model ownership and
+    /// profile budgets stay visible; no product automatic trigger is enabled.
+    HostOutcome
+        attach_workflow_recovery(std::shared_ptr<mirage::integration::WorkflowRecoveryModel>,
+                                 WorkflowRecoveryOptions = {});
+    /// One explicit attempt per Run (MIRA-20261112-003). Admission only;
+    /// the caller must poll settlement and then inspect the Run.
+    /// With learning, waits up to 1ms for the drive/retrieval to settle;
+    /// invalid_state while settling does not admit a model attempt.
+    HostOutcome start_workflow_recovery(const std::string &run_id_hex);
+    /// Bounded 1ms poll of the last settled attempt, newer than after_ordinal.
+    /// after_ordinal excludes already-read receipts, not an in-flight state.
+    /// Multiple attempts stay disabled until MIRA-20261112-003 is fixed.
+    /// Settlement does not prove successful execution.
+    WorkflowRecoveryPollResult poll_workflow_recovery(const std::string &run_id_hex,
+                                                      std::uint32_t after_ordinal = 0);
+    /// Cancels an attempt, leaving the Run waiting; Run cancellation cancels both.
+    HostOutcome cancel_workflow_recovery(const std::string &run_id_hex);
+    /// Producer-first drain before WorkflowRuntime and model/Gateway teardown.
+    HostOutcome shutdown_workflow_recovery();
+
+    /// DEC-145: explicit host-only learning after observed successful recovery.
+    /// Mira owns admission, deterministic mutation IDs, persistence and audit.
+    /// Synchronous memory facade: backend uses its own Executor store worker.
+    /// A failure may follow a write; it never changes the settled Run.
+    /// With learning, a 1ms drive-settlement check can reject invalid_state
+    /// before any write; inspect readiness on the next host step.
+    WorkflowRecoveryLessonResult record_workflow_recovery_lesson(const std::string &run_id_hex);
+
     /// Ordered workflow-surface shutdown (DEC-023): stops run producers,
     /// cancels active runs through the control plane and drains drive futures
     /// within the pinned budget. Must be called before the owning Executor
@@ -404,6 +532,10 @@ class MiraHost {
     ShutdownResult shutdown();
 
   private:
+    WorkflowExperienceDraftResult
+    compile_workflow_experience_impl(const std::vector<std::string> &source_run_ids,
+                                     const std::string &target_workflow_id, const std::string &name,
+                                     const std::string &summary, bool parameterize) const;
     struct Impl;
     /// Shared body of pause_task() / resume_task() (M5-10, DEC-030): the
     /// pinned pause-family command with cancel_task()'s Running guard,

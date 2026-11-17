@@ -3,6 +3,7 @@
 #include <mirage/platform/platform_info.hpp>
 #include <mirage/runtime/ipc/client.hpp>
 #include <mirage/runtime/ipc/endpoint.hpp>
+#include <mirage/runtime/ipc/framing.hpp>
 #include <mirage/runtime/mira_host.hpp>
 #include <mirage/runtime/persistence/settings.hpp>
 #include <mirage/runtime/runtime_service.hpp>
@@ -72,7 +73,9 @@ bool takes_value(const std::string &name) {
            name == "--read-root" || name == "--perm" || name == "--confirm" || name == "--config" ||
            name == "--state-dir" || name == "--session" || name == "--limit" || name == "--file" ||
            name == "--parameters-file" || name == "--digest" || name == "--policy" ||
-           name == "--shell" || name == "--tray" || name == "--ocr-manifest";
+           name == "--shell" || name == "--tray" || name == "--ocr-manifest" ||
+           name == "--workflow-id" || name == "--name" || name == "--summary" ||
+           name == "--also-run";
 }
 
 /// Splits `--name value` / `--name=value` pairs; returns false on usage
@@ -1071,10 +1074,11 @@ int command_session_history(int argc, char **argv) {
 
 /// Reads a small text file whole; empty output on failure (the caller prints
 /// the usage error). Used for the workflow definition and run parameters.
-std::string read_whole_file(const std::string &path) {
+std::string read_whole_file(const std::string &path,
+                            std::size_t max_bytes = mirage::runtime::ipc::kMaxFrameBytes) {
     std::error_code error;
     const auto size = std::filesystem::file_size(path, error);
-    if (error || size == 0) {
+    if (error || size == 0 || size > max_bytes) {
         return {};
     }
     std::ifstream stream(path, std::ios::binary);
@@ -1083,8 +1087,54 @@ std::string read_whole_file(const std::string &path) {
     }
     std::string content(size, static_cast<char>(0));
     stream.read(content.data(), static_cast<std::streamsize>(size));
-    content.resize(static_cast<std::size_t>(stream.gcount()));
+    if (stream.gcount() != static_cast<std::streamsize>(size) ||
+        stream.peek() != std::ifstream::traits_type::eof() || stream.bad()) {
+        return {};
+    }
     return content;
+}
+
+int command_workflow_import(int argc, char **argv) {
+    std::string file;
+    GlobalOptions options;
+    int index = 3;
+    std::vector<std::string> extra;
+    if (!consume_options(
+            argc, argv, index,
+            [&](const std::string &name, const std::string &value) {
+                if (name == "--file") {
+                    file = value;
+                    return true;
+                }
+                return parse_common_option(name, value, options);
+            },
+            extra)) {
+        return kExitUsage;
+    }
+    if (file.empty() || !extra.empty()) {
+        std::cerr << kProgramName << ": workflow import requires --file PATH\n";
+        return kExitUsage;
+    }
+    const auto archive =
+        read_whole_file(file, mirage::runtime::ipc::kWorkflowExperienceArchiveBytes);
+    if (archive.empty()) {
+        std::cerr << kProgramName << ": cannot read bounded workflow review archive\n";
+        return kExitFailure;
+    }
+    auto client = client_for(options);
+    const auto response = client.call(
+        mirage::runtime::ipc::ImportWorkflowExperienceRequest{archive}, options.call_timeout);
+    if (const int code = report_response(response); code != kExitOk) {
+        return code;
+    }
+    const auto *saved = std::get_if<mirage::runtime::ipc::WorkflowSaved>(&response.payload);
+    if (!saved) {
+        std::cerr << kProgramName << ": service returned no imported workflow draft\n";
+        return kExitFailure;
+    }
+    std::cout << "workflow " << saved->workflow_id << '\n' << "draft " << saved->digest << '\n';
+    std::cout.flush();
+    return std::cout ? kExitOk : kExitFailure;
 }
 
 int command_workflow_list(int argc, char **argv) {
@@ -1191,6 +1241,83 @@ int command_workflow_publish(int argc, char **argv) {
               << "version " << published.digest << (published.idempotent ? " (unchanged)" : "")
               << '\n';
     return kExitOk;
+}
+
+int command_workflow_experience(int argc, char **argv) {
+    mirage::runtime::ipc::CompileWorkflowExperienceRequest request;
+    bool review = false;
+    GlobalOptions options;
+    int index = 3;
+    std::vector<std::string> operands;
+    if (!consume_options(
+            argc, argv, index,
+            [&](const std::string &name, const std::string &value) {
+                if (name == "--also-run") {
+                    request.additional_run_ids.push_back(value);
+                    return true;
+                }
+                if (name == "--review") {
+                    review = true;
+                    return true;
+                }
+                if (name == "--workflow-id") {
+                    request.target_workflow_id = value;
+                    return true;
+                }
+                if (name == "--name") {
+                    request.name = value;
+                    return true;
+                }
+                if (name == "--summary") {
+                    request.summary = value;
+                    return true;
+                }
+                return parse_common_option(name, value, options);
+            },
+            operands)) {
+        return kExitUsage;
+    }
+    if (operands.size() != 1 || operands.front().empty() || request.target_workflow_id.empty() ||
+        request.name.empty()) {
+        std::cerr
+            << kProgramName
+            << ": workflow experience requires one run id, --workflow-id ID and --name NAME\n";
+        return kExitUsage;
+    }
+    request.source_run_id = operands.front();
+    auto client = client_for(options);
+    const auto response = client.call(request, options.call_timeout);
+    if (const int code = report_response(response); code != kExitOk) {
+        return code;
+    }
+    const auto *candidate =
+        std::get_if<mirage::runtime::ipc::WorkflowExperienceDraft>(&response.payload);
+    if (candidate == nullptr) {
+        std::cerr << kProgramName << ": service returned no workflow experience candidate\n";
+        return kExitFailure;
+    }
+    // stdout is the requested artifact, not a diagnostic: an IR stream by
+    // default, or the full review envelope when explicitly selected.
+    std::cout << (review ? mirage::runtime::ipc::encode_response(response)
+                         : candidate->definition_json)
+              << '\n';
+    std::cout.flush();
+    if (!std::cout) {
+        std::cerr << kProgramName << ": cannot write workflow experience\n";
+        return kExitFailure;
+    }
+    std::cerr << "candidate " << candidate->digest << '\n'
+              << "source_run " << candidate->source_run_id << '\n'
+              << "source_workflow " << candidate->source_workflow_id << '\n'
+              << "source_version " << candidate->source_digest << '\n';
+    if (!candidate->sources.empty()) {
+        std::cerr << "parameter_candidates available in --review output\n";
+        for (std::size_t source = 1; source < candidate->sources.size(); ++source) {
+            std::cerr << "additional_source_run " << candidate->sources[source].source_run_id
+                      << '\n';
+        }
+    }
+    return std::cerr ? kExitOk : kExitFailure;
 }
 
 int command_workflow_delete(int argc, char **argv) {
@@ -1344,6 +1471,69 @@ int command_workflow_run(int argc, char **argv) {
     return kExitOk;
 }
 
+int command_workflow_learning(int argc, char **argv) {
+    GlobalOptions options;
+    int index = 3;
+    std::vector<std::string> operands;
+    if (!consume_options(
+            argc, argv, index,
+            [&options](const std::string &name, const std::string &value) {
+                return parse_common_option(name, value, options);
+            },
+            operands) ||
+        !operands.empty())
+        return kExitUsage;
+    auto client = client_for(options);
+    const auto response =
+        client.call(mirage::runtime::ipc::WorkflowLearningStatusRequest{}, options.call_timeout);
+    if (const int code = report_response(response); code != kExitOk)
+        return code;
+    if (!std::holds_alternative<mirage::runtime::ipc::WorkflowLearningStatus>(response.payload)) {
+        std::cerr << kProgramName << ": service returned no workflow learning status\n";
+        return kExitFailure;
+    }
+    std::cout << mirage::runtime::ipc::encode_response(response) << '\n';
+    return kExitOk;
+}
+
+int command_workflow_recovery(int argc, char **argv) {
+    GlobalOptions options;
+    int index = 3;
+    std::vector<std::string> operands;
+    if (!consume_options(
+            argc, argv, index,
+            [&options](const std::string &name, const std::string &value) {
+                return parse_common_option(name, value, options);
+            },
+            operands) ||
+        operands.size() != 2 ||
+        (operands[0] != "start" && operands[0] != "status" && operands[0] != "cancel" &&
+         operands[0] != "lesson")) {
+        std::cerr << kProgramName
+                  << ": workflow recovery requires start|status|cancel|lesson and a run id\n";
+        return kExitUsage;
+    }
+    const auto request = mirage::runtime::ipc::WorkflowRecoveryRequest{operands[1], operands[0]};
+    if (!mirage::runtime::ipc::decode_request(mirage::runtime::ipc::encode_request(1, request)).ok)
+        return kExitUsage;
+    auto client = client_for(options);
+    const auto response = client.call(request, options.call_timeout);
+    if (const int code = report_response(response); code != kExitOk)
+        return code;
+    const auto *status =
+        std::get_if<mirage::runtime::ipc::WorkflowRecoveryStatus>(&response.payload);
+    if (!status || status->run_id != request.run_id || status->action != request.action) {
+        std::cerr << kProgramName << ": service returned no matching workflow recovery metadata\n";
+        return kExitFailure;
+    }
+    std::cout << mirage::runtime::ipc::encode_response(response) << '\n' << std::flush;
+    if (!std::cout) {
+        std::cerr << kProgramName << ": cannot write workflow recovery metadata\n";
+        return kExitFailure;
+    }
+    return kExitOk;
+}
+
 int command_workflow_cancel(int argc, char **argv) {
     std::string run_id;
     GlobalOptions options;
@@ -1417,11 +1607,21 @@ void print_usage(std::ostream &out) {
         << "  workflow list [--socket P]   List the workflow catalog\n"
         << "  workflow save --file PATH [--socket P]\n"
         << "                               Append a draft version of the definition\n"
+        << "  workflow import --file PATH [--socket P]\n"
+        << "                               Verify a review archive and import a draft\n"
         << "  workflow publish --file PATH [--socket P]\n"
         << "                               Gate and publish the definition\n"
         << "  workflow delete <id> [--socket P]\n"
         << "                               Remove a workflow from the catalog\n"
         << "  workflow atoms [--socket P]  List the exposed atom (tool) catalog\n"
+        << "  workflow recovery start|status|cancel|lesson <run-id> [--socket PATH]\n"
+        << "                               Explicit recovery control (JSON); model pinned until "
+           "restart\n"
+        << "  workflow learning [--socket PATH]  Show learning storage capacity (JSON)\n"
+        << "  workflow experience <run-id> --workflow-id ID --name NAME [--summary TEXT]\n"
+        << "              [--socket P]     Export a review-only candidate IR to stdout\n"
+        << "              [--also-run ID]... [--review]  Propose parameters; include review "
+           "evidence\n"
         << "  workflow runs [--socket P]   List workflow runs and their states\n"
         << "  workflow run <id> [--digest HEX] [--parameters-file PATH] [--policy NAME]\n"
         << "              [--socket P]     Start one asynchronous workflow run\n"
@@ -1512,14 +1712,25 @@ int mirage_cli_main(int argc, char **argv) {
         }
         if (command == "workflow" && argc >= 3) {
             const std::string_view subcommand{argv[2]};
+            if (subcommand == "recovery")
+                return command_workflow_recovery(argc, argv);
+            if (subcommand == "learning") {
+                return command_workflow_learning(argc, argv);
+            }
             if (subcommand == "list") {
                 return command_workflow_list(argc, argv);
             }
             if (subcommand == "save") {
                 return command_workflow_save(argc, argv);
             }
+            if (subcommand == "import") {
+                return command_workflow_import(argc, argv);
+            }
             if (subcommand == "publish") {
                 return command_workflow_publish(argc, argv);
+            }
+            if (subcommand == "experience") {
+                return command_workflow_experience(argc, argv);
             }
             if (subcommand == "delete") {
                 return command_workflow_delete(argc, argv);

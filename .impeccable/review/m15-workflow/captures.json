@@ -1,0 +1,77 @@
+{
+  "source": "native_conversation_view_test; Xvfb + real product EUI renderer; synthetic projection, not live user/model data",
+  "base_commit": "89fc251",
+  "captures": [
+    {
+      "path": "/home/linductor/.codex/worktrees/supervised-rpa-experience/mirage/.impeccable/review/m15-workflow/native-workflow-catalog-min-light.png",
+      "sha256": "4d059fde8ae45f4c612e2cd78e52914a828128b89f1ce8133b945e2da10c4ab5",
+      "required": true
+    },
+    {
+      "path": "/home/linductor/.codex/worktrees/supervised-rpa-experience/mirage/.impeccable/review/m15-workflow/native-workflow-completed-min-light.png",
+      "sha256": "2c1c43dea6322b59632880910ce25783f8d297dc4156244228d0f06bab9a284b",
+      "required": true
+    },
+    {
+      "path": "/home/linductor/.codex/worktrees/supervised-rpa-experience/mirage/.impeccable/review/m15-workflow/native-workflow-disconnected-min-dark.png",
+      "sha256": "7e31f130200775fd3eea1be2f480054ab5a247dc11c1b91a2188929d72f34e59",
+      "required": true
+    },
+    {
+      "path": "/home/linductor/.codex/worktrees/supervised-rpa-experience/mirage/.impeccable/review/m15-workflow/native-workflow-empty-min-light.png",
+      "sha256": "b39e82f0e02854b53e8328998c26d3c4856e9521b26f40344a4a8477ab6794e7",
+      "required": true
+    },
+    {
+      "path": "/home/linductor/.codex/worktrees/supervised-rpa-experience/mirage/.impeccable/review/m15-workflow/native-workflow-error-min-light.png",
+      "sha256": "71c91c15cc0af65169b284fabe9c4612707931a8574b4e3590ae21ec5887859a",
+      "required": true
+    },
+    {
+      "path": "/home/linductor/.codex/worktrees/supervised-rpa-experience/mirage/.impeccable/review/m15-workflow/native-workflow-pending-min-light.png",
+      "sha256": "aef59b179f11368ba0bea5fc85903228889598a917573fe74ac8b1d0f3500298",
+      "required": true
+    },
+    {
+      "path": "/home/linductor/.codex/worktrees/supervised-rpa-experience/mirage/.impeccable/review/m15-workflow/native-workflow-waiting-1180-dark-collapsed.png",
+      "sha256": "2201947426487f4e837527ccdafa67efcd2360fbc09e1a4821042af256c6c50a",
+      "required": true
+    },
+    {
+      "path": "/home/linductor/.codex/worktrees/supervised-rpa-experience/mirage/.impeccable/review/m15-workflow/native-workflow-waiting-1180-dark.png",
+      "sha256": "1c0474c9801c3069847e2cf2d2826988a529f24bf7714fd34c2d233b5bf2ee1b",
+      "required": true
+    },
+    {
+      "path": "/home/linductor/.codex/worktrees/supervised-rpa-experience/mirage/.impeccable/review/m15-workflow/native-workflow-waiting-1180-light-collapsed.png",
+      "sha256": "1f2a4844a2d83a84c60d85a8f907572c805921d5fc1431400c9bcd52a933b60b",
+      "required": true
+    },
+    {
+      "path": "/home/linductor/.codex/worktrees/supervised-rpa-experience/mirage/.impeccable/review/m15-workflow/native-workflow-waiting-1180-light.png",
+      "sha256": "7c343fdc27f57842afa322eefcc0a9cbabfca30562bd8f0a9b80b578c658c9f6",
+      "required": true
+    },
+    {
+      "path": "/home/linductor/.codex/worktrees/supervised-rpa-experience/mirage/.impeccable/review/m15-workflow/native-workflow-waiting-860-dark-collapsed.png",
+      "sha256": "8abe45ce63ffb115cd2f71a6ad83b4f1d96e1ed04faf9bbe3ef5a7973659f450",
+      "required": true
+    },
+    {
+      "path": "/home/linductor/.codex/worktrees/supervised-rpa-experience/mirage/.impeccable/review/m15-workflow/native-workflow-waiting-860-dark.png",
+      "sha256": "65b2479fbca2681eefae0192aeb3428b18d9b28e0cb3928021f90612d0c6898c",
+      "required": true
+    },
+    {
+      "path": "/home/linductor/.codex/worktrees/supervised-rpa-experience/mirage/.impeccable/review/m15-workflow/native-workflow-waiting-860-light-collapsed.png",
+      "sha256": "4e150ef955988c1ddda942828fe4d5cfe7f4c9b0975ebfa7e46b87ecb119e89c",
+      "required": true
+    },
+    {
+      "path": "/home/linductor/.codex/worktrees/supervised-rpa-experience/mirage/.impeccable/review/m15-workflow/native-workflow-waiting-860-light.png",
+      "sha256": "885109251886de13d8a0943178f1f5f1ab9f58891bf5b3f0eb72158eefb5e011",
+      "required": true
+    }
+  ],
+  "review_fix": "First reviewer fix batch: selected row contrast; refresh-first rejected-control guidance."
+}

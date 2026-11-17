@@ -6,6 +6,7 @@ add_library(mirage_runtime_service STATIC
     src/runtime_service.cpp
     src/service_loop.cpp
     src/task_driver.cpp
+    src/workflow_recovery_control.cpp
     src/tray_presenter.cpp
 )
 add_library(Mirage::runtime_service ALIAS mirage_runtime_service)
@@ -43,6 +44,7 @@ target_link_libraries(mirage_runtime_service
         Mirage::ipc
         Mirage::permission
     PRIVATE
+        Mirage::workflow_document
         Mirage::integration_mira
         Mirage::integration_mirador
         Mirage::persistence

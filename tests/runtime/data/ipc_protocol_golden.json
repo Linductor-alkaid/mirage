@@ -1,10 +1,10 @@
 {
   "meta": {
     "schema": "mirage-ipc-protocol-golden-vectors",
-    "version": 23,
+    "version": 27,
     "protocol_version": 1,
     "source_of_truth": "docs/design/mirage-ipc-protocol-v1.md",
-    "decision": "DEC-012 (Accepted), DEC-007, DEC-020 (Accepted), DEC-021 (Accepted), DEC-023 (Accepted), DEC-025 (Accepted), DEC-026 (Accepted), DEC-038 (Accepted), DEC-039 (Accepted), DEC-045 (Accepted), DEC-051 (Accepted), DEC-066 (Accepted), DEC-080 (Accepted), DEC-084 (M8-01 first increment), DEC-089 (Accepted)",
+    "decision": "DEC-012 (Accepted), DEC-007, DEC-020 (Accepted), DEC-021 (Accepted), DEC-023 (Accepted), DEC-025 (Accepted), DEC-026 (Accepted), DEC-038 (Accepted), DEC-039 (Accepted), DEC-045 (Accepted), DEC-051 (Accepted), DEC-066 (Accepted), DEC-080 (Accepted), DEC-084 (M8-01 first increment), DEC-089 (Accepted), DEC-139 (Accepted), DEC-140 (Accepted), DEC-141 (Accepted), DEC-148 (Accepted)",
     "consumers": [
       "tests/runtime/ipc_protocol_golden_test.cpp"
     ],
@@ -33,7 +33,11 @@
       "v21 (DEC-085): session.tool_error carries one classified tool failure of a settled harness turn (stable error_code vocabulary); additive, legacy subscribers do not receive the new event.",
       "v21 (M8-11): optional hello.pet_bubbles and volatile pet bubble payload; old vectors keep byte-identical canonical strings. Thinking and final answer snapshots use independent model-request identity and a bounded relative hold duration.",
       "v22 (M6-43 / DEC-036): optional session-level context_usage_sequence/context_usage survives history truncation and service restart; legacy wire strings unchanged.",
-      "v23 (M6-45 / DEC-102): context_usage.estimated marks a local estimate of the final successful input request; absent means provider-reported. Legacy strings are unchanged."
+      "v23 (M6-45 / DEC-102): context_usage.estimated marks a local estimate of the final successful input request; absent means provider-reported. Legacy strings are unchanged.",
+      "v24 (M15-10 / DEC-139): workflow.experience.compile and an explicit candidate experience envelope; review-only, no library or memory mutation. Existing canonical strings are unchanged.",
+      "v25 (M15-11 / DEC-140): optional additional_run_ids and paired sources/parameter_candidates support bounded review-only parameter induction; all v24 vectors unchanged.",
+      "v26 (M15-12 / DEC-141): workflow.experience.import embeds a bounded candidate review response; existing v25 vectors unchanged. Import creates only a NotValidated draft after content identity checks.",
+      "v27 (M15-19 / DEC-148): explicit workflow.recovery start/status/cancel/lesson metadata; previous canonical vectors unchanged."
     ]
   },
   "requests": [
@@ -628,6 +632,153 @@
         "pet_pid": 888
       },
       "canonical": "{\"v\":1,\"id\":1252,\"op\":\"product.control\",\"action\":\"pet_ready\",\"exit_epoch\":0,\"pet_pid\":888}"
+    },
+    {
+      "name": "experience-compile",
+      "id": 90,
+      "body": {
+        "op": "workflow.experience.compile",
+        "source_run_id": "11111111111111111111111111111111",
+        "target_workflow_id": "22222222222222222222222222222222",
+        "name": "review candidate"
+      },
+      "canonical": "{\"v\":1,\"id\":90,\"op\":\"workflow.experience.compile\",\"source_run_id\":\"11111111111111111111111111111111\",\"target_workflow_id\":\"22222222222222222222222222222222\",\"name\":\"review candidate\"}"
+    },
+    {
+      "name": "experience-compile-summary",
+      "id": 90,
+      "body": {
+        "op": "workflow.experience.compile",
+        "source_run_id": "11111111111111111111111111111111",
+        "target_workflow_id": "22222222222222222222222222222222",
+        "name": "review candidate",
+        "summary": "one observed run"
+      },
+      "canonical": "{\"v\":1,\"id\":90,\"op\":\"workflow.experience.compile\",\"source_run_id\":\"11111111111111111111111111111111\",\"target_workflow_id\":\"22222222222222222222222222222222\",\"name\":\"review candidate\",\"summary\":\"one observed run\"}"
+    },
+    {
+      "name": "experience-induce",
+      "id": 91,
+      "body": {
+        "op": "workflow.experience.compile",
+        "source_run_id": "11111111111111111111111111111111",
+        "target_workflow_id": "22222222222222222222222222222222",
+        "name": "review candidate",
+        "additional_run_ids": [
+          "44444444444444444444444444444444"
+        ]
+      },
+      "canonical": "{\"v\":1,\"id\":91,\"op\":\"workflow.experience.compile\",\"source_run_id\":\"11111111111111111111111111111111\",\"target_workflow_id\":\"22222222222222222222222222222222\",\"name\":\"review candidate\",\"additional_run_ids\":[\"44444444444444444444444444444444\"]}"
+    },
+    {
+      "name": "experience-import-literal",
+      "body": {
+        "op": "workflow.experience.import",
+        "archive": {
+          "v": 1,
+          "id": 90,
+          "ok": true,
+          "experience": {
+            "validation": "candidate",
+            "source_run_id": "11111111111111111111111111111111",
+            "source_workflow_id": "33333333333333333333333333333333",
+            "source_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "workflow_id": "22222222222222222222222222222222",
+            "digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "definition": {
+              "workflow_id": "22222222222222222222222222222222",
+              "name": "review candidate"
+            }
+          }
+        }
+      },
+      "canonical": "{\"v\":1,\"id\":92,\"op\":\"workflow.experience.import\",\"archive\":{\"v\":1,\"id\":90,\"ok\":true,\"experience\":{\"validation\":\"candidate\",\"source_run_id\":\"11111111111111111111111111111111\",\"source_workflow_id\":\"33333333333333333333333333333333\",\"source_digest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"workflow_id\":\"22222222222222222222222222222222\",\"digest\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"definition\":{\"workflow_id\":\"22222222222222222222222222222222\",\"name\":\"review candidate\"}}}}",
+      "id": 92
+    },
+    {
+      "name": "experience-import-parameters",
+      "body": {
+        "op": "workflow.experience.import",
+        "archive": {
+          "v": 1,
+          "id": 91,
+          "ok": true,
+          "experience": {
+            "validation": "candidate",
+            "source_run_id": "11111111111111111111111111111111",
+            "source_workflow_id": "33333333333333333333333333333333",
+            "source_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "workflow_id": "22222222222222222222222222222222",
+            "digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "definition": {
+              "workflow_id": "22222222222222222222222222222222",
+              "name": "review candidate"
+            },
+            "sources": [
+              {
+                "source_run_id": "11111111111111111111111111111111",
+                "source_workflow_id": "33333333333333333333333333333333",
+                "source_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              },
+              {
+                "source_run_id": "44444444444444444444444444444444",
+                "source_workflow_id": "33333333333333333333333333333333",
+                "source_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              }
+            ],
+            "parameter_candidates": [
+              {
+                "name": "file_path",
+                "observed_values": [
+                  "a.txt",
+                  "b.txt"
+                ],
+                "pointer": "/path",
+                "provenance": "provenance",
+                "step_index": 0
+              }
+            ]
+          }
+        }
+      },
+      "canonical": "{\"v\":1,\"id\":92,\"op\":\"workflow.experience.import\",\"archive\":{\"v\":1,\"id\":91,\"ok\":true,\"experience\":{\"validation\":\"candidate\",\"source_run_id\":\"11111111111111111111111111111111\",\"source_workflow_id\":\"33333333333333333333333333333333\",\"source_digest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"workflow_id\":\"22222222222222222222222222222222\",\"digest\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"definition\":{\"workflow_id\":\"22222222222222222222222222222222\",\"name\":\"review candidate\"},\"sources\":[{\"source_run_id\":\"11111111111111111111111111111111\",\"source_workflow_id\":\"33333333333333333333333333333333\",\"source_digest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},{\"source_run_id\":\"44444444444444444444444444444444\",\"source_workflow_id\":\"33333333333333333333333333333333\",\"source_digest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}],\"parameter_candidates\":[{\"name\":\"file_path\",\"observed_values\":[\"a.txt\",\"b.txt\"],\"pointer\":\"/path\",\"provenance\":\"provenance\",\"step_index\":0}]}}}",
+      "id": 92
+    },
+    {
+      "name": "workflow-recovery-start",
+      "id": 93,
+      "body": {
+        "op": "workflow.recovery.start",
+        "run_id": "11111111111111111111111111111111"
+      },
+      "canonical": "{\"v\":1,\"id\":93,\"op\":\"workflow.recovery.start\",\"run_id\":\"11111111111111111111111111111111\"}"
+    },
+    {
+      "name": "workflow-recovery-status",
+      "id": 94,
+      "body": {
+        "op": "workflow.recovery.status",
+        "run_id": "11111111111111111111111111111111"
+      },
+      "canonical": "{\"v\":1,\"id\":94,\"op\":\"workflow.recovery.status\",\"run_id\":\"11111111111111111111111111111111\"}"
+    },
+    {
+      "name": "workflow-recovery-cancel",
+      "id": 95,
+      "body": {
+        "op": "workflow.recovery.cancel",
+        "run_id": "11111111111111111111111111111111"
+      },
+      "canonical": "{\"v\":1,\"id\":95,\"op\":\"workflow.recovery.cancel\",\"run_id\":\"11111111111111111111111111111111\"}"
+    },
+    {
+      "name": "workflow-recovery-lesson",
+      "id": 96,
+      "body": {
+        "op": "workflow.recovery.lesson",
+        "run_id": "11111111111111111111111111111111"
+      },
+      "canonical": "{\"v\":1,\"id\":96,\"op\":\"workflow.recovery.lesson\",\"run_id\":\"11111111111111111111111111111111\"}"
     }
   ],
   "request_failures": [
@@ -940,6 +1091,136 @@
       "name": "pet-start-nonzero-epoch",
       "payload": "{\"v\":1,\"id\":1,\"op\":\"product.control\",\"action\":\"pet_start\",\"exit_epoch\":1}",
       "error": "pet control requires zero exit_epoch"
+    },
+    {
+      "name": "experience-missing-source",
+      "error": "workflow.experience.compile requires valid source/target ids and bounded name/summary",
+      "payload": "{\"v\":1,\"id\":90,\"op\":\"workflow.experience.compile\",\"target_workflow_id\":\"22222222222222222222222222222222\",\"name\":\"review candidate\"}"
+    },
+    {
+      "name": "experience-nil-source",
+      "error": "workflow.experience.compile requires valid source/target ids and bounded name/summary",
+      "payload": "{\"v\":1,\"id\":90,\"op\":\"workflow.experience.compile\",\"source_run_id\":\"00000000000000000000000000000000\",\"target_workflow_id\":\"22222222222222222222222222222222\",\"name\":\"review candidate\"}"
+    },
+    {
+      "name": "experience-invalid-target",
+      "error": "workflow.experience.compile requires valid source/target ids and bounded name/summary",
+      "payload": "{\"v\":1,\"id\":90,\"op\":\"workflow.experience.compile\",\"source_run_id\":\"11111111111111111111111111111111\",\"target_workflow_id\":\"UPPER\",\"name\":\"review candidate\"}"
+    },
+    {
+      "name": "experience-empty-name",
+      "error": "workflow.experience.compile requires valid source/target ids and bounded name/summary",
+      "payload": "{\"v\":1,\"id\":90,\"op\":\"workflow.experience.compile\",\"source_run_id\":\"11111111111111111111111111111111\",\"target_workflow_id\":\"22222222222222222222222222222222\",\"name\":\"\"}"
+    },
+    {
+      "name": "experience-invalid-summary",
+      "error": "workflow.experience.compile requires valid source/target ids and bounded name/summary",
+      "payload": "{\"v\":1,\"id\":90,\"op\":\"workflow.experience.compile\",\"source_run_id\":\"11111111111111111111111111111111\",\"target_workflow_id\":\"22222222222222222222222222222222\",\"name\":\"review candidate\",\"summary\":false}"
+    },
+    {
+      "name": "experience-unknown-field",
+      "error": "workflow.experience.compile contains an unknown field",
+      "payload": "{\"v\":1,\"id\":90,\"op\":\"workflow.experience.compile\",\"source_run_id\":\"11111111111111111111111111111111\",\"target_workflow_id\":\"22222222222222222222222222222222\",\"name\":\"review candidate\",\"publish\":true}"
+    },
+    {
+      "name": "induction-empty",
+      "payload": "{\"v\":1,\"id\":91,\"op\":\"workflow.experience.compile\",\"source_run_id\":\"11111111111111111111111111111111\",\"target_workflow_id\":\"22222222222222222222222222222222\",\"name\":\"review candidate\",\"additional_run_ids\":[]}",
+      "error": "workflow.experience.compile requires 1..15 distinct additional run ids"
+    },
+    {
+      "name": "induction-wrong-type",
+      "payload": "{\"v\":1,\"id\":91,\"op\":\"workflow.experience.compile\",\"source_run_id\":\"11111111111111111111111111111111\",\"target_workflow_id\":\"22222222222222222222222222222222\",\"name\":\"review candidate\",\"additional_run_ids\":false}",
+      "error": "workflow.experience.compile requires 1..15 distinct additional run ids"
+    },
+    {
+      "name": "induction-duplicate-anchor",
+      "payload": "{\"v\":1,\"id\":91,\"op\":\"workflow.experience.compile\",\"source_run_id\":\"11111111111111111111111111111111\",\"target_workflow_id\":\"22222222222222222222222222222222\",\"name\":\"review candidate\",\"additional_run_ids\":[\"11111111111111111111111111111111\"]}",
+      "error": "workflow.experience.compile requires 1..15 distinct additional run ids"
+    },
+    {
+      "name": "induction-duplicate-source",
+      "payload": "{\"v\":1,\"id\":91,\"op\":\"workflow.experience.compile\",\"source_run_id\":\"11111111111111111111111111111111\",\"target_workflow_id\":\"22222222222222222222222222222222\",\"name\":\"review candidate\",\"additional_run_ids\":[\"44444444444444444444444444444444\",\"44444444444444444444444444444444\"]}",
+      "error": "workflow.experience.compile requires 1..15 distinct additional run ids"
+    },
+    {
+      "name": "induction-nil-source",
+      "payload": "{\"v\":1,\"id\":91,\"op\":\"workflow.experience.compile\",\"source_run_id\":\"11111111111111111111111111111111\",\"target_workflow_id\":\"22222222222222222222222222222222\",\"name\":\"review candidate\",\"additional_run_ids\":[\"00000000000000000000000000000000\"]}",
+      "error": "workflow.experience.compile requires 1..15 distinct additional run ids"
+    },
+    {
+      "name": "induction-too-many",
+      "payload": "{\"v\":1,\"id\":91,\"op\":\"workflow.experience.compile\",\"source_run_id\":\"11111111111111111111111111111111\",\"target_workflow_id\":\"22222222222222222222222222222222\",\"name\":\"review candidate\",\"additional_run_ids\":[\"0000000000000000000000000000000a\",\"0000000000000000000000000000000b\",\"0000000000000000000000000000000c\",\"0000000000000000000000000000000d\",\"0000000000000000000000000000000e\",\"0000000000000000000000000000000f\",\"00000000000000000000000000000010\",\"00000000000000000000000000000011\",\"00000000000000000000000000000012\",\"00000000000000000000000000000013\",\"00000000000000000000000000000014\",\"00000000000000000000000000000015\",\"00000000000000000000000000000016\",\"00000000000000000000000000000017\",\"00000000000000000000000000000018\",\"00000000000000000000000000000019\"]}",
+      "error": "workflow.experience.compile requires 1..15 distinct additional run ids"
+    },
+    {
+      "name": "experience-import-missing",
+      "payload": "{\"v\":1,\"id\":92,\"op\":\"workflow.experience.import\"}",
+      "error": "workflow.experience.import requires a review archive object"
+    },
+    {
+      "name": "experience-import-type-NoneType",
+      "payload": "{\"v\":1,\"id\":92,\"op\":\"workflow.experience.import\",\"archive\":null}",
+      "error": "workflow.experience.import requires a review archive object"
+    },
+    {
+      "name": "experience-import-type-list",
+      "payload": "{\"v\":1,\"id\":92,\"op\":\"workflow.experience.import\",\"archive\":[]}",
+      "error": "workflow.experience.import requires a review archive object"
+    },
+    {
+      "name": "experience-import-type-str",
+      "payload": "{\"v\":1,\"id\":92,\"op\":\"workflow.experience.import\",\"archive\":\"candidate\"}",
+      "error": "workflow.experience.import requires a review archive object"
+    },
+    {
+      "name": "experience-import-unknown-field",
+      "payload": "{\"v\":1,\"id\":92,\"op\":\"workflow.experience.import\",\"archive\":{\"v\":1,\"id\":90,\"ok\":true,\"experience\":{\"validation\":\"candidate\",\"source_run_id\":\"11111111111111111111111111111111\",\"source_workflow_id\":\"33333333333333333333333333333333\",\"source_digest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"workflow_id\":\"22222222222222222222222222222222\",\"digest\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"definition\":{\"workflow_id\":\"22222222222222222222222222222222\",\"name\":\"review candidate\"}}},\"unexpected\":true}",
+      "error": "workflow.experience.import contains an unknown field"
+    },
+    {
+      "name": "experience-import-other-response",
+      "payload": "{\"v\":1,\"id\":92,\"op\":\"workflow.experience.import\",\"archive\":{\"v\":1,\"id\":90,\"ok\":true,\"workflows\":[]}}",
+      "error": "workflow.experience.import requires a valid candidate review response"
+    },
+    {
+      "name": "experience-import-error-response",
+      "payload": "{\"v\":1,\"id\":92,\"op\":\"workflow.experience.import\",\"archive\":{\"v\":1,\"id\":90,\"ok\":false,\"error\":{\"code\":\"invalid_argument\",\"message\":\"rejected\"}}}",
+      "error": "workflow.experience.import requires a valid candidate review response"
+    },
+    {
+      "name": "experience-import-version",
+      "payload": "{\"v\":1,\"id\":92,\"op\":\"workflow.experience.import\",\"archive\":{\"v\":2,\"id\":90,\"ok\":true,\"experience\":{\"validation\":\"candidate\",\"source_run_id\":\"11111111111111111111111111111111\",\"source_workflow_id\":\"33333333333333333333333333333333\",\"source_digest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"workflow_id\":\"22222222222222222222222222222222\",\"digest\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"definition\":{\"workflow_id\":\"22222222222222222222222222222222\",\"name\":\"review candidate\"}}}}",
+      "error": "workflow.experience.import requires a valid candidate review response"
+    },
+    {
+      "name": "experience-import-candidate-status",
+      "payload": "{\"v\":1,\"id\":92,\"op\":\"workflow.experience.import\",\"archive\":{\"v\":1,\"id\":90,\"ok\":true,\"experience\":{\"validation\":\"verified\",\"source_run_id\":\"11111111111111111111111111111111\",\"source_workflow_id\":\"33333333333333333333333333333333\",\"source_digest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"workflow_id\":\"22222222222222222222222222222222\",\"digest\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"definition\":{\"workflow_id\":\"22222222222222222222222222222222\",\"name\":\"review candidate\"}}}}",
+      "error": "workflow.experience.import requires a valid candidate review response"
+    },
+    {
+      "name": "experience-import-bad-digest",
+      "payload": "{\"v\":1,\"id\":92,\"op\":\"workflow.experience.import\",\"archive\":{\"v\":1,\"id\":90,\"ok\":true,\"experience\":{\"validation\":\"candidate\",\"source_run_id\":\"11111111111111111111111111111111\",\"source_workflow_id\":\"33333333333333333333333333333333\",\"source_digest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"workflow_id\":\"22222222222222222222222222222222\",\"digest\":\"bad\",\"definition\":{\"workflow_id\":\"22222222222222222222222222222222\",\"name\":\"review candidate\"}}}}",
+      "error": "workflow.experience.import requires a valid candidate review response"
+    },
+    {
+      "name": "experience-import-half-review",
+      "payload": "{\"v\":1,\"id\":92,\"op\":\"workflow.experience.import\",\"archive\":{\"v\":1,\"id\":90,\"ok\":true,\"experience\":{\"validation\":\"candidate\",\"source_run_id\":\"11111111111111111111111111111111\",\"source_workflow_id\":\"33333333333333333333333333333333\",\"source_digest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"workflow_id\":\"22222222222222222222222222222222\",\"digest\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"definition\":{\"workflow_id\":\"22222222222222222222222222222222\",\"name\":\"review candidate\"},\"sources\":[]}}}",
+      "error": "workflow.experience.import requires a valid candidate review response"
+    },
+    {
+      "name": "workflow-recovery-nil",
+      "payload": "{\"v\":1,\"id\":1,\"op\":\"workflow.recovery.start\",\"run_id\":\"00000000000000000000000000000000\"}",
+      "error": "workflow.recovery requires a valid non-nil run_id"
+    },
+    {
+      "name": "workflow-recovery-short",
+      "payload": "{\"v\":1,\"id\":1,\"op\":\"workflow.recovery.start\",\"run_id\":\"1\"}",
+      "error": "workflow.recovery requires a valid non-nil run_id"
+    },
+    {
+      "name": "workflow-recovery-typed",
+      "payload": "{\"v\":1,\"id\":1,\"op\":\"workflow.recovery.start\",\"run_id\":1}",
+      "error": "workflow.recovery requires a valid non-nil run_id"
     }
   ],
   "responses": [
@@ -2246,6 +2527,151 @@
         }
       },
       "canonical": "{\"v\":1,\"id\":35,\"ok\":true,\"session_id\":\"5a4b3c2d1e0f4938576a5b4c3d2e1f0a\",\"context_usage_sequence\":1,\"context_usage\":{\"input_tokens\":8192,\"window_tokens\":32768,\"model\":\"fixture\",\"estimated\":true},\"turns\":[],\"truncated\":true}"
+    },
+    {
+      "name": "experience-candidate",
+      "response": {
+        "id": 90,
+        "ok": true,
+        "payload": {
+          "kind": "workflow-experience-draft",
+          "value": {
+            "validation": "candidate",
+            "source_run_id": "11111111111111111111111111111111",
+            "source_workflow_id": "33333333333333333333333333333333",
+            "source_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "workflow_id": "22222222222222222222222222222222",
+            "digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "definition": {
+              "workflow_id": "22222222222222222222222222222222",
+              "name": "review candidate"
+            }
+          }
+        }
+      },
+      "canonical": "{\"v\":1,\"id\":90,\"ok\":true,\"experience\":{\"validation\":\"candidate\",\"source_run_id\":\"11111111111111111111111111111111\",\"source_workflow_id\":\"33333333333333333333333333333333\",\"source_digest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"workflow_id\":\"22222222222222222222222222222222\",\"digest\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"definition\":{\"workflow_id\":\"22222222222222222222222222222222\",\"name\":\"review candidate\"}}}"
+    },
+    {
+      "name": "experience-induction-review",
+      "response": {
+        "id": 91,
+        "ok": true,
+        "payload": {
+          "kind": "workflow-experience-draft",
+          "value": {
+            "validation": "candidate",
+            "source_run_id": "11111111111111111111111111111111",
+            "source_workflow_id": "33333333333333333333333333333333",
+            "source_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "workflow_id": "22222222222222222222222222222222",
+            "digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "definition": {
+              "workflow_id": "22222222222222222222222222222222",
+              "name": "review candidate"
+            },
+            "sources": [
+              {
+                "source_run_id": "11111111111111111111111111111111",
+                "source_workflow_id": "33333333333333333333333333333333",
+                "source_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              },
+              {
+                "source_run_id": "44444444444444444444444444444444",
+                "source_workflow_id": "33333333333333333333333333333333",
+                "source_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              }
+            ],
+            "parameter_candidates": [
+              {
+                "name": "file_path",
+                "observed_values": [
+                  "a.txt",
+                  "b.txt"
+                ],
+                "pointer": "/path",
+                "provenance": "provenance",
+                "step_index": 0
+              }
+            ]
+          }
+        }
+      },
+      "canonical": "{\"v\":1,\"id\":91,\"ok\":true,\"experience\":{\"validation\":\"candidate\",\"source_run_id\":\"11111111111111111111111111111111\",\"source_workflow_id\":\"33333333333333333333333333333333\",\"source_digest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"workflow_id\":\"22222222222222222222222222222222\",\"digest\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"definition\":{\"workflow_id\":\"22222222222222222222222222222222\",\"name\":\"review candidate\"},\"sources\":[{\"source_run_id\":\"11111111111111111111111111111111\",\"source_workflow_id\":\"33333333333333333333333333333333\",\"source_digest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},{\"source_run_id\":\"44444444444444444444444444444444\",\"source_workflow_id\":\"33333333333333333333333333333333\",\"source_digest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}],\"parameter_candidates\":[{\"name\":\"file_path\",\"observed_values\":[\"a.txt\",\"b.txt\"],\"pointer\":\"/path\",\"provenance\":\"provenance\",\"step_index\":0}]}}"
+    },
+    {
+      "name": "workflow-recovery-pending",
+      "response": {
+        "id": 97,
+        "ok": true,
+        "payload": {
+          "kind": "workflow-recovery",
+          "value": {
+            "run_id": "11111111111111111111111111111111",
+            "action": "status",
+            "settled": false,
+            "ordinal": 0,
+            "workflow_id": "",
+            "outcome": "",
+            "reason_code": "",
+            "decision_digest": "",
+            "patch_id": "",
+            "model_request_id": "",
+            "lesson_id": "",
+            "lesson_digest": ""
+          }
+        }
+      },
+      "canonical": "{\"v\":1,\"id\":97,\"ok\":true,\"recovery\":{\"run_id\":\"11111111111111111111111111111111\",\"action\":\"status\",\"settled\":false,\"ordinal\":0,\"workflow_id\":\"\",\"outcome\":\"\",\"reason_code\":\"\",\"decision_digest\":\"\",\"patch_id\":\"\",\"model_request_id\":\"\",\"lesson_id\":\"\",\"lesson_digest\":\"\"}}"
+    },
+    {
+      "name": "workflow-recovery-repaired",
+      "response": {
+        "id": 98,
+        "ok": true,
+        "payload": {
+          "kind": "workflow-recovery",
+          "value": {
+            "run_id": "11111111111111111111111111111111",
+            "action": "status",
+            "settled": true,
+            "ordinal": 1,
+            "workflow_id": "22222222222222222222222222222222",
+            "outcome": "patched-and-resumed",
+            "reason_code": "",
+            "decision_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "patch_id": "33333333333333333333333333333333",
+            "model_request_id": "44444444444444444444444444444444",
+            "lesson_id": "",
+            "lesson_digest": ""
+          }
+        }
+      },
+      "canonical": "{\"v\":1,\"id\":98,\"ok\":true,\"recovery\":{\"run_id\":\"11111111111111111111111111111111\",\"action\":\"status\",\"settled\":true,\"ordinal\":1,\"workflow_id\":\"22222222222222222222222222222222\",\"outcome\":\"patched-and-resumed\",\"reason_code\":\"\",\"decision_digest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"patch_id\":\"33333333333333333333333333333333\",\"model_request_id\":\"44444444444444444444444444444444\",\"lesson_id\":\"\",\"lesson_digest\":\"\"}}"
+    },
+    {
+      "name": "workflow-recovery-lesson",
+      "response": {
+        "id": 99,
+        "ok": true,
+        "payload": {
+          "kind": "workflow-recovery",
+          "value": {
+            "run_id": "11111111111111111111111111111111",
+            "action": "lesson",
+            "settled": false,
+            "ordinal": 0,
+            "workflow_id": "",
+            "outcome": "",
+            "reason_code": "",
+            "decision_digest": "",
+            "patch_id": "",
+            "model_request_id": "",
+            "lesson_id": "workflow-lesson-fixture",
+            "lesson_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          }
+        }
+      },
+      "canonical": "{\"v\":1,\"id\":99,\"ok\":true,\"recovery\":{\"run_id\":\"11111111111111111111111111111111\",\"action\":\"lesson\",\"settled\":false,\"ordinal\":0,\"workflow_id\":\"\",\"outcome\":\"\",\"reason_code\":\"\",\"decision_digest\":\"\",\"patch_id\":\"\",\"model_request_id\":\"\",\"lesson_id\":\"workflow-lesson-fixture\",\"lesson_digest\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"}}"
     }
   ],
   "response_failures": [
@@ -2578,6 +3004,121 @@
       "name": "session-context-estimate-type-None",
       "payload": "{\"v\":1,\"id\":35,\"ok\":true,\"session_id\":\"5a4b3c2d1e0f4938576a5b4c3d2e1f0a\",\"context_usage_sequence\":1,\"context_usage\":{\"input_tokens\":8192,\"window_tokens\":32768,\"model\":\"fixture\",\"estimated\":null},\"turns\":[],\"truncated\":true}",
       "error": "invalid context_usage estimated flag"
+    },
+    {
+      "name": "experience-wrong-validation",
+      "error": "workflow experience requires candidate validation, valid provenance and bounded definition",
+      "payload": "{\"v\":1,\"id\":90,\"ok\":true,\"experience\":{\"validation\":\"validated\",\"source_run_id\":\"11111111111111111111111111111111\",\"source_workflow_id\":\"33333333333333333333333333333333\",\"source_digest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"workflow_id\":\"22222222222222222222222222222222\",\"digest\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"definition\":{\"workflow_id\":\"22222222222222222222222222222222\",\"name\":\"review candidate\"}}}"
+    },
+    {
+      "name": "experience-malformed-digest",
+      "error": "workflow experience requires candidate validation, valid provenance and bounded definition",
+      "payload": "{\"v\":1,\"id\":90,\"ok\":true,\"experience\":{\"validation\":\"candidate\",\"source_run_id\":\"11111111111111111111111111111111\",\"source_workflow_id\":\"33333333333333333333333333333333\",\"source_digest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"workflow_id\":\"22222222222222222222222222222222\",\"digest\":\"short\",\"definition\":{\"workflow_id\":\"22222222222222222222222222222222\",\"name\":\"review candidate\"}}}"
+    },
+    {
+      "name": "experience-bad-definition",
+      "error": "workflow experience requires candidate validation, valid provenance and bounded definition",
+      "payload": "{\"v\":1,\"id\":90,\"ok\":true,\"experience\":{\"validation\":\"candidate\",\"source_run_id\":\"11111111111111111111111111111111\",\"source_workflow_id\":\"33333333333333333333333333333333\",\"source_digest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"workflow_id\":\"22222222222222222222222222222222\",\"digest\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"definition\":[]}}"
+    },
+    {
+      "name": "induction-missing-review",
+      "payload": "{\"v\":1,\"id\":91,\"ok\":true,\"experience\":{\"validation\":\"candidate\",\"source_run_id\":\"11111111111111111111111111111111\",\"source_workflow_id\":\"33333333333333333333333333333333\",\"source_digest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"workflow_id\":\"22222222222222222222222222222222\",\"digest\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"definition\":{\"workflow_id\":\"22222222222222222222222222222222\",\"name\":\"review candidate\"},\"sources\":[{\"source_run_id\":\"11111111111111111111111111111111\",\"source_workflow_id\":\"33333333333333333333333333333333\",\"source_digest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},{\"source_run_id\":\"44444444444444444444444444444444\",\"source_workflow_id\":\"33333333333333333333333333333333\",\"source_digest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}]}}",
+      "error": "workflow experience has invalid induction review"
+    },
+    {
+      "name": "induction-missing-sources",
+      "payload": "{\"v\":1,\"id\":91,\"ok\":true,\"experience\":{\"validation\":\"candidate\",\"source_run_id\":\"11111111111111111111111111111111\",\"source_workflow_id\":\"33333333333333333333333333333333\",\"source_digest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"workflow_id\":\"22222222222222222222222222222222\",\"digest\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"definition\":{\"workflow_id\":\"22222222222222222222222222222222\",\"name\":\"review candidate\"},\"parameter_candidates\":[{\"name\":\"file_path\",\"observed_values\":[\"a.txt\",\"b.txt\"],\"pointer\":\"/path\",\"provenance\":\"provenance\",\"step_index\":0}]}}",
+      "error": "workflow experience has invalid induction review"
+    },
+    {
+      "name": "induction-single-source",
+      "payload": "{\"v\":1,\"id\":91,\"ok\":true,\"experience\":{\"validation\":\"candidate\",\"source_run_id\":\"11111111111111111111111111111111\",\"source_workflow_id\":\"33333333333333333333333333333333\",\"source_digest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"workflow_id\":\"22222222222222222222222222222222\",\"digest\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"definition\":{\"workflow_id\":\"22222222222222222222222222222222\",\"name\":\"review candidate\"},\"sources\":[{\"source_run_id\":\"11111111111111111111111111111111\",\"source_workflow_id\":\"33333333333333333333333333333333\",\"source_digest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}],\"parameter_candidates\":[{\"name\":\"file_path\",\"observed_values\":[\"a.txt\",\"b.txt\"],\"pointer\":\"/path\",\"provenance\":\"provenance\",\"step_index\":0}]}}",
+      "error": "workflow experience has invalid induction review"
+    },
+    {
+      "name": "induction-duplicate-source",
+      "payload": "{\"v\":1,\"id\":91,\"ok\":true,\"experience\":{\"validation\":\"candidate\",\"source_run_id\":\"11111111111111111111111111111111\",\"source_workflow_id\":\"33333333333333333333333333333333\",\"source_digest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"workflow_id\":\"22222222222222222222222222222222\",\"digest\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"definition\":{\"workflow_id\":\"22222222222222222222222222222222\",\"name\":\"review candidate\"},\"sources\":[{\"source_run_id\":\"11111111111111111111111111111111\",\"source_workflow_id\":\"33333333333333333333333333333333\",\"source_digest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},{\"source_run_id\":\"11111111111111111111111111111111\",\"source_workflow_id\":\"33333333333333333333333333333333\",\"source_digest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}],\"parameter_candidates\":[{\"name\":\"file_path\",\"observed_values\":[\"a.txt\",\"b.txt\"],\"pointer\":\"/path\",\"provenance\":\"provenance\",\"step_index\":0}]}}",
+      "error": "workflow experience has invalid induction review"
+    },
+    {
+      "name": "induction-wrong-anchor",
+      "payload": "{\"v\":1,\"id\":91,\"ok\":true,\"experience\":{\"validation\":\"candidate\",\"source_run_id\":\"11111111111111111111111111111111\",\"source_workflow_id\":\"33333333333333333333333333333333\",\"source_digest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"workflow_id\":\"22222222222222222222222222222222\",\"digest\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"definition\":{\"workflow_id\":\"22222222222222222222222222222222\",\"name\":\"review candidate\"},\"sources\":[{\"source_run_id\":\"55555555555555555555555555555555\",\"source_workflow_id\":\"33333333333333333333333333333333\",\"source_digest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},{\"source_run_id\":\"44444444444444444444444444444444\",\"source_workflow_id\":\"33333333333333333333333333333333\",\"source_digest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}],\"parameter_candidates\":[{\"name\":\"file_path\",\"observed_values\":[\"a.txt\",\"b.txt\"],\"pointer\":\"/path\",\"provenance\":\"provenance\",\"step_index\":0}]}}",
+      "error": "workflow experience has invalid induction review"
+    },
+    {
+      "name": "induction-mixed-version",
+      "payload": "{\"v\":1,\"id\":91,\"ok\":true,\"experience\":{\"validation\":\"candidate\",\"source_run_id\":\"11111111111111111111111111111111\",\"source_workflow_id\":\"33333333333333333333333333333333\",\"source_digest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"workflow_id\":\"22222222222222222222222222222222\",\"digest\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"definition\":{\"workflow_id\":\"22222222222222222222222222222222\",\"name\":\"review candidate\"},\"sources\":[{\"source_run_id\":\"11111111111111111111111111111111\",\"source_workflow_id\":\"33333333333333333333333333333333\",\"source_digest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},{\"source_run_id\":\"44444444444444444444444444444444\",\"source_workflow_id\":\"33333333333333333333333333333333\",\"source_digest\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\"}],\"parameter_candidates\":[{\"name\":\"file_path\",\"observed_values\":[\"a.txt\",\"b.txt\"],\"pointer\":\"/path\",\"provenance\":\"provenance\",\"step_index\":0}]}}",
+      "error": "workflow experience has invalid induction review"
+    },
+    {
+      "name": "induction-mixed-workflow",
+      "payload": "{\"v\":1,\"id\":91,\"ok\":true,\"experience\":{\"validation\":\"candidate\",\"source_run_id\":\"11111111111111111111111111111111\",\"source_workflow_id\":\"33333333333333333333333333333333\",\"source_digest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"workflow_id\":\"22222222222222222222222222222222\",\"digest\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"definition\":{\"workflow_id\":\"22222222222222222222222222222222\",\"name\":\"review candidate\"},\"sources\":[{\"source_run_id\":\"11111111111111111111111111111111\",\"source_workflow_id\":\"33333333333333333333333333333333\",\"source_digest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},{\"source_run_id\":\"44444444444444444444444444444444\",\"source_workflow_id\":\"55555555555555555555555555555555\",\"source_digest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}],\"parameter_candidates\":[{\"name\":\"file_path\",\"observed_values\":[\"a.txt\",\"b.txt\"],\"pointer\":\"/path\",\"provenance\":\"provenance\",\"step_index\":0}]}}",
+      "error": "workflow experience has invalid induction review"
+    },
+    {
+      "name": "induction-wrong-count",
+      "payload": "{\"v\":1,\"id\":91,\"ok\":true,\"experience\":{\"validation\":\"candidate\",\"source_run_id\":\"11111111111111111111111111111111\",\"source_workflow_id\":\"33333333333333333333333333333333\",\"source_digest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"workflow_id\":\"22222222222222222222222222222222\",\"digest\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"definition\":{\"workflow_id\":\"22222222222222222222222222222222\",\"name\":\"review candidate\"},\"sources\":[{\"source_run_id\":\"11111111111111111111111111111111\",\"source_workflow_id\":\"33333333333333333333333333333333\",\"source_digest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},{\"source_run_id\":\"44444444444444444444444444444444\",\"source_workflow_id\":\"33333333333333333333333333333333\",\"source_digest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}],\"parameter_candidates\":[{\"name\":\"file_path\",\"observed_values\":[\"a.txt\"],\"pointer\":\"/path\",\"provenance\":\"provenance\",\"step_index\":0}]}}",
+      "error": "workflow experience has invalid induction review"
+    },
+    {
+      "name": "induction-non-scalar",
+      "payload": "{\"v\":1,\"id\":91,\"ok\":true,\"experience\":{\"validation\":\"candidate\",\"source_run_id\":\"11111111111111111111111111111111\",\"source_workflow_id\":\"33333333333333333333333333333333\",\"source_digest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"workflow_id\":\"22222222222222222222222222222222\",\"digest\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"definition\":{\"workflow_id\":\"22222222222222222222222222222222\",\"name\":\"review candidate\"},\"sources\":[{\"source_run_id\":\"11111111111111111111111111111111\",\"source_workflow_id\":\"33333333333333333333333333333333\",\"source_digest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},{\"source_run_id\":\"44444444444444444444444444444444\",\"source_workflow_id\":\"33333333333333333333333333333333\",\"source_digest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}],\"parameter_candidates\":[{\"name\":\"file_path\",\"observed_values\":[{},\"b.txt\"],\"pointer\":\"/path\",\"provenance\":\"provenance\",\"step_index\":0}]}}",
+      "error": "workflow experience has invalid induction review"
+    },
+    {
+      "name": "induction-invalid-name",
+      "payload": "{\"v\":1,\"id\":91,\"ok\":true,\"experience\":{\"validation\":\"candidate\",\"source_run_id\":\"11111111111111111111111111111111\",\"source_workflow_id\":\"33333333333333333333333333333333\",\"source_digest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"workflow_id\":\"22222222222222222222222222222222\",\"digest\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"definition\":{\"workflow_id\":\"22222222222222222222222222222222\",\"name\":\"review candidate\"},\"sources\":[{\"source_run_id\":\"11111111111111111111111111111111\",\"source_workflow_id\":\"33333333333333333333333333333333\",\"source_digest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},{\"source_run_id\":\"44444444444444444444444444444444\",\"source_workflow_id\":\"33333333333333333333333333333333\",\"source_digest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}],\"parameter_candidates\":[{\"name\":\"Bad Name\",\"observed_values\":[\"a.txt\",\"b.txt\"],\"pointer\":\"/path\",\"provenance\":\"provenance\",\"step_index\":0}]}}",
+      "error": "workflow experience has invalid induction review"
+    },
+    {
+      "name": "induction-invalid-step",
+      "payload": "{\"v\":1,\"id\":91,\"ok\":true,\"experience\":{\"validation\":\"candidate\",\"source_run_id\":\"11111111111111111111111111111111\",\"source_workflow_id\":\"33333333333333333333333333333333\",\"source_digest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"workflow_id\":\"22222222222222222222222222222222\",\"digest\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"definition\":{\"workflow_id\":\"22222222222222222222222222222222\",\"name\":\"review candidate\"},\"sources\":[{\"source_run_id\":\"11111111111111111111111111111111\",\"source_workflow_id\":\"33333333333333333333333333333333\",\"source_digest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},{\"source_run_id\":\"44444444444444444444444444444444\",\"source_workflow_id\":\"33333333333333333333333333333333\",\"source_digest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}],\"parameter_candidates\":[{\"name\":\"file_path\",\"observed_values\":[\"a.txt\",\"b.txt\"],\"pointer\":\"/path\",\"provenance\":\"provenance\",\"step_index\":256}]}}",
+      "error": "workflow experience has invalid induction review"
+    },
+    {
+      "name": "induction-invalid-pointer",
+      "payload": "{\"v\":1,\"id\":91,\"ok\":true,\"experience\":{\"validation\":\"candidate\",\"source_run_id\":\"11111111111111111111111111111111\",\"source_workflow_id\":\"33333333333333333333333333333333\",\"source_digest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"workflow_id\":\"22222222222222222222222222222222\",\"digest\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"definition\":{\"workflow_id\":\"22222222222222222222222222222222\",\"name\":\"review candidate\"},\"sources\":[{\"source_run_id\":\"11111111111111111111111111111111\",\"source_workflow_id\":\"33333333333333333333333333333333\",\"source_digest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},{\"source_run_id\":\"44444444444444444444444444444444\",\"source_workflow_id\":\"33333333333333333333333333333333\",\"source_digest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}],\"parameter_candidates\":[{\"name\":\"file_path\",\"observed_values\":[\"a.txt\",\"b.txt\"],\"pointer\":\"path\",\"provenance\":\"provenance\",\"step_index\":0}]}}",
+      "error": "workflow experience has invalid induction review"
+    },
+    {
+      "name": "induction-invalid-provenance",
+      "payload": "{\"v\":1,\"id\":91,\"ok\":true,\"experience\":{\"validation\":\"candidate\",\"source_run_id\":\"11111111111111111111111111111111\",\"source_workflow_id\":\"33333333333333333333333333333333\",\"source_digest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"workflow_id\":\"22222222222222222222222222222222\",\"digest\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"definition\":{\"workflow_id\":\"22222222222222222222222222222222\",\"name\":\"review candidate\"},\"sources\":[{\"source_run_id\":\"11111111111111111111111111111111\",\"source_workflow_id\":\"33333333333333333333333333333333\",\"source_digest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},{\"source_run_id\":\"44444444444444444444444444444444\",\"source_workflow_id\":\"33333333333333333333333333333333\",\"source_digest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}],\"parameter_candidates\":[{\"name\":\"file_path\",\"observed_values\":[\"a.txt\",\"b.txt\"],\"pointer\":\"/path\",\"provenance\":\"invented\",\"step_index\":0}]}}",
+      "error": "workflow experience has invalid induction review"
+    },
+    {
+      "name": "induction-review-not-array",
+      "payload": "{\"v\":1,\"id\":91,\"ok\":true,\"experience\":{\"validation\":\"candidate\",\"source_run_id\":\"11111111111111111111111111111111\",\"source_workflow_id\":\"33333333333333333333333333333333\",\"source_digest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"workflow_id\":\"22222222222222222222222222222222\",\"digest\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"definition\":{\"workflow_id\":\"22222222222222222222222222222222\",\"name\":\"review candidate\"},\"sources\":[{\"source_run_id\":\"11111111111111111111111111111111\",\"source_workflow_id\":\"33333333333333333333333333333333\",\"source_digest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},{\"source_run_id\":\"44444444444444444444444444444444\",\"source_workflow_id\":\"33333333333333333333333333333333\",\"source_digest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}],\"parameter_candidates\":{}}}",
+      "error": "workflow experience has invalid induction review"
+    },
+    {
+      "name": "induction-null-observation",
+      "payload": "{\"v\":1,\"id\":91,\"ok\":true,\"experience\":{\"validation\":\"candidate\",\"source_run_id\":\"11111111111111111111111111111111\",\"source_workflow_id\":\"33333333333333333333333333333333\",\"source_digest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"workflow_id\":\"22222222222222222222222222222222\",\"digest\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"definition\":{\"workflow_id\":\"22222222222222222222222222222222\",\"name\":\"review candidate\"},\"sources\":[{\"source_run_id\":\"11111111111111111111111111111111\",\"source_workflow_id\":\"33333333333333333333333333333333\",\"source_digest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},{\"source_run_id\":\"44444444444444444444444444444444\",\"source_workflow_id\":\"33333333333333333333333333333333\",\"source_digest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}],\"parameter_candidates\":[{\"name\":\"file_path\",\"observed_values\":[null,\"b.txt\"],\"pointer\":\"/path\",\"provenance\":\"provenance\",\"step_index\":0}]}}",
+      "error": "workflow experience has invalid induction review"
+    },
+    {
+      "name": "workflow-recovery-ordinal",
+      "payload": "{\"v\":1,\"id\":1,\"ok\":true,\"recovery\":{\"run_id\":\"11111111111111111111111111111111\",\"action\":\"status\",\"settled\":false,\"ordinal\":2,\"workflow_id\":\"\",\"outcome\":\"\",\"reason_code\":\"\",\"decision_digest\":\"\",\"patch_id\":\"\",\"model_request_id\":\"\",\"lesson_id\":\"\",\"lesson_digest\":\"\"}}",
+      "error": "invalid workflow recovery metadata"
+    },
+    {
+      "name": "workflow-recovery-fake-settled",
+      "payload": "{\"v\":1,\"id\":1,\"ok\":true,\"recovery\":{\"run_id\":\"11111111111111111111111111111111\",\"action\":\"status\",\"settled\":true,\"ordinal\":0,\"workflow_id\":\"\",\"outcome\":\"\",\"reason_code\":\"\",\"decision_digest\":\"\",\"patch_id\":\"\",\"model_request_id\":\"\",\"lesson_id\":\"\",\"lesson_digest\":\"\"}}",
+      "error": "invalid workflow recovery metadata"
+    },
+    {
+      "name": "workflow-recovery-wrong-action",
+      "payload": "{\"v\":1,\"id\":1,\"ok\":true,\"recovery\":{\"run_id\":\"11111111111111111111111111111111\",\"action\":\"retry\",\"settled\":false,\"ordinal\":0,\"workflow_id\":\"\",\"outcome\":\"\",\"reason_code\":\"\",\"decision_digest\":\"\",\"patch_id\":\"\",\"model_request_id\":\"\",\"lesson_id\":\"\",\"lesson_digest\":\"\"}}",
+      "error": "invalid workflow recovery metadata"
+    },
+    {
+      "name": "workflow-recovery-missing-lesson",
+      "payload": "{\"v\":1,\"id\":1,\"ok\":true,\"recovery\":{\"run_id\":\"11111111111111111111111111111111\",\"action\":\"lesson\",\"settled\":false,\"ordinal\":0,\"workflow_id\":\"\",\"outcome\":\"\",\"reason_code\":\"\",\"decision_digest\":\"\",\"patch_id\":\"\",\"model_request_id\":\"\",\"lesson_id\":\"\",\"lesson_digest\":\"\"}}",
+      "error": "invalid workflow recovery metadata"
+    },
+    {
+      "name": "workflow-recovery-unexpected-lesson",
+      "payload": "{\"v\":1,\"id\":1,\"ok\":true,\"recovery\":{\"run_id\":\"11111111111111111111111111111111\",\"action\":\"status\",\"settled\":false,\"ordinal\":0,\"workflow_id\":\"\",\"outcome\":\"\",\"reason_code\":\"\",\"decision_digest\":\"\",\"patch_id\":\"\",\"model_request_id\":\"\",\"lesson_id\":\"extra\",\"lesson_digest\":\"\"}}",
+      "error": "invalid workflow recovery metadata"
     }
   ],
   "events": [

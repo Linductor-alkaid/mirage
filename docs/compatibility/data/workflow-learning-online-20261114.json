@@ -1,0 +1,167 @@
+{
+  "schema": "mirage.workflow.online-evidence.v1",
+  "date": "2026-11-14",
+  "scope": "controlled files, production ModelLayer and real configured provider; not native desktop acceptance",
+  "final": {
+    "dialect": "anthropic.messages.v1",
+    "durable_episode_count": 2,
+    "durable_lesson_count": 2,
+    "duration_ms": 3319,
+    "file_bytes": 337848,
+    "file_limit_bytes": 67108864,
+    "headers_received": true,
+    "local_parse_outcome": 0,
+    "model": "deepseek-flash",
+    "passed": true,
+    "patch_error_code": 0,
+    "provider_calls": 2,
+    "provider_domain_code": 0,
+    "provider_usage": [
+      {
+        "input_tokens": 742,
+        "output_tokens": 163
+      },
+      {
+        "input_tokens": 1076,
+        "output_tokens": 200
+      }
+    ],
+    "reopened_file_bytes": 110592,
+    "reopened_in_second_process": true,
+    "rounds": [
+      {
+        "lesson_recorded": true,
+        "lessons_in_model_context": 0,
+        "outcome": "patched-and-resumed",
+        "reason_code": "",
+        "round": 1,
+        "run_id": "79d62eb58e564f9994a7f352a48d65ca"
+      },
+      {
+        "lesson_recorded": true,
+        "lessons_in_model_context": 1,
+        "outcome": "patched-and-resumed",
+        "reason_code": "",
+        "round": 2,
+        "run_id": "a1e8741eee34477a852f0a3d88096501"
+      }
+    ],
+    "schema": "mirage.workflow.online-acceptance.v1",
+    "schema_valid": true,
+    "scope": "controlled Host + production ModelLayer, no real desktop",
+    "write_completed": true,
+    "write_started": true
+  },
+  "development_failures": [
+    {
+      "dialect": "openai.chat-completions.v1",
+      "duration_ms": 5016,
+      "file_bytes": 98888,
+      "file_limit_bytes": 67108864,
+      "model": "gpt-6.1-sol",
+      "passed": false,
+      "provider_usage": [],
+      "rounds": [
+        {
+          "lesson_recorded": false,
+          "lessons_in_model_context": 0,
+          "outcome": "aborted",
+          "reason_code": "model-unavailable",
+          "round": 1
+        }
+      ],
+      "schema": "mirage.workflow.online-acceptance.v1",
+      "scope": "controlled Host + production ModelLayer, no real desktop"
+    },
+    {
+      "dialect": "openai.chat-completions.v1",
+      "duration_ms": 1737,
+      "file_bytes": 98888,
+      "file_limit_bytes": 67108864,
+      "headers_received": true,
+      "model": "gpt-6.1-sol",
+      "passed": false,
+      "provider_calls": 1,
+      "provider_domain_code": 4,
+      "provider_usage": [],
+      "rounds": [
+        {
+          "lesson_recorded": false,
+          "lessons_in_model_context": 0,
+          "outcome": "aborted",
+          "reason_code": "model-unavailable",
+          "round": 1
+        }
+      ],
+      "schema": "mirage.workflow.online-acceptance.v1",
+      "scope": "controlled Host + production ModelLayer, no real desktop",
+      "write_completed": true,
+      "write_started": true
+    },
+    {
+      "dialect": "anthropic.messages.v1",
+      "duration_ms": 1791,
+      "file_bytes": 98888,
+      "file_limit_bytes": 67108864,
+      "headers_received": true,
+      "model": "deepseek-flash",
+      "passed": false,
+      "provider_calls": 1,
+      "provider_domain_code": 0,
+      "provider_usage": [
+        {
+          "input_tokens": 632,
+          "output_tokens": 139
+        }
+      ],
+      "rounds": [
+        {
+          "lesson_recorded": false,
+          "lessons_in_model_context": 0,
+          "outcome": "deferred-to-host",
+          "reason_code": "decision-invalid",
+          "round": 1
+        }
+      ],
+      "schema": "mirage.workflow.online-acceptance.v1",
+      "scope": "controlled Host + production ModelLayer, no real desktop",
+      "write_completed": true,
+      "write_started": true
+    },
+    {
+      "dialect": "anthropic.messages.v1",
+      "duration_ms": 1336,
+      "file_bytes": 98888,
+      "file_limit_bytes": 67108864,
+      "headers_received": true,
+      "model": "deepseek-flash",
+      "passed": false,
+      "provider_calls": 1,
+      "provider_domain_code": 0,
+      "provider_usage": [
+        {
+          "input_tokens": 633,
+          "output_tokens": 162
+        }
+      ],
+      "rounds": [
+        {
+          "lesson_recorded": false,
+          "lessons_in_model_context": 0,
+          "outcome": "deferred-to-host",
+          "reason_code": "decision-invalid",
+          "round": 1,
+          "run_id": "cab172f97bdd4576bee3047618b275cf"
+        }
+      ],
+      "schema": "mirage.workflow.online-acceptance.v1",
+      "scope": "controlled Host + production ModelLayer, no real desktop",
+      "write_completed": true,
+      "write_started": true
+    }
+  ],
+  "recovery_attempts_total": 6,
+  "provider_calls_instrumented": 5,
+  "uninstrumented_provider_calls": "first attempt not instrumented; do not infer exact provider calls or missing token usage",
+  "no_credentials_or_model_output": true
+}

@@ -40,6 +40,8 @@ constexpr const char *kOpWorkflowRuns = "workflow.runs";
 constexpr const char *kOpWorkflowRun = "workflow.run";
 constexpr const char *kOpWorkflowCancel = "workflow.cancel";
 constexpr const char *kOpWorkflowGet = "workflow.get";
+constexpr const char *kOpWorkflowExperienceCompile = "workflow.experience.compile";
+constexpr const char *kOpWorkflowExperienceImport = "workflow.experience.import";
 constexpr const char *kOpDesktopObserve = "desktop.observe";
 
 constexpr const char *kStepRead = "filesystem.read";
@@ -138,6 +140,20 @@ bool in_stable_set(const std::string &value, const char *const *set, std::size_t
         }
     }
     return false;
+}
+
+bool workflow_experience_hex(const std::string &value, std::size_t size, bool non_nil) {
+    if (value.size() != size) {
+        return false;
+    }
+    bool has_nonzero = false;
+    for (const char ch : value) {
+        if (!((ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f'))) {
+            return false;
+        }
+        has_nonzero = has_nonzero || ch != '0';
+    }
+    return !non_nil || has_nonzero;
 }
 
 mira::JsonValue make_object() { return mira::JsonValue{mira::JsonValue::Object{}}; }
@@ -857,6 +873,10 @@ mira::JsonValue encode_payload(const ResponsePayload &payload) {
             } else if constexpr (std::is_same_v<T, WorkflowDeleted>) {
                 put(object, "workflow_id", value.workflow_id);
             } else if constexpr (std::is_same_v<T, WorkflowAtomCatalog>) {
+                if (value.durable_catalog)
+                    put(object, "durable_catalog", true);
+                if (value.safe_workflow_editor)
+                    put(object, "safe_workflow_editor", true);
                 mira::JsonValue::Array entries;
                 for (const auto &tool : value.tools) {
                     auto entry = make_object();
@@ -885,6 +905,53 @@ mira::JsonValue encode_payload(const ResponsePayload &payload) {
             } else if constexpr (std::is_same_v<T, WorkflowRunCancelled>) {
                 put(object, "run_id", value.run_id);
                 put(object, "state", value.state);
+            } else if constexpr (std::is_same_v<T, WorkflowRecoveryStatus>) {
+                auto recovery = make_object();
+                put(recovery, "run_id", value.run_id);
+                put(recovery, "action", value.action);
+                put(recovery, "settled", value.settled);
+                put(recovery, "ordinal", static_cast<std::int64_t>(value.ordinal));
+                put(recovery, "workflow_id", value.workflow_id);
+                put(recovery, "outcome", value.outcome);
+                put(recovery, "reason_code", value.reason_code);
+                put(recovery, "decision_digest", value.decision_digest);
+                put(recovery, "patch_id", value.patch_id);
+                put(recovery, "model_request_id", value.model_request_id);
+                put(recovery, "lesson_id", value.lesson_id);
+                put(recovery, "lesson_digest", value.lesson_digest);
+                put(object, "recovery", std::move(recovery));
+            } else if constexpr (std::is_same_v<T, WorkflowLearningStatus>) {
+                auto learning = make_object();
+                put(learning, "enabled", value.enabled);
+                put(learning, "file_bytes", static_cast<std::int64_t>(value.file_bytes));
+                put(learning, "limit_bytes", static_cast<std::int64_t>(value.limit_bytes));
+                put(learning, "reserve_bytes", static_cast<std::int64_t>(value.reserve_bytes));
+                put(learning, "peak_admitted_file_bytes",
+                    static_cast<std::int64_t>(value.peak_admitted_file_bytes));
+                put(object, "learning", std::move(learning));
+            } else if constexpr (std::is_same_v<T, WorkflowExperienceDraft>) {
+                auto draft = make_object();
+                put(draft, "validation", "candidate");
+                put(draft, "source_run_id", value.source_run_id);
+                put(draft, "source_workflow_id", value.source_workflow_id);
+                put(draft, "source_digest", value.source_digest);
+                put(draft, "workflow_id", value.workflow_id);
+                put(draft, "digest", value.digest);
+                put(draft, "definition", embedded_json(value.definition_json));
+                if (!value.sources.empty() || !value.parameter_candidates_json.empty()) {
+                    mira::JsonValue::Array sources;
+                    for (const auto &source : value.sources) {
+                        auto item = make_object();
+                        put(item, "source_run_id", source.source_run_id);
+                        put(item, "source_workflow_id", source.source_workflow_id);
+                        put(item, "source_digest", source.source_digest);
+                        sources.emplace_back(std::move(item));
+                    }
+                    put(draft, "sources", mira::JsonValue{std::move(sources)});
+                    put(draft, "parameter_candidates",
+                        embedded_json(value.parameter_candidates_json));
+                }
+                put(object, "experience", std::move(draft));
             } else if constexpr (std::is_same_v<T, WorkflowDefinitionView>) {
                 put(object, "workflow_id", value.workflow_id);
                 put(object, "digest", value.digest);
@@ -1110,9 +1177,15 @@ std::string encode_request(std::uint64_t id, const Request &body) {
             } else if constexpr (std::is_same_v<T, WorkflowSaveRequest>) {
                 put(object, "op", kOpWorkflowSave);
                 put(object, "definition", embedded_json(value.definition_json));
+                if (value.expected_head)
+                    put(object, "expected_head", *value.expected_head);
             } else if constexpr (std::is_same_v<T, WorkflowPublishRequest>) {
                 put(object, "op", kOpWorkflowPublish);
                 put(object, "definition", embedded_json(value.definition_json));
+                if (value.reusable)
+                    put(object, "reusable", true);
+                if (value.expected_head)
+                    put(object, "expected_head", *value.expected_head);
             } else if constexpr (std::is_same_v<T, WorkflowDeleteRequest>) {
                 put(object, "op", kOpWorkflowDelete);
                 put(object, "workflow_id", value.workflow_id);
@@ -1135,9 +1208,31 @@ std::string encode_request(std::uint64_t id, const Request &body) {
             } else if constexpr (std::is_same_v<T, WorkflowCancelRunRequest>) {
                 put(object, "op", kOpWorkflowCancel);
                 put(object, "run_id", value.run_id);
+            } else if constexpr (std::is_same_v<T, WorkflowRecoveryRequest>) {
+                put(object, "op", "workflow.recovery." + value.action);
+                put(object, "run_id", value.run_id);
+            } else if constexpr (std::is_same_v<T, WorkflowLearningStatusRequest>) {
+                put(object, "op", "workflow.learning.status");
             } else if constexpr (std::is_same_v<T, WorkflowGetRequest>) {
                 put(object, "op", kOpWorkflowGet);
                 put(object, "workflow_id", value.workflow_id);
+            } else if constexpr (std::is_same_v<T, CompileWorkflowExperienceRequest>) {
+                put(object, "op", kOpWorkflowExperienceCompile);
+                put(object, "source_run_id", value.source_run_id);
+                put(object, "target_workflow_id", value.target_workflow_id);
+                put(object, "name", value.name);
+                if (!value.summary.empty()) {
+                    put(object, "summary", value.summary);
+                }
+                if (!value.additional_run_ids.empty()) {
+                    mira::JsonValue::Array sources;
+                    for (const auto &source : value.additional_run_ids)
+                        sources.emplace_back(source);
+                    put(object, "additional_run_ids", mira::JsonValue{std::move(sources)});
+                }
+            } else if constexpr (std::is_same_v<T, ImportWorkflowExperienceRequest>) {
+                put(object, "op", kOpWorkflowExperienceImport);
+                put(object, "archive", embedded_json(value.archive_json));
             } else if constexpr (std::is_same_v<T, GetPolicyRequest>) {
                 put(object, "op", kOpPolicyGet);
             } else if constexpr (std::is_same_v<T, SetPolicyRequest>) {
@@ -1538,6 +1633,16 @@ RequestDecode decode_request(std::string_view payload) {
             result.error = "workflow.save requires a 'definition' object";
             return result;
         }
+        if (member(object, "expected_head")) {
+            const auto head = string_member(object, "expected_head");
+            if (!head || (!head->empty() &&
+                          (head->size() != 64 ||
+                           head->find_first_not_of("0123456789abcdef") != std::string::npos))) {
+                result.error = "expected_head must be empty or a lowercase SHA256 digest";
+                return result;
+            }
+            save.expected_head = *head;
+        }
         save.definition_json = std::move(*definition);
         result.body = std::move(save);
     } else if (*op == kOpWorkflowPublish) {
@@ -1546,6 +1651,21 @@ RequestDecode decode_request(std::string_view payload) {
         if (!definition || !member(object, "definition")->is_object()) {
             result.error = "workflow.publish requires a 'definition' object";
             return result;
+        }
+        if (member(object, "reusable") && !boolean_member(object, "reusable")) {
+            result.error = "workflow.publish reusable must be boolean";
+            return result;
+        }
+        publish.reusable = boolean_member(object, "reusable").value_or(false);
+        if (member(object, "expected_head")) {
+            const auto head = string_member(object, "expected_head");
+            if (!head || (!head->empty() &&
+                          (head->size() != 64 ||
+                           head->find_first_not_of("0123456789abcdef") != std::string::npos))) {
+                result.error = "expected_head must be empty or a lowercase SHA256 digest";
+                return result;
+            }
+            publish.expected_head = *head;
         }
         publish.definition_json = std::move(*definition);
         result.body = std::move(publish);
@@ -1603,6 +1723,16 @@ RequestDecode decode_request(std::string_view payload) {
         }
         cancel.run_id = *run_id;
         result.body = std::move(cancel);
+    } else if (*op == "workflow.recovery.start" || *op == "workflow.recovery.status" ||
+               *op == "workflow.recovery.cancel" || *op == "workflow.recovery.lesson") {
+        const auto run_id = string_member(object, "run_id");
+        if (!run_id || !workflow_experience_hex(*run_id, 32, true)) {
+            result.error = "workflow.recovery requires a valid non-nil run_id";
+            return result;
+        }
+        result.body = WorkflowRecoveryRequest{*run_id, op->substr(18)};
+    } else if (*op == "workflow.learning.status") {
+        result.body = WorkflowLearningStatusRequest{};
     } else if (*op == kOpWorkflowGet) {
         WorkflowGetRequest get;
         const auto workflow_id = string_member(object, "workflow_id");
@@ -1612,6 +1742,79 @@ RequestDecode decode_request(std::string_view payload) {
         }
         get.workflow_id = *workflow_id;
         result.body = std::move(get);
+    } else if (*op == kOpWorkflowExperienceCompile) {
+        CompileWorkflowExperienceRequest request;
+        const auto source = string_member(object, "source_run_id");
+        const auto target = string_member(object, "target_workflow_id");
+        const auto name = string_member(object, "name");
+        const auto summary = string_member(object, "summary");
+        if (!source || !workflow_experience_hex(*source, 32, true) || !target ||
+            !workflow_experience_hex(*target, 32, true) || !name || name->empty() ||
+            name->size() > kWorkflowExperienceMetadataBytes ||
+            (member(object, "summary") != nullptr && !summary) ||
+            (summary && summary->size() > kWorkflowExperienceMetadataBytes)) {
+            result.error = "workflow.experience.compile requires valid source/target ids and "
+                           "bounded name/summary";
+            return result;
+        }
+        for (const auto &[key, value] : *object.as_object()) {
+            (void)value;
+            if (key != "v" && key != "id" && key != "op" && key != "source_run_id" &&
+                key != "target_workflow_id" && key != "name" && key != "summary" &&
+                key != "additional_run_ids") {
+                result.error = "workflow.experience.compile contains an unknown field";
+                return result;
+            }
+        }
+        request.source_run_id = *source;
+        request.target_workflow_id = *target;
+        request.name = *name;
+        request.summary = summary.value_or("");
+        if (const auto *additional = member(object, "additional_run_ids")) {
+            const auto *items = additional->as_array();
+            if (!items || items->empty() || items->size() > 15) {
+                result.error =
+                    "workflow.experience.compile requires 1..15 distinct additional run ids";
+                return result;
+            }
+            for (const auto &item : *items) {
+                const auto *text = item.as_string();
+                if (!text || !workflow_experience_hex(*text, 32, true) || *text == *source ||
+                    std::find(request.additional_run_ids.begin(), request.additional_run_ids.end(),
+                              *text) != request.additional_run_ids.end()) {
+                    result.error =
+                        "workflow.experience.compile requires 1..15 distinct additional run ids";
+                    return result;
+                }
+                request.additional_run_ids.push_back(*text);
+            }
+        }
+        result.body = std::move(request);
+    } else if (*op == kOpWorkflowExperienceImport) {
+        const auto *archive = member(object, "archive");
+        if (!archive || !archive->is_object()) {
+            result.error = "workflow.experience.import requires a review archive object";
+            return result;
+        }
+        for (const auto &[key, value] : *object.as_object()) {
+            (void)value;
+            if (key != "v" && key != "id" && key != "op" && key != "archive") {
+                result.error = "workflow.experience.import contains an unknown field";
+                return result;
+            }
+        }
+        auto archive_json = mira::to_json_string(*archive);
+        if (archive_json.size() > kWorkflowExperienceArchiveBytes) {
+            result.error = "workflow.experience.import archive exceeds byte budget";
+            return result;
+        }
+        const auto decoded = decode_response(archive_json);
+        if (!decoded.ok || !decoded.response.ok ||
+            !std::holds_alternative<WorkflowExperienceDraft>(decoded.response.payload)) {
+            result.error = "workflow.experience.import requires a valid candidate review response";
+            return result;
+        }
+        result.body = ImportWorkflowExperienceRequest{std::move(archive_json)};
     } else if (*op == kOpPolicyGet) {
         result.body = GetPolicyRequest{};
     } else if (*op == kOpPolicySet) {
@@ -2431,6 +2634,18 @@ ResponseDecode decode_response(std::string_view payload) {
             return result;
         }
         WorkflowAtomCatalog catalog;
+        if (member(object, "safe_workflow_editor") &&
+            !boolean_member(object, "safe_workflow_editor")) {
+            result.error = "safe_workflow_editor must be boolean";
+            return result;
+        }
+        if (member(object, "durable_catalog") && !boolean_member(object, "durable_catalog")) {
+            result.error = "durable_catalog must be boolean";
+            return result;
+        }
+        catalog.durable_catalog = boolean_member(object, "durable_catalog").value_or(false);
+        catalog.safe_workflow_editor =
+            boolean_member(object, "safe_workflow_editor").value_or(false);
         for (const auto &entry : *tools->as_array()) {
             if (!entry.is_object()) {
                 result.error = "workflow.atom.catalog entries must be objects";
@@ -2459,6 +2674,148 @@ ResponseDecode decode_response(std::string_view payload) {
             catalog.tools.push_back(std::move(tool));
         }
         response.payload = std::move(catalog);
+    } else if (const auto *recovery = member(object, "recovery"); recovery != nullptr) {
+        const auto run_id = string_member(*recovery, "run_id");
+        const auto action = string_member(*recovery, "action");
+        const auto *flag = member(*recovery, "settled");
+        const auto settled = flag ? flag->as_boolean() : std::nullopt;
+        const auto ordinal = integer_member(*recovery, "ordinal");
+        const auto workflow = string_member(*recovery, "workflow_id");
+        const auto outcome = string_member(*recovery, "outcome");
+        const auto reason = string_member(*recovery, "reason_code");
+        const auto digest = string_member(*recovery, "decision_digest");
+        const auto patch = string_member(*recovery, "patch_id");
+        const auto model = string_member(*recovery, "model_request_id");
+        const auto lesson = string_member(*recovery, "lesson_id");
+        const auto lesson_digest = string_member(*recovery, "lesson_digest");
+        const auto optional_hex = [](const auto &v, std::size_t bytes) {
+            return v && (v->empty() || workflow_experience_hex(*v, bytes, bytes == 32));
+        };
+        if (!run_id || !workflow_experience_hex(*run_id, 32, true) || !action ||
+            (*action != "start" && *action != "status" && *action != "cancel" &&
+             *action != "lesson") ||
+            !settled || !ordinal || *ordinal < 0 || *ordinal > 1 || !workflow || !outcome ||
+            !reason || reason->size() > 128 || !optional_hex(digest, 64) ||
+            !optional_hex(patch, 32) || !optional_hex(model, 32) || !lesson ||
+            lesson->size() > 256 || !optional_hex(lesson_digest, 64) ||
+            (*settled
+                 ? (*action != "status" || *ordinal != 1 ||
+                    !workflow_experience_hex(*workflow, 32, true) ||
+                    (*outcome != "patched-and-resumed" && *outcome != "resumed-without-patch" &&
+                     *outcome != "cancel-requested" && *outcome != "deferred-to-host" &&
+                     *outcome != "aborted"))
+                 : (*ordinal != 0 || !workflow->empty() || !outcome->empty() || !reason->empty() ||
+                    !digest->empty() || !patch->empty() || !model->empty())) ||
+            (*action == "lesson" ? (lesson->empty() || lesson_digest->empty())
+                                 : (!lesson->empty() || !lesson_digest->empty()))) {
+            result.error = "invalid workflow recovery metadata";
+            return result;
+        }
+        response.payload = WorkflowRecoveryStatus{
+            *run_id,   *action,  *settled, static_cast<std::uint32_t>(*ordinal),
+            *workflow, *outcome, *reason,  *digest,
+            *patch,    *model,   *lesson,  *lesson_digest};
+    } else if (const auto *learning = member(object, "learning"); learning != nullptr) {
+        const auto *flag = member(*learning, "enabled");
+        const auto enabled = flag ? flag->as_boolean() : std::nullopt;
+        const auto used = integer_member(*learning, "file_bytes");
+        const auto limit = integer_member(*learning, "limit_bytes");
+        const auto reserve = integer_member(*learning, "reserve_bytes");
+        const auto peak = integer_member(*learning, "peak_admitted_file_bytes");
+        if (!enabled || !used || !limit || !reserve || !peak || *used < 0 || *limit < 0 ||
+            *reserve < 0 || *peak < 0 ||
+            (*enabled ? (*limit < (1LL << 20) || *limit > (1LL << 40) || *reserve >= *limit ||
+                         *used > *limit || *peak > *limit)
+                      : (*used != 0 || *limit != 0 || *reserve != 0 || *peak != 0))) {
+            result.error = "invalid workflow learning capacity snapshot";
+            return result;
+        }
+        response.payload = WorkflowLearningStatus{
+            *enabled, static_cast<std::uint64_t>(*used), static_cast<std::uint64_t>(*limit),
+            static_cast<std::uint64_t>(*reserve), static_cast<std::uint64_t>(*peak)};
+    } else if (const auto *experience = member(object, "experience"); experience != nullptr) {
+        const auto validation = string_member(*experience, "validation");
+        const auto source = string_member(*experience, "source_run_id");
+        const auto source_workflow = string_member(*experience, "source_workflow_id");
+        const auto source_digest = string_member(*experience, "source_digest");
+        const auto workflow = string_member(*experience, "workflow_id");
+        const auto digest = string_member(*experience, "digest");
+        const auto *definition_value = member(*experience, "definition");
+        const auto definition = object_member_text(*experience, "definition");
+        if (!validation || *validation != "candidate" || !source ||
+            !workflow_experience_hex(*source, 32, true) || !source_workflow ||
+            !workflow_experience_hex(*source_workflow, 32, true) || !source_digest ||
+            !workflow_experience_hex(*source_digest, 64, false) || !workflow ||
+            !workflow_experience_hex(*workflow, 32, true) || !digest ||
+            !workflow_experience_hex(*digest, 64, false) || !definition_value ||
+            !definition_value->is_object() || !definition ||
+            definition->size() > kWorkflowExperienceDefinitionBytes) {
+            result.error = "workflow experience requires candidate validation, valid provenance "
+                           "and bounded definition";
+            return result;
+        }
+        WorkflowExperienceDraft draft{*source,   *source_workflow, *source_digest,
+                                      *workflow, *digest,          *definition};
+        const auto *sources = member(*experience, "sources");
+        const auto *review = member(*experience, "parameter_candidates");
+        bool valid_review = (sources == nullptr) == (review == nullptr);
+        if (sources && review) {
+            const auto *items = sources->as_array();
+            const auto *parameters = review->as_array();
+            const auto review_json = mira::to_json_string(*review);
+            valid_review = items && items->size() >= 2 && items->size() <= 16 && parameters &&
+                           parameters->size() <= 64 &&
+                           review_json.size() <= kWorkflowExperienceReviewBytes;
+            if (valid_review) {
+                for (const auto &item : *items) {
+                    const auto run = string_member(item, "source_run_id");
+                    const auto wf = string_member(item, "source_workflow_id");
+                    const auto hash = string_member(item, "source_digest");
+                    if (!run || !workflow_experience_hex(*run, 32, true) || !wf ||
+                        *wf != *source_workflow || !hash || *hash != *source_digest ||
+                        (draft.sources.empty() && *run != *source) ||
+                        std::any_of(draft.sources.begin(), draft.sources.end(),
+                                    [&](const auto &seen) { return seen.source_run_id == *run; })) {
+                        valid_review = false;
+                        break;
+                    }
+                    draft.sources.push_back({*run, *wf, *hash});
+                }
+            }
+            if (valid_review) {
+                for (const auto &parameter : *parameters) {
+                    const auto name = string_member(parameter, "name");
+                    const auto step = integer_member(parameter, "step_index");
+                    const auto pointer = string_member(parameter, "pointer");
+                    const auto provenance = string_member(parameter, "provenance");
+                    const auto *observed = member(parameter, "observed_values");
+                    const auto *values = observed ? observed->as_array() : nullptr;
+                    if (!name || name->empty() || name->size() > 64 || name->front() < 'a' ||
+                        name->front() > 'z' ||
+                        name->find_first_not_of("abcdefghijklmnopqrstuvwxyz0123456789_") !=
+                            std::string::npos ||
+                        !step || *step < 0 || *step >= 256 || !pointer || pointer->empty() ||
+                        pointer->front() != '/' ||
+                        pointer->size() > kWorkflowExperienceMetadataBytes || !provenance ||
+                        (*provenance != "provenance" && *provenance != "structural" &&
+                         *provenance != "explicit") ||
+                        !values || values->size() != items->size() ||
+                        std::any_of(values->begin(), values->end(), [](const auto &value) {
+                            return value.is_null() || value.is_object() || value.is_array();
+                        })) {
+                        valid_review = false;
+                        break;
+                    }
+                }
+            }
+            if (valid_review)
+                draft.parameter_candidates_json = review_json;
+        }
+        if (!valid_review) {
+            result.error = "workflow experience has invalid induction review";
+            return result;
+        }
+        response.payload = std::move(draft);
     } else if (const auto *definition = member(object, "definition"); definition != nullptr) {
         // WorkflowDefinitionView discriminates on "definition"; it also
         // carries "workflow_id" and "digest", so it must precede those

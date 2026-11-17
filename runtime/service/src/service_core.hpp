@@ -18,6 +18,7 @@
 #include <mirage/integration/model_layer.hpp>
 #include <mirage/integration/session_journal.hpp>
 #include <mirage/integration/workflow_event_bridge.hpp>
+#include <mirage/integration/workflow_learning_store.hpp>
 #include <mirage/runtime/mira_host.hpp>
 #include <mirage/runtime/permission/permission.hpp>
 #include <mirage/runtime/persistence/session_state.hpp>
@@ -41,6 +42,9 @@ struct ServiceCore {
     /// Serialization context for every MiraHost operation; the host's
     /// single-owner discipline is expressed through it.
     kairo::SerialExecutionContext serial;
+    // Constructed after the Executor, released after Host at destruction;
+    // explicit close releases the actual SQLite connection before shutdown.
+    std::unique_ptr<mirage::integration::WorkflowLearningStore> workflow_learning;
     MiraHost host;
     TaskRegistry registry;
     /// Sessions the service knows (DEC-021): primary + session.open ones.
@@ -98,6 +102,9 @@ struct ServiceCore {
     /// ServiceConfig::model is enabled and valid; null otherwise (hello
     /// reports no `chat` capability and session.chat answers `unavailable`).
     std::unique_ptr<mirage::integration::ModelLayer> model_layer;
+    // DEC-148: serial-context model reservation; no attempt outcome cache.
+    bool workflow_recovery_bound = false;
+    std::string recovering_workflow_run;
     std::atomic_bool model_available{false}; // identity() can be read outside the serial handler
     /// The model layer's configuration mirror (DEC-027), engaged at start().
     mirage::integration::ModelLayerConfig model;

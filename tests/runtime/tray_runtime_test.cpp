@@ -136,6 +136,9 @@ mirage::runtime::ServiceConfig config(const mirage::testing::TempDir &dir,
     mirage::runtime::ServiceConfig result;
     result.socket_path = (dir.root() / "tray.sock").string();
     result.persist_recovery_state = result.persist_session_state = result.persist_settings = false;
+    // Each carrier/provider scenario owns its durable catalog. A definition
+    // published with SlowClipboard must not restore into a different backend.
+    result.workflow_state_directory = dir.root() / "workflows";
     result.tray_carrier = carrier;
     result.frontend = frontend;
     return result;
