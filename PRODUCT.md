@@ -26,7 +26,7 @@ Mirage 是基于 Mira 构建的桌面端产品，为 Mira 通用 Agent 提供完
 ## Operating Context
 
 - 当前原生进程经 Local IPC 连接 Runtime Service，显示会话历史、真实通用 harness 回复、运行/停止状态和上下文用量。
-- 会话页为侧栏、消息区与输入栏；设置页提供外观和模型配置。侧栏左上「会话 / 工作流」切换工作空间（M15-21），工作流提供资产目录、真实 IR 图与节点编辑，运行与显式恢复保留独立视图；侧栏收起后提供标题栏切换。完整候选审阅、目录跨服务重启保存、原生会话自动选择/恢复、资源、技能、MCP、批准中心及全局紧急停止仍属于后续产品范围。
+- 会话页为侧栏、消息区与输入栏；设置页提供外观和模型配置。侧栏左上「会话 / 工作流」切换工作空间（M15-21），工作流提供资产目录、真实 IR 图与节点编辑，运行与显式恢复保留独立视图；侧栏收起后提供标题栏切换。M15-22 默认持久保存工作流编辑 head 与最后发布定义；完整候选审阅、原生会话自动选择/恢复、资源、技能、MCP、批准中心及全局紧急停止仍属于后续产品范围。
 - `mirage start` 启动服务、独立原生窗口与托盘。活动会话退出确认和统一生命周期尚由 M6-04 实现验收；启动入口不等于这一闭环已完成。
 - IPC v1 的 C++ golden 与运行时测试锁定契约，UI 只展示服务确认或明确标记未知的状态。
 
@@ -40,7 +40,8 @@ Mirage 是基于 Mira 构建的桌面端产品，为 Mira 通用 Agent 提供完
 - 设置 → 模型提供服务 origin、API 路径、模型 ID、直接 API Key 输入、可选上下文窗口预算（Token）与 Responses / Chat Completions 协议。窗口预算留空为未知，非零整数范围2048–2000000；保存后的配置同时映射Mira ProfileLimits，未配置保留既有Mira默认运行预算，UI不宣称自动发现供应商窗口。保存经 model.set 合并写入服务配置并应用；活动轮次时忙拒绝，失败保留已应用模型。API Key 默认遮蔽，保存在系统钥匙环，普通配置仅保存引用；已存 Key 不回传，留空保留、显式移除后保存清除。旧环境变量配置保留兼容读取；composer 显示服务确认的模型，未保存表单不会冒充已应用配置。
 - Agent 模式入口经 session.chat(agent=true) 使用 MiraRuntime、ModelGateway、公开 ConversationLoop 与规范工具回填。Linux 会话按实际 Provider 注册结构化观察、完整键鼠及 wait，修改仍经共享权限；显式开启逐模型“识图”后可授权截图并逐请求供给 PNG。修改后强制新观察，按预先声明的局部后条件核验；工具卡区分派发、已核验、未验证、不确定与拒绝，显示目标和证据。M7-08 的真实 X11 激活/回显/提交落盘三类任务已验收，受控 MiniMax 在线选号已验，真实语义表单、其他模型、用户宿主与 Windows/Wayland 仍待验；OCR/SoM 已交付 Linux 首增量；会话不暴露 workflow 执行工具。
 - 2026-11-16（M15-20 / DEC-149）：原生「工作流」显示服务目录、运行记录、所选 Run 的恢复尝试和学习存储快照；显式运行已发布且 runnable 的版本（默认参数）、停止未终结运行、请求/查询/取消恢复，以及在 Run 完成、恢复成功且学习开启后单独保存 Lesson。打开页面或点击刷新读取服务状态；事件只令快照过期，断线/失败/过期时禁止依赖该状态的操作，拒绝提示先刷新。UI 线程投影最多128项目录、256项运行，一次最多三项读取或一项控制，复用 RuntimeBridge/Executor，不增加轮询或自动恢复。每 Run 最多恢复一次，首次绑定恢复后切换模型须重启服务；接纳、恢复结算、Run 终态与经验保存分别确认。证据限于隔离服务/脚本 provider 和 Linux 原生合成状态渲染，不代表在线模型、真实桌面、Windows 或完整 M15 验收。
-- 2026-11-16（M15-21 / DEC-150）：工作流图显示真实顺序节点、前置/完成条件、失败回退和有界回环，支持原子任务更换、多行 JSON 参数、连续任务段提取为独立草稿、显式保存/验证发布与调用目标进入/返回。各工作流是独立资产，调用按 ID 在分派时使用目标最新已发布版本，已开始的单次调用不重放；发布前拒绝直接/间接调用环路，默认调用深度2仅为额外资源边界。保存/发布使用 expected_head 检查当前摘要；缺少 safe_workflow_editor 的旧服务只读，冲突/失败保留本地草稿，断线过期禁止写入。当前目录仅在本服务内保留，保存/发布不代表跨服务重启存储；长期学习元数据存储为另一条已持久化路径。本增量不宣称任意分支/并行、节点拖拽、完整候选审阅、自动恢复或完整 M15 验收。
+- 2026-11-16（M15-21 / DEC-150）：工作流图显示真实顺序节点、前置/完成条件、失败回退和有界回环，支持原子任务更换、多行 JSON 参数、连续任务段提取为独立草稿、显式保存/验证发布与调用目标进入/返回。各工作流是独立资产，调用按 ID 在分派时使用目标最新已发布版本，已开始的单次调用不重放；发布前拒绝直接/间接调用环路，默认调用深度2仅为额外资源边界。保存/发布使用 expected_head 检查当前摘要；缺少 safe_workflow_editor 的旧服务只读，冲突/失败保留本地草稿，断线过期禁止写入。M15-21 首步仅保留服务内目录，该限制现由 M15-22 的默认持久目录扩展；学习元数据仍走独立存储路径。本增量不宣称任意分支/并行、节点拖拽、完整候选审阅、自动恢复或完整 M15 验收。
+- 2026-11-17（M15-22 / DEC-151）：服务默认持久保存各工作流的编辑 head 与最后成功发布定义，保存草稿不撤销发布目标；重启开放 IPC 前校验目录、摘要、依赖/DAG，并按依赖顺序重新 DryRun/发布后恢复编辑 head。独立 ID 调用继续使用最新已发布目标；不恢复 Run、活动任务、模型尝试或自动重放桌面动作。默认文件为 session state 根下 workflows/workflow-catalog.json，可由 workflow_state_directory 独立覆盖，persist_workflow_state=false 显式关闭。safe_workflow_editor 只表示安全编辑能力，durable_catalog 单独确认目录持久化；原生界面区分“已保存的工作流可在服务重启后恢复”、已确认旧服务的仅本次服务保留及“持久化状态待服务确认”。保存不等于验证发布，未保存的本地修改不会恢复；学习元数据仍是独立 Mira SQLite 存储。损坏/超限/依赖或重验失败时启动失败并保留原文件，写入失败不确认成功、不替换原调用目标。本轮不宣称 Windows、在线模型、真实用户桌面或完整 M15 验收。
 - RuntimeBridge 经 Executor 管理有界 IPC 请求与事件投递，服务断开可在模型页重新连接；退出 UI 停止自身 IPC 与 Executor，不关闭外部已有 Runtime Service。真实流式预览、等待动效与用时已接入；统一入口/托盘与活动退出确认仍待后续交付。
 - 2026-10-05 按维护者要求删除旧 TS/CEF、npm 工具链与 Web 调试桥；原生前端继续消费版本化 Local IPC，C++ golden 和服务测试保留。后台工作由 Mira Executor 管理。
 - 平台与供应商验收：Linux X11/XWayland 为当前验收范围；SiliconFlow和MiniMax真实文字/规范工具循环与提前流式预览通过，SNI已升级复验；Linux XIM/IBus候选光标跟随与中文提交通过。Windows 真机窗口/IME与物理高DPI未验收，原生 Wayland 只读 ScreenCast 单帧由 DEC-073 独立验收，输入未交付。
@@ -61,6 +62,8 @@ Mirage 是基于 Mira 构建的桌面端产品，为 Mira 通用 Agent 提供完
 - 原生工作流入口：[DEC-149](docs/decisions/DEC-149-native-workflow-controls.md)、[验证记录](docs/compatibility/native-workflow-controls-20261116.md)与[文档交接](.impeccable/review/m15-workflow/documentation-review.md)。独立[修正评分](.impeccable/review/m15-workflow/finish-verdict.md)为 `ship`，仅确认两项指定修正 resolved，不作为全表面或平台认证。
 
 - 当前工作流图与调用：[DEC-150](docs/decisions/DEC-150-workflow-graph-composition.md)、[本轮验证](docs/compatibility/workflow-graph-calls-20261116.md)与[文档交接](.impeccable/review/m15-workflow-graph/documentation-review.md)。证据为隔离服务/脚本 provider 和 Linux 合成状态原生渲染，不代表 Windows、在线模型或真实桌面实跑。
+
+- 工作流持久目录：[DEC-151](docs/decisions/DEC-151-durable-workflow-catalog.md)与[文档交接](.impeccable/review/m15-workflow-storage/documentation-review.md)。存储/重启语义由受控服务测试取证；原生合成截图只证明能力提示和布局。
 
 - 设计规范与 IA：`docs/design/Mirage 前端设计规范与信息架构.md`（拓扑树、路由表、会话页/工作流页/设置页构成、全局层）。
 - 协议事实源：`docs/design/mirage-ipc-protocol-v1.md` + `tests/runtime/data/ipc_protocol_golden.json`。
@@ -195,13 +198,13 @@ Linux 产品启用预览已通过独立检查 23/23，实际原生 MiniMax-M3 �
 
 2026-10-11（M7-11 / DEC-067 首增量）：已有 workflow CLI/IPC 可运行本地语义知识，
 每次重新观察/唯一解析、权限判定和动作后新验证，已知步骤不依赖模型逐次定位。
-失败可交为 waiting_agent；当前不自动恢复，不把进程内版本目录当成跨重启存储。
+失败可交为 waiting_agent；不自动恢复任务。该轮进程内目录现由 M15-22 的持久定义目录扩展。
 原生会话选择留在后续范围，见[使用示例](docs/examples/local-semantic-workflow.md)。
 
 2026-10-11（M7-11 第二增量）：workflow 新增 `desktop.knowledge.visual_click`，
 保存窗口标题、页面文字与 OCR/模板目标，每次获取新证据、唯一解析、一次点击并验证
 新 OCR 后条件。Linux 默认视觉包可直接承载 OCR；应用模板沿用已校验资源清单。
-已知步骤无需模型请求；原生会话自动选择、恢复及跨重启资产恢复仍待推进。
+已知步骤无需模型请求；原生会话自动选择和任务恢复仍待推进；定义目录跨重启恢复见 M15-22。
 见[操作示例](docs/examples/local-visual-workflow.md)与[验收](docs/compatibility/local-visual-workflow-20261011.md)。
 
 2026-10-11（M7-13 / M7-14）：固定视觉包默认启动、32 MiB 高 DPI 采集与 1600 边只读

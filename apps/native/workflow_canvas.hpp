@@ -143,7 +143,11 @@ void workflow_canvas(eui::Ui &ui, const eui::Screen &screen, float x, float widt
                          : editor.document.id.empty() ? "从左侧选择工作流，或创建一个新的任务流程。"
                          : editor.dirty() ? "有未保存的修改 · 发布后可运行并被其他工作流复用"
                                           : "顺序执行 · 条件验证 · 有界回环 · 被调用流程复用";
-    detail += " 当前目录不跨服务重启保留。";
+    if (!editor.capability_confirmed)
+        detail += " 持久化状态待服务确认。";
+    else
+        detail +=
+            editor.durable ? " 已保存的工作流可在服务重启后恢复。" : " 当前目录不跨服务重启保留。";
     ui.text("workflow.editor.notice")
         .position(x, 122)
         .size(width, 46)

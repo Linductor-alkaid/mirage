@@ -879,12 +879,19 @@ void scenario_workflow_responses_round_trip() {
         const auto *back = std::get_if<ipc::WorkflowAtomCatalog>(&decoded.response.payload);
         MIRAGE_CHECK(back != nullptr);
         if (back != nullptr) {
+            MIRAGE_CHECK(!back->safe_workflow_editor && !back->durable_catalog);
             MIRAGE_CHECK(back->tools.size() == 1);
             if (back->tools.size() == 1) {
                 MIRAGE_CHECK(back->tools[0].wire_name == "filesystem.read");
                 MIRAGE_CHECK(back->tools[0].parameters_schema_json == R"({"type":"object"})");
             }
         }
+        catalog.safe_workflow_editor = true;
+        catalog.durable_catalog = true;
+        const auto durable =
+            ipc::decode_response(ipc::encode_response(ipc::Response{true, 44, catalog, {}}));
+        MIRAGE_CHECK(durable.ok &&
+                     std::get<ipc::WorkflowAtomCatalog>(durable.response.payload).durable_catalog);
     }
     // Run list / started / cancelled.
     {

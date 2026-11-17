@@ -20,7 +20,7 @@ class WorkflowEditorModel {
     std::string name, summary, notice, basis;
     std::size_t selected = 0, segment_first = 0;
     bool segment_marked = false, pending = false, stale = false, node_changed = false,
-         supported = false;
+         supported = false, durable = false, capability_confirmed = false;
     bool dirty() const {
         return !document.id.empty() && (document.json != original_ || node_changed ||
                                         name != document.name || summary != document.summary);
@@ -30,7 +30,7 @@ class WorkflowEditorModel {
         reset_segment();
         pending = false;
         stale = true;
-        supported = false;
+        supported = durable = capability_confirmed = false;
         notice = "连接或事件记录已中断，草稿保留；请丢弃修改并重新打开以确认服务状态。";
     }
     std::optional<Request> open(const std::string &id, const std::string &digest = {},
@@ -227,7 +227,9 @@ class WorkflowEditorModel {
             const auto *catalog = std::get_if<workflow_ipc::WorkflowAtomCatalog>(&response.payload);
             if (catalog && catalog->tools.size() <= 512) {
                 atoms = catalog->tools;
+                capability_confirmed = true;
                 supported = catalog->safe_workflow_editor;
+                durable = catalog->durable_catalog;
                 if (!supported)
                     notice = "当前服务版本仅支持查看，请更新并重启服务后编辑。";
                 return true;
@@ -250,8 +252,10 @@ class WorkflowEditorModel {
             if (id == target_ && digest == document.digest) {
                 original_ = submitted_;
                 basis = digest;
-                notice = tag.ends_with("publish") ? "验证通过并已发布，可作为被调用工作流复用。"
-                                                  : "草稿已同步到当前服务；验证发布后才可运行。";
+                notice = tag.ends_with("publish")
+                             ? "验证通过并已发布，可作为被调用工作流复用。"
+                             : (durable ? "草稿已保存；验证发布后才可运行。"
+                                        : "草稿已同步到当前服务；验证发布后才可运行。");
                 return true;
             }
         }

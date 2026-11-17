@@ -132,6 +132,8 @@ struct WorkflowCatalogEntry {
     bool runnable = false;
     std::int64_t updated_at_ms = 0;
     std::string definition_json;
+    std::string published_json, published_digest;
+    bool callable = false;
 };
 
 /// Workflow catalog registry (DEC-023): every workflow the service knows,

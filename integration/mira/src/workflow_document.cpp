@@ -52,7 +52,8 @@ WorkflowDocumentResult project(const mira::WorkflowDefinition &definition) {
         node.max_iterations = step.max_iterations;
         if (step.jump_to)
             node.jump_to = step.jump_to->to_string();
-        const auto *tool = step.arguments.find("tool");
+        const auto *tool =
+            step.kind == mira::WorkflowStepKind::ToolCall ? step.arguments.find("tool") : nullptr;
         if (tool && tool->as_string()) {
             const auto &wire = *tool->as_string();
             if (wire.starts_with("workflow.") && wire.size() == 41) {

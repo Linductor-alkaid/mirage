@@ -438,7 +438,13 @@ class MiraHost {
     /// Requires the workflow surface.
     WorkflowDefinitionResult publish_workflow_definition(const std::string &definition_json,
                                                          const std::string &reason,
-                                                         bool reusable = false);
+                                                         bool reusable = false,
+                                                         bool defer_activation = false);
+
+    /// DEC-151: activate only after durable product commit; discard leaves calls unchanged.
+    HostOutcome activate_workflow_publication();
+    void discard_workflow_publication();
+    HostOutcome remove_workflow_call(const std::string &workflow_id);
 
     /// Captures a completed, actually executed Workflow Run and delegates
     /// literal compilation to pinned Mira (DEC-138, M15-02). Returns an IR

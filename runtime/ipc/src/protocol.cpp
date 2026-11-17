@@ -873,6 +873,8 @@ mira::JsonValue encode_payload(const ResponsePayload &payload) {
             } else if constexpr (std::is_same_v<T, WorkflowDeleted>) {
                 put(object, "workflow_id", value.workflow_id);
             } else if constexpr (std::is_same_v<T, WorkflowAtomCatalog>) {
+                if (value.durable_catalog)
+                    put(object, "durable_catalog", true);
                 if (value.safe_workflow_editor)
                     put(object, "safe_workflow_editor", true);
                 mira::JsonValue::Array entries;
@@ -2637,6 +2639,11 @@ ResponseDecode decode_response(std::string_view payload) {
             result.error = "safe_workflow_editor must be boolean";
             return result;
         }
+        if (member(object, "durable_catalog") && !boolean_member(object, "durable_catalog")) {
+            result.error = "durable_catalog must be boolean";
+            return result;
+        }
+        catalog.durable_catalog = boolean_member(object, "durable_catalog").value_or(false);
         catalog.safe_workflow_editor =
             boolean_member(object, "safe_workflow_editor").value_or(false);
         for (const auto &entry : *tools->as_array()) {

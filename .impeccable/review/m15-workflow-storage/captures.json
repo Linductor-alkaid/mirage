@@ -1,0 +1,41 @@
+{
+  "kind": "native EUI/OpenGL synthetic durability capability; 4 durable + 1 legacy + 1 unknown",
+  "captures": [
+    {
+      "path": "/home/linductor/.codex/worktrees/supervised-rpa-experience/mirage/.impeccable/review/m15-workflow-storage/native-workflow-durable-1180-dark.png",
+      "width": 1180,
+      "height": 800,
+      "sha256": "a53488d5e92c4a13c96c1c7d310ecac3554218d1e8035e4c5550d5ac827f8d6c"
+    },
+    {
+      "path": "/home/linductor/.codex/worktrees/supervised-rpa-experience/mirage/.impeccable/review/m15-workflow-storage/native-workflow-durable-1180-light.png",
+      "width": 1180,
+      "height": 800,
+      "sha256": "83e6c37d4e539b563598b0839cbddb7cf80d6fcdc1dc7edd22f7d2883e804c2d"
+    },
+    {
+      "path": "/home/linductor/.codex/worktrees/supervised-rpa-experience/mirage/.impeccable/review/m15-workflow-storage/native-workflow-durable-860-dark.png",
+      "width": 860,
+      "height": 620,
+      "sha256": "1fa35895037e2a2ace23c3a7234f187813fa5bc4ebf1a3ecf36e428dbd93e94a"
+    },
+    {
+      "path": "/home/linductor/.codex/worktrees/supervised-rpa-experience/mirage/.impeccable/review/m15-workflow-storage/native-workflow-durable-860-light.png",
+      "width": 860,
+      "height": 620,
+      "sha256": "1a5300550ad0aee0d0a2574be718a3c3ed4fa19cbc1f1089b19567c85805801d"
+    },
+    {
+      "path": "/home/linductor/.codex/worktrees/supervised-rpa-experience/mirage/.impeccable/review/m15-workflow-storage/native-workflow-graph-860-light.png",
+      "width": 860,
+      "height": 620,
+      "sha256": "ecc509f383cead5f7402e486e4fca2ee3757b73d89b5d6217ab33aa5b42b0680"
+    },
+    {
+      "path": "/home/linductor/.codex/worktrees/supervised-rpa-experience/mirage/.impeccable/review/m15-workflow-storage/native-workflow-storage-unknown-860-light.png",
+      "width": 860,
+      "height": 620,
+      "sha256": "983c2af80589bf61f5aa432f1c1dd12d406342e192f17e4d6242c847a308a35a"
+    }
+  ]
+}

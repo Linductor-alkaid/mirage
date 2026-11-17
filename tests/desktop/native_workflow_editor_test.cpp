@@ -50,6 +50,7 @@ int main() {
         i::append_workflow_atom(created.document, "workflow." + segment.document.id, "归档子流程");
     MIRAGE_CHECK(parent && parent.document.nodes.back().called_workflow_id == segment.document.id);
     WorkflowEditorModel model;
+    MIRAGE_CHECK(!model.capability_confirmed && !model.durable);
     auto request = model.open(edited.document.id, edited.document.digest);
     MIRAGE_CHECK(request && model.pending && !model.open(edited.document.id));
     MIRAGE_CHECK(
@@ -61,8 +62,13 @@ int main() {
     MIRAGE_CHECK(!model.dirty() && !model.pending && model.document.id == edited.document.id);
     MIRAGE_CHECK(!model.save(false)); // No mutation against an unadvertised/old service.
     auto capability = model.tools();
+    MIRAGE_CHECK(
+        model.accept(capability->tag, capability->revision, reply(ipc::WorkflowAtomCatalog{})));
+    MIRAGE_CHECK(model.capability_confirmed && !model.supported && !model.durable);
+    capability = model.tools();
     MIRAGE_CHECK(model.accept(capability->tag, capability->revision,
-                              reply(ipc::WorkflowAtomCatalog{{}, true})));
+                              reply(ipc::WorkflowAtomCatalog{{}, true, true})));
+    MIRAGE_CHECK(model.capability_confirmed && model.supported && model.durable);
     model.name = "新的工作流名称";
     model.node.name = "新的原子任务名称";
     model.node_changed = true;
@@ -82,8 +88,10 @@ int main() {
     MIRAGE_CHECK(model.accept(save->tag, save->revision,
                               reply(ipc::WorkflowSaved{model.document.id, model.document.digest})));
     MIRAGE_CHECK(!model.dirty());
+    MIRAGE_CHECK(model.notice.find("草稿已保存") != std::string::npos);
     const auto stale = model.open(created.document.id);
     model.invalidate();
+    MIRAGE_CHECK(!model.capability_confirmed && !model.durable && !model.supported);
     MIRAGE_CHECK(!model.accept(stale->tag, stale->revision, reply(ipc::WorkflowDefinitionView{})) &&
                  model.stale);
     MIRAGE_CHECK(!model.save(true));

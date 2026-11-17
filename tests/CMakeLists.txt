@@ -2060,3 +2060,20 @@ if(UNIX)
         LABELS "integration;workflow"
         TIMEOUT 120)
 endif()
+
+if(UNIX)
+    mirage_add_test(workflow_catalog_service_test
+        SOURCES runtime/workflow_catalog_service_test.cpp
+        LIBS Mirage::runtime_service Mirage::integration_mira Mirage::ipc Mirage::persistence Mirage::kairo_consumer
+        LABELS "integration;workflow;persistence"
+        TIMEOUT 120)
+endif()
+
+if(UNIX)
+mirage_add_test(workflow_catalog_store_test
+    SOURCES runtime/workflow_catalog_store_test.cpp
+    LIBS Mirage::persistence Mirage::workflow_document Mira::core Mirage::ipc
+    LABELS "unit;workflow;persistence"
+    TIMEOUT 30)
+
+endif()

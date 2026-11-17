@@ -176,6 +176,9 @@ struct ServiceConfig {
     /// the per-session `sessions/<id>.json` documents (DEC-101). Empty selects
     /// the DEC-011 default state directory (the recovery document's sibling).
     std::filesystem::path session_state_directory;
+    /// DEC-151: durable workflow heads and latest publications, independent of Run recovery.
+    bool persist_workflow_state = true;
+    std::filesystem::path workflow_state_directory;
     /// M10-06 (DEC-095): controlled storage root for retained command
     /// output (basic agent tools). Empty keeps exec preview-only — the
     /// retention seam stays dark and `read` refuses output_ref arguments.

@@ -297,11 +297,10 @@ struct SetPolicyRequest {
 /// the catalog is the product index of what passed through this service.
 struct WorkflowListRequest {};
 
-/// Appends one draft version of the definition (DEC-023): strict pinned IR
-/// decode, then a NotValidated library record — resolvable but not runnable
-/// (W-04). `definition_json` carries the serialized Workflow IR v1 JSON
-/// object; the decoder canonicalizes it, the service enforces the 256 KiB
-/// byte budget.
+/// DEC-151: stores a structurally validated editing head in the product catalog.
+/// Drafts are not executable; the last published version stays callable, even
+/// when its bytes equal the draft. Expected-head CAS is optional for legacy clients.
+/// Definition size is capped at 256 KiB. No desktop action is executed.
 struct WorkflowSaveRequest {
     std::string definition_json;
     std::optional<std::string> expected_head = std::nullopt;
@@ -761,6 +760,7 @@ struct ExposedTool {
 struct WorkflowAtomCatalog {
     std::vector<ExposedTool> tools;
     bool safe_workflow_editor = false; // DEC-150: CAS writes, current-target calls and DAG gate.
+    bool durable_catalog = false;      // DEC-151: persisted heads/publications, not Run recovery.
 };
 
 /// One workflow run as reported by workflow.runs (DEC-023). `state` is the

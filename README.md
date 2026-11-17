@@ -280,23 +280,37 @@ M15-20 交付原生目录、运行与学习状态、默认参数运行、停止�
 使用最新已发布目标，进行中的单次调用不重放；发布前拒绝直接与间接调用环路。
 默认调用深度2只限制资源，不代替环路检查。保存/发布通过 `expected_head` 检查版本；
 旧服务未声明 `safe_workflow_editor` 时只读，冲突/失败保留本地草稿。
-当前服务目录不跨服务重启保留，与已持久化的学习元数据存储分别说明。完整候选审阅、
-目录持久化、自动恢复和完整 M15 仍开放；本轮无 Windows、在线模型或真实桌面验收声明。
+M15-21 首步目录只在当前服务保留；M15-22 的默认持久目录见下文，学习元数据仍为独立
+存储。完整候选审阅、自动恢复和完整 M15 仍开放；本轮无 Windows、在线模型或真实桌面验收声明。
 使用见[原生说明](apps/native/README.md#workflow-graph-calls)，
 契约见[DEC-150](docs/decisions/DEC-150-workflow-graph-composition.md)，
 范围见[本轮验证](docs/compatibility/workflow-graph-calls-20261116.md)。
+2026-11-17（M15-22 / DEC-151）：默认持久保存各工作流的编辑 head 与最后发布定义；
+保存草稿不撤销此前发布目标，保存也不等于验证发布。服务重启开放 IPC 前校验整个目录、
+摘要和调用 DAG，并按依赖顺序重新 DryRun/发布以重建调用入口。独立 ID 调用仍在分派时
+使用最新已发布目标；不恢复 Run、活动任务或模型尝试，不自动执行或重放桌面动作。
+默认文件位于 session state 根的 `workflows/workflow-catalog.json`；服务配置
+`workflow_state_directory` 可独立指定目录，`persist_workflow_state=false` 显式关闭持久化。
+`safe_workflow_editor` 与 `durable_catalog` 分别确认安全编辑和持久目录能力；UI 在能力
+确认前显示“持久化状态待服务确认”，持久能力确认后只承诺已保存工作流可恢复，已确认
+旧服务仍提示仅当前服务保留。学习元数据的 Mira SQLite 存储保持独立。
+损坏、超限或重验失败会阻止启动并保留原文件；没有恢复本地未保存编辑或历史版本的承诺。
+使用见[原生持久目录说明](apps/native/README.md#workflow-durable-catalog)，
+契约见[DEC-151](docs/decisions/DEC-151-durable-workflow-catalog.md)。本限定增量不关闭完整
+M15，也不宣称 Windows、在线模型或真实用户桌面实跑。
+
 真实模型受控 Workflow 在线闭环及独立进程重开记录见
 [验收证据](docs/compatibility/workflow-learning-20261114.md)。截图长期采集与原生自动恢复另验。
 
 2026-10-11（M7-11 首增量）：产品 workflow 目录新增 `desktop.knowledge.activate`，
 IR 保存应用/页面/目标语义，执行时重新解析引用、权限判定、一次激活并验证新后条件，
 已知步骤无需模型请求。可通过现有 CLI/IPC 发布运行；原生会话选知识
-与自动跨重启恢复仍在后续范围。见[示例](docs/examples/local-semantic-workflow.md)。
+与自动任务恢复仍在后续范围；定义目录跨重启恢复见 M15-22。见[示例](docs/examples/local-semantic-workflow.md)。
 
 2026-10-11（M7-11 第二增量）：workflow 新增 `desktop.knowledge.visual_click`，
 保存窗口标题、页面文字与 OCR/模板目标，每次获取新证据、唯一解析、一次点击并验证
 新 OCR 后条件。Linux 默认视觉包可直接承载 OCR；应用模板沿用已校验资源清单。
-已知步骤无需模型请求；原生会话自动选择、恢复及跨重启资产恢复仍待推进。
+已知步骤无需模型请求；原生会话自动选择和任务恢复仍待推进；定义目录跨重启恢复见 M15-22。
 见[操作示例](docs/examples/local-visual-workflow.md)与[验收](docs/compatibility/local-visual-workflow-20261011.md)。
 
 2026-10-11（M7-13 / M7-14）：固定视觉包默认启动、32 MiB 高 DPI 采集与 1600 边只读

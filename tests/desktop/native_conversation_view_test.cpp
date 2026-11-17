@@ -2379,6 +2379,7 @@ const auto model = "Mirage";
         page.sidebar = true;
         page.workflow_editor = {};
         page.workflow_editor.supported = true;
+        page.workflow_editor.capability_confirmed = true;
         auto document = mirage::integration::new_workflow_document();
         MIRAGE_CHECK(document);
         for (const auto &name : {"归档子工作流", "核对归档结果", "完成记录"}) {
@@ -2472,6 +2473,30 @@ const auto model = "Mirage";
                          view->find("workflow.node.iterations.hit"));
             capture("native-workflow-loop-1180-dark");
         }
+        page.workflow_editor.durable = true;
+        for (const bool dark : {false, true}) {
+            page.dark = dark;
+            for (const int viewport : {1180, 860}) {
+                width = viewport;
+                height = viewport == 1180 ? 800 : 620;
+                frame();
+                MIRAGE_CHECK(element("workflow.editor.notice")->text.find("可在服务重启后恢复") !=
+                             std::string::npos);
+                capture("native-workflow-durable-" + std::to_string(viewport) +
+                        (dark ? "-dark" : "-light"));
+            }
+        }
+        page.workflow_editor.supported = false;
+        page.workflow_editor.durable = false;
+        page.workflow_editor.capability_confirmed = false;
+        page.workflow_editor.notice = "正在读取服务能力。";
+        width = 860;
+        height = 620;
+        page.dark = false;
+        frame();
+        MIRAGE_CHECK(element("workflow.editor.notice")->text.find("持久化状态待服务确认") !=
+                     std::string::npos);
+        capture("native-workflow-storage-unknown-860-light");
         page.workflow_page = false;
     }
     width = 1180;
