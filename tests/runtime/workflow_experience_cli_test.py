@@ -238,13 +238,15 @@ def run(args):
                 assert evidence.read_text() == "private experience fixture\n"
                 review_file = root / "candidate.review.json"
                 review_file.write_text(review_output.stdout)
+                catalog_before_restart = call("workflow.list")["workflows"]
                 call("service.shutdown")
                 service.wait(timeout=15)
                 assert service.returncode == 0
                 wire.sock.close()
                 wire = None
-                # A second process has no prior catalog, validation or Runs.
-                # Only the explicit user-owned review file crosses the boundary.
+                # DEC-151 restores saved definitions, but never old Runs. Check
+                # the default restart contract, then explicitly delete these
+                # source fixtures before importing the user-owned review file.
                 service = subprocess.Popen(service_command, env=env, stdout=log, stderr=log)
                 deadline = time.monotonic() + 15
                 while wire is None:
@@ -256,8 +258,14 @@ def run(args):
                         if time.monotonic() >= deadline:
                             raise TimeoutError("private service restart readiness")
                         time.sleep(0.02)
-                assert call("workflow.list")["workflows"] == []
+                assert call("workflow.list")["workflows"] == catalog_before_restart
                 assert call("workflow.runs")["runs"] == []
+                assert call("workflow.get", workflow_id=source_id)["definition"] == revised
+                assert call("workflow.get", workflow_id=target_id)["definition"] == draft
+                assert call("workflow.get", workflow_id=induced_id)["definition"] == parameterized
+                for record in catalog_before_restart:
+                    call("workflow.delete", workflow_id=record["workflow_id"])
+                assert call("workflow.list")["workflows"] == []
                 damaged = root / "damaged.review.json"
                 for field, value in (("digest", "0" * 64), ("workflow_id", uuid.uuid4().hex),
                                      ("definition", dict(parameterized, name="tampered")),

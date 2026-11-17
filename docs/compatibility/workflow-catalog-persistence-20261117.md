@@ -117,3 +117,26 @@ Windows 实跑、断电/故障注入、真实桌面条件变化、在线模型�
 文件系统和桌面环境，故障注入需单独私有存储夹具，在线收益需授权的真实任务和配置模型。
 具备环境后按 M15-03～09 与完整退出矩阵补跑。此前受控在线学习证据仍仅证明其原范围；
 本轮无模型调用或依赖升级。完整 M15 保持 In Progress。
+
+## PR #127 全量 CI 回归修正（2026-11-17）
+
+首次远端 [CI 43998355576](https://github.com/Linductor-alkaid/mirage/actions/runs/43998355576)
+在8920dc2的Debug/Release/ASAN/UBSAN/TSAN均出现相同两项失败；此前专项通过不覆盖这两个
+既有消费方，本段保留原失败。BUG-20261117-001：默认持久目录启用后的测试隔离/重启
+预期未同步；负责人 Mirage 维护者。
+
+`tray_runtime_test` 的各场景只关闭旧持久化项、未指定工作流路径，带SlowClipboard的场景
+留下已发布定义；后续纯Environment场景误加载它，因缺少原子Provider而重验失败。修正
+共享config夹具，使每个TempDir拥有独立workflow_state_directory，保持默认持久化开启，
+不放宽服务启动的依赖校验。`workflow_experience_cli_test` 仍断言同路径服务重启后目录
+为空；修正为先验证整个目录和三份定义恢复、旧Run为空，再显式删除源夹具定义，继续
+验证候选文件导入、损坏/冲突拒绝、发布和实际运行。没有关闭持久化或删除恢复门禁。
+
+修正只影响测试与取证，不改变产品契约、依赖pin或原生布局。四配置受影响回归
+Debug/ASAN/UBSAN/TSAN各6/6通过（含两项隔离fixture），日志为
+`build/pr127-final-PRESET-test.log`，PRESET取native-debug/asan/ubsan/tsan。覆盖tray、
+经验CLI、catalog service与composition service；clang-format与diff检查通过。开发期
+新增CLI断言曾错比源流程的初始定义，测试已有步骤已发布revised版本；改为验证最新
+修订并额外验证归纳定义后通过。原产品实现未改。首轮CI失败保留，最新远端验证以
+[PR #127检查](https://github.com/Linductor-alkaid/mirage/pull/127/checks)为事实源。
+完整M15的未执行边界不变。

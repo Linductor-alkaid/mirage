@@ -736,3 +736,16 @@ SHA、git diff --check通过，无新增超过1MiB文件；依赖 pin 和既有 
 提交前复核本人身份、工作树/差异/暂存区和既有成功矩阵；本轮仅补提交记录，不重复
 运行未改变的功能测试或模型请求。M15-22 保持 Linux 限定 Completed，完整 M15 仍为
 In Progress，Windows/故障注入/真实桌面与在线收益的补跑边界不变。
+
+### 2026-11-17：PR #127 全量 CI 反馈
+
+- BUG-20261117-001：默认持久目录启用后，旧tray夹具跨场景共用目录、经验CLI仍假设
+  重启清空目录；首次CI五个Linux配置均失败于这两项，原专项证据不替代全量门禁。
+- 负责人：Mirage维护者；修正范围为夹具路径隔离及CLI显式验证恢复、旧Run不复活后
+  再删除源夹具并导入候选。生产默认值/重验和循环门禁保持。
+- 本轮适用CI门禁重新进入验证中；不以历史M15-22限定Completed标记当前PR可合并。
+  [失败与复验记录](../compatibility/workflow-catalog-persistence-20261117.md)保留原失败。
+
+本机修正回归：Debug/ASAN/UBSAN/TSAN各6/6、0skip，格式及差异检查通过；原产品
+契约未改。修正提交后继续跟进[PR #127](https://github.com/Linductor-alkaid/mirage/pull/127)
+完整CI，不以重试旧提交替代修复；前置依赖升级在PR #126独立评审。
