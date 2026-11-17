@@ -16,5 +16,6 @@ target_link_libraries(mirage_mira_host
     PUBLIC
         Mirage::integration_mira
     PRIVATE
+        Mirage::kairo_consumer
         Mira::core
 )

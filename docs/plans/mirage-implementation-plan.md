@@ -17,8 +17,8 @@ native-release 与 DEB 交付完成；Release 120/120、真实推理与包校验
 2026-11-16：总计划状态与专项计划统一为 In Progress。M1～M4（含 M1.5）保持
 原限定范围 Completed；M5～M10、M15 保持 In Progress。M10 的 DEC-095 已冻结，
 增量 A 与增量 B 的 Linux 后端/会话接入已交付，其余平台与退出门禁以专项计划为准。
-M15-01/02、10～19 已完成各自限定增量，M15-03～09 和真实桌面产品退出条件仍开放。
-基线 `7b5bc28` 已本地提交，尚未推送；历史验证记录保留当时结果，未执行项不升级状态。
+M15-01/02、10～20 已完成各自限定增量，M15-03～09 和真实桌面产品退出条件仍开放。
+服务增量 `89fc251` 已本地提交，尚未推送；native 增量继续推进，历史验证记录保留当时结果。
 
 
 2026-11-11：维护者要求重新推进早期成功任务经验、视觉记忆与 Agent 监督 RPA，
@@ -58,8 +58,17 @@ Runtime Service 的显式恢复 IPC/CLI 与独立 Lesson 写入，复用当前�
 首次绑定后模型配置固定至服务重启；四配置各 12/12 及范围见
 [验收记录](../compatibility/workflow-recovery-service-20261116.md)。native/自动触发及完整
 M15 退出门禁保持开放。
-长期视觉记忆、native 入口和原生在线监督恢复仍待后续实施，不将短期视觉缓存或上游
+M15-20 / [DEC-149](../decisions/DEC-149-native-workflow-controls.md) 将目录/Run/学习快照、
+默认参数运行与显式恢复/经验保存接到现有原生窗口。Linux 受控增量完成；M15-08 进入
+In Progress，完整审阅/资产入口、自动恢复及真实收益仍开放。四配置功能、原生三配置
+renderer 与限定独立复核见[验收记录](../compatibility/native-workflow-controls-20261116.md)。
+长期视觉记忆、完整候选审阅与原生在线监督恢复仍待后续实施，不将短期视觉缓存或上游
 模块交付视为产品闭环完成。
+
+M15-21 / [DEC-150](../decisions/DEC-150-workflow-graph-composition.md) 推进侧栏会话/工作流切换、
+IR 图和节点编辑、任务段提取及独立工作流调用；目标按 ID 解析最新发布版本，发布时拒绝
+直接/间接循环。Linux 限定增量完成，完整 M15-08/09 保持开放；功能矩阵、原生渲染及限定五项修正评分见
+[图与调用验收](../compatibility/workflow-graph-calls-20261116.md)。
 
 2026-10-30：[DEC-137](../decisions/DEC-137-session-evidence-and-task-purpose.md)修复最新
 会话暴露的投影分类预算、同代子树展开与产品用途声明；复用完整产品构建目标。
@@ -785,7 +794,7 @@ Executor 由 pinned `third_party/mira/third_party/executor` 提供，能力路�
 | [M8](m8-mira-pet.md) | mira_pet 独立置顶状态窗口、逐动作循环片段与真实执行投影 | Linux X11 桌宠预览版（标签未定） | In Progress | M1 IPC、M6 Runtime owner、M7 动作/观察执行缝 |
 | [M9](m9-continuous-tasks-and-local-perception.md) | 持续任务、请求级 compact、文本观察、变化/跟踪与本地动作/等待闭环 | Linux 持续任务与文本观察预览（标签未定） | In Progress | M1/M3/M6/M7 已交付能力；M9-02 Linux pin 消费已完成，产品接线另列 M9-03 |
 | [M10](m10-basic-agent-tools.md) | exec/read/write/edit、文件版本/提交、cwd/输出、会话与产品接线 | Linux 基础工具预览 → Windows 四工具预览（标签未定） | In Progress | M1/M5/M6/M7 已交付能力；不等待 M8/M9 整体关闭 |
-| [M15](m15-supervised-rpa-experience.md) | 已执行任务经验候选、视觉记忆与 Agent 监督 RPA；Run 草稿/候选文件、默认长期元数据与显式恢复 IPC/CLI | 经验/恢复 CLI 预览，标签未定 | In Progress | 已交付 M5/M7 面与 Mira 编译/学习/恢复；普通 Agent 提取待上游，后续方案 Proposed |
+| [M15](m15-supervised-rpa-experience.md) | 已执行任务经验候选、视觉记忆与 Agent 监督 RPA；Run 草稿/候选文件、默认长期元数据与显式恢复 IPC/CLI/native | 经验/显式恢复预览，标签未定 | In Progress | 已交付 M5/M7 面与 Mira 编译/学习/恢复；普通 Agent 提取待上游，后续方案 Proposed |
 
 拆分与合并顺序：先契约后实现（Desktop Environment 接口先于任何 Backend）、先骨架后
 功能（每个 Backend 先以最小动作打通 Observation -> Action -> Observation 闭环）、

@@ -82,3 +82,11 @@ if(TARGET Mira::openssl_transport)
 endif()
 
 target_link_libraries(mirage_integration_mira PUBLIC Mirage::conversation)
+
+# DEC-150: pure standard-library facade for native Workflow IR editing.
+add_library(mirage_workflow_document STATIC src/workflow_document.cpp)
+add_library(Mirage::workflow_document ALIAS mirage_workflow_document)
+target_include_directories(mirage_workflow_document PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_link_libraries(mirage_workflow_document PRIVATE Mira::workflow)
+target_compile_features(mirage_workflow_document PUBLIC cxx_std_20)
+mirage_enable_warnings(mirage_workflow_document)

@@ -13,6 +13,8 @@
 #include "secret_input.hpp"
 #include "selection_adapter.hpp"
 #include "window_controls.hpp"
+#include "workflow_editor_model.hpp"
+#include "workflow_model.hpp"
 #include <mirage/runtime/persistence/app_preferences.hpp>
 #include <mirage/runtime/persistence/paths.hpp>
 #include <mirage/runtime/persistence/settings.hpp>
@@ -176,6 +178,12 @@ struct PageState {
     int code_font_size_step = 1; // 0=小(11px), 1=默认(13px), 2=大(15px)
     bool sidebar = true;
     bool settings = false;
+    bool workflow_page = false;
+    WorkflowModel workflows;
+    WorkflowEditorModel workflow_editor;
+    bool workflow_runs = false, workflow_atom_picker = false, workflow_replace_atom = false;
+    float workflow_graph_scroll = 0, workflow_inspector_scroll = 0;
+    float workflow_scroll = 0;
     bool model_page = false;
     bool desktop_page = false;
     mirage::runtime::ipc::VisionConfiguration vision;
@@ -694,6 +702,44 @@ bool call_runtime(ipc::Request request, const std::string &tag, std::uint64_t id
     s.runtime_notice = "服务未连接或请求已达上限，请重新连接后重试。";
     return false;
 }
+void send_workflow_request(WorkflowModel::Request request) {
+    if (!call_runtime(std::move(request.body), request.tag, request.revision)) {
+        ipc::Response failure;
+        failure.error = {"unavailable", "服务未连接或请求已达上限，请重新连接后重试。"};
+        state().workflows.accept(request.tag, request.revision, failure);
+    }
+}
+void send_workflow_editor(WorkflowModel::Request request) {
+    if (!call_runtime(std::move(request.body), request.tag, request.revision)) {
+        ipc::Response failure;
+        failure.error = {"unavailable", "服务未连接或请求已达上限。"};
+        state().workflow_editor.accept(request.tag, request.revision, failure);
+    }
+}
+void open_workflow(const std::string &id, const std::string &digest = {}, bool child = false) {
+    auto &s = state();
+    s.workflow_runs = false;
+    if (auto request = s.workflow_editor.open(id, digest, child))
+        send_workflow_editor(std::move(*request));
+}
+void refresh_workflows() {
+    for (auto &request : state().workflows.refresh())
+        send_workflow_request(std::move(request));
+}
+void workflow_control(const std::string &action) {
+    if (auto request = state().workflows.control(action))
+        send_workflow_request(std::move(*request));
+}
+void toggle_workflows() {
+    auto &s = state();
+    s.workflow_page = !s.workflow_page;
+    s.popup = PageState::Popup::None;
+    s.selection.clear();
+    if (s.workflow_page) {
+        s.workflow_scroll = 0;
+        refresh_workflows();
+    }
+}
 // DEC-078 / M6-38: both entry points share the bounded RuntimeBridge request path.
 void request_desktop_authorization(std::optional<bool> remember = std::nullopt) {
     auto &s = state();
@@ -748,8 +794,10 @@ void history(std::uint64_t id) {
 }
 void new_session() {
     auto &s = state();
-    if (!s.about && !s.confirm_clear && !s.confirm_delete)
+    if (!s.about && !s.confirm_clear && !s.confirm_delete) {
+        s.workflow_page = false;
         s.chat.new_draft();
+    }
 }
 struct ComposerThinkingOption {
     std::string value;
@@ -834,8 +882,26 @@ void start_runtime() {
         s.runtime->shutdown();
     s.runtime = std::make_unique<RuntimeBridge>([] { app::requestUpdate(); }, s.runtime_endpoint);
     s.runtime_notice = "正在连接 Runtime Service…";
+    s.workflows.invalidate("正在连接服务，请稍后刷新工作流。");
+    s.workflow_editor.invalidate();
 }
 std::string display_error(const std::string &error) {
+    if (error == "workflow call graph contains a cycle")
+        return "工作流调用形成循环，请移除直接或间接回到自身的调用。";
+    if (error == "workflow head changed; reopen before saving")
+        return "工作流已被更新，请重新打开当前版本再保存；本地草稿已保留。";
+    if (error == "workflow call publication is busy; retry explicitly")
+        return "调用目标正在更新，请稍后重新发布；当前发布版本继续有效。";
+    if (error == "workflow recovery has bound this model; restart service before changing model")
+        return "当前服务已绑定工作流恢复模型，切换模型需要重启服务。";
+    if (error == "workflow drive is still settling")
+        return "运行仍在结算，请刷新后重试。";
+    if (error == "workflow recovery is still settling")
+        return "工作流恢复尚未结算，请查询恢复结果后重试。";
+    if (error == "stop active turns before workflow recovery")
+        return "有模型任务正在运行，请先停止或等待完成后再请求恢复。";
+    if (error == "workflow run already has a settled recovery attempt")
+        return "本次运行已使用恢复机会，请查询结果或停止运行。";
     const std::string credential = "credential environment variable is not set: ";
     if (error.starts_with(credential))
         return "服务未设置凭据变量 " + error.substr(credential.size()) +
@@ -907,6 +973,8 @@ void drain_runtime() {
                          "product");
 
         } else if (message.kind == RuntimeMessage::Kind::Lost) {
+            s.workflows.invalidate("连接已中断，请重新连接后刷新工作流。");
+            s.workflow_editor.invalidate();
             s.runtime_notice = s.runtime->connected() ? "请求未能执行，请重试。"
                                                       : "托盘服务已退出，正在关闭窗口。";
             if (!s.runtime->connected())
@@ -924,6 +992,27 @@ void drain_runtime() {
                 session->attachment_loading = false;
             }
         } else if (message.kind == RuntimeMessage::Kind::Response) {
+            if (message.tag.starts_with("workflow.editor.")) {
+                if (!message.response.ok)
+                    message.response.error.message = display_error(message.response.error.message);
+                const bool accepted =
+                    s.workflow_editor.accept(message.tag, message.local_id, message.response);
+                if (accepted && message.response.ok && message.tag == "workflow.editor.open" &&
+                    !s.workflow_editor.stale && s.workflow_editor.notice.empty())
+                    if (auto request = s.workflow_editor.tools())
+                        send_workflow_editor(std::move(*request));
+                if (accepted && message.response.ok &&
+                    (message.tag == "workflow.editor.save" ||
+                     message.tag == "workflow.editor.publish"))
+                    refresh_workflows(); // Bounded continuation of the user's explicit edit.
+                continue;
+            }
+            if (message.tag.starts_with("workflow.")) {
+                if (!message.response.ok)
+                    message.response.error.message = display_error(message.response.error.message);
+                s.workflows.accept(message.tag, message.local_id, message.response);
+                continue;
+            }
             // Catalog ids are editor revisions, not local conversation identities.
             if (message.tag == "catalog") {
                 accept_catalog_response(message);
@@ -1097,8 +1186,10 @@ void drain_runtime() {
         } else if (message.kind == RuntimeMessage::Kind::Diagnostic) {
             s.runtime_notice = message.tag;
         } else if (message.event) {
-            if (const auto *turn =
-                    std::get_if<ipc::ChatTurnUpdatedEvent>(&message.event->payload)) {
+            if (std::holds_alternative<ipc::WorkflowRunUpdatedEvent>(message.event->payload)) {
+                s.workflows.changed();
+            } else if (const auto *turn =
+                           std::get_if<ipc::ChatTurnUpdatedEvent>(&message.event->payload)) {
                 for (const auto &session : s.chat.sessions())
                     if (session.remote_id == turn->session_id) {
                         s.chat.apply_turn(session.id, turn->turn_id, turn->status, turn->user_text,
@@ -1134,12 +1225,16 @@ void drain_runtime() {
             } else if (std::holds_alternative<ipc::HostStatusEvent>(message.event->payload)) {
                 call_runtime(ipc::ProductControlRequest{}, "product");
             } else if (std::holds_alternative<ipc::EventsOverflowEvent>(message.event->payload)) {
+                s.workflows.invalidate("事件发生缺口，请刷新工作流状态。");
+                s.workflow_editor.invalidate();
                 call_runtime(ipc::ProductControlRequest{}, "product");
                 history(s.chat.current().id);
             }
         }
     }
     if (s.runtime->take_gap()) {
+        s.workflows.invalidate("事件发生缺口，请刷新工作流状态。");
+        s.workflow_editor.invalidate();
         ++s.model_catalog_revision;
         s.fetching_models = false;
         for (const auto &entry : s.chat.sessions())
@@ -1292,7 +1387,7 @@ void modal(eui::Ui &ui, const eui::Screen &screen, const Palette &p) {
                       : clearing
                           ? "当前会话的草稿和未发送消息将被清空。其他会话会保留。"
                           : "会话通过 Runtime Service 接入 Mira 模型与任务控制。当前提供通用对话 "
-                            "harness，RPA workflow 尚未接入。")
+                            "harness，并可在工作流页面查看运行及显式请求恢复。")
                 .fontSize(ui_font_size(17))
                 .lineHeight(28)
                 .wrap()
@@ -1328,6 +1423,224 @@ void modal(eui::Ui &ui, const eui::Screen &screen, const Palette &p) {
         })
         .build();
 }
+void keyboard_activation(eui::Ui &ui, const std::string &id);
+void workflow_runs_page(eui::Ui &ui, const eui::Screen &screen, float x, float width,
+                        const Palette &p, const components::theme::ThemeColorTokens &tokens) {
+    auto &model = state().workflows;
+    auto workflow_style = [&](bool enabled, bool filled = false) {
+        auto style = button_style(p, filled);
+        if (!enabled) {
+            style.normal = filled ? p.hover : eui::Color{0, 0, 0, 0};
+            style.hover = style.pressed = style.normal;
+            style.text = style.icon = p.muted;
+        }
+        return style;
+    };
+    text(ui, "workflow.title", "运行与恢复", x, 78, width - 104, 32, 20, p.text, 600);
+    control_button(ui, "workflow.refresh")
+        .position(x + width - 96, 76)
+        .size(96, 36)
+        .text("刷新")
+        .icon(icons::refresh)
+        .fontSize(scaled_em(14))
+        .style(workflow_style(!model.busy()))
+        .disabled(model.busy())
+        .onClick(refresh_workflows)
+        .build();
+    ui.text("workflow.description")
+        .position(x, 116)
+        .size(width, 48)
+        .text("稳定步骤由工作流执行；需要介入时，由你决定是否请求 Agent 恢复。")
+        .fontSize(scaled_em(14))
+        .lineHeight(22)
+        .wrap()
+        .color(p.muted)
+        .build();
+    components::scrollView(ui, "workflow.scroll")
+        .position(x, 176)
+        .size(width, std::max(120.0f, screen.height - 196))
+        .gap(20)
+        .offset(state().workflow_scroll)
+        .onChange([](float offset) { state().workflow_scroll = offset; })
+        .theme(tokens)
+        .scrollbarWidth(4)
+        .scrollbarGap(8)
+        .content([&](eui::Ui &list, float w, float) {
+            auto note = [&](const std::string &id, const std::string &value, float h = 44,
+                            bool muted = true) {
+                list.text(id)
+                    .size(w, h)
+                    .text(value)
+                    .fontSize(scaled_em(14))
+                    .lineHeight(22)
+                    .wrap()
+                    .color(muted ? p.muted : p.text)
+                    .hitTestMode(eui::dsl::HitTestMode::None)
+                    .build();
+            };
+            const auto status = model.busy()            ? "正在读取服务响应…"
+                                : !model.notice.empty() ? model.notice
+                                : !model.runs_fresh
+                                    ? "尚未读取运行记录，请刷新。"
+                                    : "状态来自当前服务；接纳恢复请求不代表运行已完成。";
+            note("workflow.notice", status, 66, false);
+            if (const auto *run = model.selected()) {
+                std::string name = "工作流";
+                for (const auto &item : model.catalog)
+                    if (item.workflow_id == run->workflow_id)
+                        name = item.name;
+                list.stack("workflow.selected")
+                    .size(w, 238)
+                    .content([&] {
+                        text(list, "workflow.selected.name", fitted_title(name, w, 16), 0, 0, w, 28,
+                             16, p.text, 600);
+                        text(list, "workflow.selected.state",
+                             WorkflowModel::state_label(run->state) +
+                                 (model.runs_fresh ? "" : " · 上次快照"),
+                             0, 34, w, 24, 14, run->state == "waiting_agent" ? p.warning : p.muted);
+                        text(list, "workflow.selected.id", "运行 " + run->run_id, 0, 64, w, 22, 12,
+                             p.muted);
+                        const auto &recovery = model.recovery;
+                        const auto outcome = !recovery ? "尚未查询恢复尝试。"
+                                             : !recovery->settled ? "恢复尝试尚未结算，请查询结果。"
+                                             : recovery->outcome == "patched-and-resumed"
+                                                 ? "补丁已通过并续跑；最终结果以运行状态为准。"
+                                             : recovery->outcome == "resumed-without-patch"
+                                                 ? "已请求续跑；最终结果以运行状态为准。"
+                                             : recovery->outcome == "cancel-requested"
+                                                 ? "模型已请求取消运行，请刷新确认。"
+                                             : recovery->outcome == "deferred-to-host"
+                                                 ? "恢复已结束，仍需用户处理。"
+                                                 : "恢复尝试已中止，请查看当前运行状态。";
+                        list.text("workflow.selected.recovery")
+                            .position(0, 94)
+                            .size(w, 44)
+                            .text(outcome)
+                            .fontSize(scaled_em(14))
+                            .lineHeight(22)
+                            .wrap()
+                            .color(p.text)
+                            .build();
+                        const std::array<std::pair<std::string, std::string>, 5> actions{
+                            {{"start", "请求恢复"},
+                             {"status", "查询恢复结果"},
+                             {"cancel", "取消恢复"},
+                             {"lesson", "保存恢复经验"},
+                             {"stop", "停止运行"}}};
+                        const float bw = std::min(140.0f, (w - 16) / 3);
+                        for (std::size_t i = 0; i < actions.size(); ++i) {
+                            const auto [action, label] = actions[i];
+                            control_button(list, "workflow.action." + action)
+                                .position(static_cast<float>(i % 3) * (bw + 8),
+                                          146 + static_cast<float>(i / 3) * 44)
+                                .size(bw, 36)
+                                .text(label)
+                                .fontSize(scaled_em(14))
+                                .style(workflow_style(model.allowed(action), action == "start"))
+                                .disabled(!model.allowed(action))
+                                .onClick([action] { workflow_control(action); })
+                                .build();
+                        }
+                    })
+                    .build();
+            }
+            note("workflow.runs.heading", "运行记录 · " + std::to_string(model.runs.size()), 28,
+                 false);
+            if (model.runs.empty())
+                note("workflow.runs.empty",
+                     model.runs_fresh ? "尚无运行记录。执行目录中的工作流后，可在这里查看结果。"
+                                      : "运行记录尚未读取。请刷新获取当前服务的状态。",
+                     66);
+            for (const auto &run : model.runs) {
+                const auto id = run.run_id;
+                const auto key = "workflow.run." + id;
+                std::string name = run.workflow_id;
+                for (const auto &item : model.catalog)
+                    if (item.workflow_id == run.workflow_id)
+                        name = item.name;
+                list.stack(key)
+                    .size(w, 66)
+                    .content([&] {
+                        list.rect(key + ".hit")
+                            .size(w, 66)
+                            .radius(7)
+                            .states(model.selected_run == id ? p.selected : eui::Color{0, 0, 0, 0},
+                                    p.hover, p.selected)
+                            .focusable()
+                            .cursor(eui::CursorShape::Hand)
+                            .onClick([id] {
+                                if (state().workflows.select(id))
+                                    state().workflow_scroll = 0;
+                            })
+                            .build();
+                        text(list, key + ".name", fitted_title(name, w - 140, 14), 12, 6, w - 140,
+                             26, 14, p.text, 500);
+                        text(list, key + ".state", WorkflowModel::state_label(run.state), w - 124,
+                             6, 112, 26, 14,
+                             run.state == "waiting_agent" ? mix_color(p.warning, p.text, 0.3f)
+                                                          : p.text);
+                        text(list, key + ".id", id, 12, 34, w - 24, 22, 12, p.text);
+                    })
+                    .build();
+                keyboard_activation(list, key + ".hit");
+            }
+            note("workflow.catalog.heading", "工作流目录 · " + std::to_string(model.catalog.size()),
+                 28, false);
+            note("workflow.catalog.help",
+                 "使用当前已发布版本和默认参数执行；权限与验证规则继续生效。", 44);
+            if (model.catalog.empty())
+                note("workflow.catalog.empty",
+                     model.catalog_fresh ? "当前服务尚无工作流。已导入并发布的工作流会显示在这里。"
+                                         : "目录尚未读取，请刷新。",
+                     44);
+            for (const auto &item : model.catalog) {
+                const auto id = item.workflow_id;
+                const auto key = "workflow.catalog." + id;
+                list.stack(key)
+                    .size(w, 74)
+                    .content([&] {
+                        text(list, key + ".name", fitted_title(item.name, w - 152, 14), 0, 0,
+                             w - 152, 28, 14, p.text, 500);
+                        const auto validation = item.validation == "validated" ? "已验证"
+                                                : item.validation == "dry_run_passed"
+                                                    ? "已通过试运行"
+                                                : item.validation == "rejected" ? "已拒绝"
+                                                                                : "未验证";
+                        text(list, key + ".validation", validation, 0, 34, w - 152, 24, 13,
+                             p.muted);
+                        control_button(list, key + ".start")
+                            .position(w - 140, 12)
+                            .size(140, 36)
+                            .text("运行默认参数")
+                            .fontSize(scaled_em(14))
+                            .style(workflow_style(!model.busy() && model.runs_fresh &&
+                                                  model.catalog_fresh && item.runnable))
+                            .disabled(model.busy() || !model.runs_fresh || !model.catalog_fresh ||
+                                      !item.runnable)
+                            .onClick([id] {
+                                if (auto request = state().workflows.run(id))
+                                    send_workflow_request(std::move(*request));
+                            })
+                            .build();
+                    })
+                    .build();
+            }
+            const auto learning =
+                !model.learning ? "学习存储状态尚不可用。"
+                : !model.learning->enabled
+                    ? "学习已关闭；本次恢复不会保存为长期经验。"
+                    : "学习已开启 · 文件 " + std::to_string(model.learning->file_bytes / 1024) +
+                          " KiB / " + std::to_string(model.learning->limit_bytes / (1024 * 1024)) +
+                          " MiB";
+            note("workflow.learning", learning, 44);
+            note("workflow.limits", "每次运行最多恢复一次。首次绑定恢复后，切换模型需要重启服务。",
+                 66);
+        })
+        .build();
+}
+
+#include "workflow_canvas.hpp"
+
 void desktop_settings_page(eui::Ui &ui, const eui::Screen &screen, float x, float width,
                            const Palette &p, const components::theme::ThemeColorTokens &tokens) {
     auto &s = state();
@@ -3012,8 +3325,8 @@ void conversation_page(eui::Ui &ui, const eui::Screen &screen, float sidebar, co
     for (const auto &message : session.messages)
         s.selection_cache_ids.push_back(message.id);
     const bool empty = session.messages.empty();
-    if (s.selection.session != session.id || s.settings || s.about || s.confirm_clear ||
-        s.confirm_delete || s.popup != PageState::Popup::None ||
+    if (s.selection.session != session.id || s.settings || s.workflow_page || s.about ||
+        s.confirm_clear || s.confirm_delete || s.popup != PageState::Popup::None ||
         std::none_of(session.messages.begin(), session.messages.end(),
                      [&](const auto &message) { return message.id == s.selection.message; }))
         s.selection.clear();
@@ -4237,129 +4550,144 @@ void compose_page(eui::Ui &ui, const eui::Screen &screen) {
                                              68, y, sidebar_width - 88, 36, 14, p.text, 500);
                                     }
                                 } else {
-                                    ui.stack("session.new")
-                                        .position(24, 76)
-                                        .size(sidebar_width - 48, 36)
-                                        .content([&] {
-                                            ui.rect("session.new.bg")
-                                                .size(sidebar_width - 48, 36)
-                                                .radius(8)
-                                                .states(p.sidebar, p.hover, p.selected)
-                                                .focusable()
-                                                .cursor(eui::CursorShape::Hand)
-                                                .onClick([] { new_session(); })
-                                                .build();
-                                            icon(ui, "session.new.icon", icons::add, 12, 0, 16, 36,
-                                                 p.text);
-                                            text(ui, "session.new.label", "新建对话", 44, 0,
-                                                 sidebar_width - 96, 36, 14, p.text);
-                                        })
-                                        .build();
-                                    ui.rect("sidebar.divider")
-                                        .position(24, 140)
-                                        .size(sidebar_width - 48, 1)
-                                        .color(p.border)
-                                        .build();
-                                    text(ui, "session.label", "会话", 36, 156, 180, 24, 13,
-                                         p.muted);
-                                    components::scrollView(ui, "session.list")
-                                        .position(24, 196)
-                                        .size(sidebar_width - 48, screen.height - 296)
-                                        .gap(4)
-                                        .offset(s.session_scroll)
-                                        .theme(tokens)
-                                        .scrollbarWidth(3)
-                                        .scrollbarGap(2)
-                                        .onChange(
-                                            [](float offset) { state().session_scroll = offset; })
-                                        .content([&](eui::Ui &list, float width, float) {
-                                            if (s.chat.history_count() == 0) {
-                                                text(list, "session.empty", "暂无历史对话", 12, 8,
-                                                     width - 24, 28, 14, p.muted);
-                                                text(list, "session.empty.help",
-                                                     "发送消息后将显示在这里", 12, 38, width - 24,
-                                                     28, 13, p.muted);
-                                            }
-                                            for (const auto *entry : s.chat.history_sessions()) {
-                                                const auto &session = *entry;
-                                                const auto id = session.id;
-                                                const bool selected = id == s.chat.current().id;
-                                                const std::string key =
-                                                    "session." + std::to_string(id);
-                                                list.stack(key)
-                                                    .size(width, 40)
-                                                    .content([&] {
-                                                        list.rect(key + ".hit")
-                                                            .size(width, 40)
-                                                            .radius(7)
-                                                            .states(selected
-                                                                        ? p.selected
-                                                                        : eui::Color{0, 0, 0, 0},
-                                                                    p.hover, p.selected)
-                                                            .cursor(eui::CursorShape::Hand)
-                                                            .focusable()
-                                                            .onClick([id] {
-                                                                state().chat.select_session(id);
-                                                                history(id);
-                                                            })
-                                                            .onHover([id](bool entered) {
-                                                                auto &page = state();
-                                                                if (entered)
-                                                                    page.hovered_session = id;
-                                                                else if (page.hovered_session == id)
-                                                                    page.hovered_session = 0;
-                                                            })
-                                                            .build();
-                                                        icon(list, key + ".icon",
-                                                             session.running
-                                                                 ? icons::session_running
-                                                                 : icons::session,
-                                                             12, 0, 14, 40, p.muted);
-                                                        text(list, key + ".title",
-                                                             fitted_title(session.title,
-                                                                          width - 100, 14),
-                                                             44, 0, width - 100, 40, 14, p.text);
-                                                        list.stack(key + ".delete.visibility")
-                                                            .position(width - 40, 2)
-                                                            .size(36, 36)
-                                                            .opacity(s.hovered_session == id ? 1.0f
-                                                                                             : 0.0f)
-                                                            .content([&] {
-                                                                icon_button(
-                                                                    list, key + ".delete",
-                                                                    icons::remove, 0, 0, p,
-                                                                    [id] {
-                                                                        auto &v = state();
-                                                                        if (v.about ||
-                                                                            v.confirm_clear ||
-                                                                            v.confirm_delete)
-                                                                            return;
-                                                                        v.delete_target = id;
-                                                                        v.confirm_delete = true;
-                                                                    },
-                                                                    false,
-                                                                    session.running ||
-                                                                        session.submitting ||
-                                                                        session.deleting);
-                                                            })
-                                                            .build();
-                                                        if (auto *button =
-                                                                list.find(key + ".delete.bg")) {
-                                                            button->onHoverChanged =
-                                                                [id](bool entered) {
+                                    workspace_switch(ui, sidebar_width, p);
+                                    if (s.workflow_page) {
+                                        workflow_sidebar(ui, sidebar_width, screen.height, p,
+                                                         tokens);
+                                    } else {
+                                        ui.stack("session.new")
+                                            .position(24, 128)
+                                            .size(sidebar_width - 48, 36)
+                                            .content([&] {
+                                                ui.rect("session.new.bg")
+                                                    .size(sidebar_width - 48, 36)
+                                                    .radius(8)
+                                                    .states(p.sidebar, p.hover, p.selected)
+                                                    .focusable()
+                                                    .cursor(eui::CursorShape::Hand)
+                                                    .onClick([] { new_session(); })
+                                                    .build();
+                                                icon(ui, "session.new.icon", icons::add, 12, 0, 16,
+                                                     36, p.text);
+                                                text(ui, "session.new.label", "新建对话", 44, 0,
+                                                     sidebar_width - 96, 36, 14, p.text);
+                                            })
+                                            .build();
+                                        ui.rect("sidebar.divider")
+                                            .position(24, 188)
+                                            .size(sidebar_width - 48, 1)
+                                            .color(p.border)
+                                            .build();
+                                        text(ui, "session.label", "会话", 36, 204, 180, 24, 13,
+                                             p.muted);
+                                        components::scrollView(ui, "session.list")
+                                            .position(24, 244)
+                                            .size(sidebar_width - 48, screen.height - 296)
+                                            .gap(4)
+                                            .offset(s.session_scroll)
+                                            .theme(tokens)
+                                            .scrollbarWidth(3)
+                                            .scrollbarGap(2)
+                                            .onChange([](float offset) {
+                                                state().session_scroll = offset;
+                                            })
+                                            .content([&](eui::Ui &list, float width, float) {
+                                                if (s.chat.history_count() == 0) {
+                                                    text(list, "session.empty", "暂无历史对话", 12,
+                                                         8, width - 24, 28, 14, p.muted);
+                                                    text(list, "session.empty.help",
+                                                         "发送消息后将显示在这里", 12, 38,
+                                                         width - 24, 28, 13, p.muted);
+                                                }
+                                                for (const auto *entry :
+                                                     s.chat.history_sessions()) {
+                                                    const auto &session = *entry;
+                                                    const auto id = session.id;
+                                                    const bool selected = id == s.chat.current().id;
+                                                    const std::string key =
+                                                        "session." + std::to_string(id);
+                                                    list.stack(key)
+                                                        .size(width, 40)
+                                                        .content([&] {
+                                                            list.rect(key + ".hit")
+                                                                .size(width, 40)
+                                                                .radius(7)
+                                                                .states(selected ? p.selected
+                                                                                 : eui::Color{0, 0,
+                                                                                              0, 0},
+                                                                        p.hover, p.selected)
+                                                                .cursor(eui::CursorShape::Hand)
+                                                                .focusable()
+                                                                .onClick([id] {
+                                                                    state().workflow_page = false;
+                                                                    state().chat.select_session(id);
+                                                                    history(id);
+                                                                })
+                                                                .onHover([id](bool entered) {
                                                                     auto &page = state();
                                                                     if (entered)
                                                                         page.hovered_session = id;
                                                                     else if (page.hovered_session ==
                                                                              id)
                                                                         page.hovered_session = 0;
-                                                                };
-                                                        }
-                                                    })
-                                                    .build();
-                                            }
-                                        })
-                                        .build();
+                                                                })
+                                                                .build();
+                                                            icon(list, key + ".icon",
+                                                                 session.running
+                                                                     ? icons::session_running
+                                                                     : icons::session,
+                                                                 12, 0, 14, 40, p.muted);
+                                                            text(list, key + ".title",
+                                                                 fitted_title(session.title,
+                                                                              width - 100, 14),
+                                                                 44, 0, width - 100, 40, 14,
+                                                                 p.text);
+                                                            list.stack(key + ".delete.visibility")
+                                                                .position(width - 40, 2)
+                                                                .size(36, 36)
+                                                                .opacity(s.hovered_session == id
+                                                                             ? 1.0f
+                                                                             : 0.0f)
+                                                                .content([&] {
+                                                                    icon_button(
+                                                                        list, key + ".delete",
+                                                                        icons::remove, 0, 0, p,
+                                                                        [id] {
+                                                                            auto &v = state();
+                                                                            if (v.about ||
+                                                                                v.confirm_clear ||
+                                                                                v.confirm_delete)
+                                                                                return;
+                                                                            v.delete_target = id;
+                                                                            v.confirm_delete = true;
+                                                                        },
+                                                                        false,
+                                                                        session.running ||
+                                                                            session.submitting ||
+                                                                            session.deleting);
+                                                                })
+                                                                .build();
+                                                            if (auto *button =
+                                                                    list.find(key + ".delete.bg")) {
+                                                                button->onHoverChanged =
+                                                                    [id](bool entered) {
+                                                                        auto &page = state();
+                                                                        if (entered)
+                                                                            page.hovered_session =
+                                                                                id;
+                                                                        else if (
+                                                                            page.hovered_session ==
+                                                                            id)
+                                                                            page.hovered_session =
+                                                                                0;
+                                                                    };
+                                                            }
+                                                        })
+                                                        .build();
+                                                }
+                                            })
+                                            .build();
+                                    }
                                 }
                                 for (const auto *id : {"settings.back.bg", "session.new.bg",
                                                        "settings.nav.0", "settings.nav.1"})
@@ -4374,8 +4702,10 @@ void compose_page(eui::Ui &ui, const eui::Screen &screen) {
                                 text(ui, "preview.label", "Mira", 68, screen.height - 62,
                                      sidebar_width - 112, 36, 14, p.muted);
                                 icon_button(ui, "settings.open", icons::settings,
-                                            sidebar_width - 52, screen.height - 62, p,
-                                            [] { state().settings = true; });
+                                            sidebar_width - 52, screen.height - 62, p, [] {
+                                                state().workflow_page = false;
+                                                state().settings = true;
+                                            });
                                 ui.rect("sidebar.resize")
                                     .position(sidebar_width - 4, 60)
                                     .size(8, screen.height - 60)
@@ -4439,10 +4769,11 @@ void compose_page(eui::Ui &ui, const eui::Screen &screen) {
                             [] { state().settings = true; });
             }
             const float title_x = sidebar + (sidebar >= 56.0f ? 28 : 116);
-            const float title_right = screen.width - (s.settings && sidebar < 56.0f ? 286 : 146);
+            const float title_right = screen.width - (sidebar < 56.0f ? 286 : 146);
             const float title_width = std::max(0.0f, title_right - title_x);
             const auto &session_title = s.chat.current().title;
-            const std::string title = s.settings              ? "设置"
+            const std::string title = s.workflow_page         ? "工作流"
+                                      : s.settings            ? "设置"
                                       : session_title.empty() ? "新对话"
                                                               : session_title;
             text(ui, "thread.title", fitted_title(title, title_width, 14), title_x, 0, title_width,
@@ -4453,7 +4784,17 @@ void compose_page(eui::Ui &ui, const eui::Screen &screen) {
                         window::maximized() ? icons::restore : icons::maximize, screen.width - 88,
                         12, p, window::toggle_maximize);
             icon_button(ui, "window.close", icons::close, screen.width - 46, 12, p, window::close);
-            if (s.settings)
+            if (!s.settings && !s.sidebar) {
+                control_button(ui, "workflow.navigation")
+                    .position(screen.width - 270, 12)
+                    .size(124, 36)
+                    .text(s.workflow_page ? "返回对话" : "工作流")
+                    .fontSize(scaled_em(14))
+                    .style(button_style(p))
+                    .onClick(toggle_workflows)
+                    .build();
+            }
+            if (s.settings || s.workflow_page)
                 ui.rect("header.line")
                     .position(sidebar, 60)
                     .size(main_width, 1)
@@ -4477,6 +4818,11 @@ void compose_page(eui::Ui &ui, const eui::Screen &screen) {
                     model_settings_page(ui, screen, column_x, column_width, p, tokens);
                 else
                     appearance_page(ui, column_x, column_width, p);
+            } else if (s.workflow_page) {
+                if (s.workflow_runs)
+                    workflow_runs_page(ui, screen, column_x, column_width, p, tokens);
+                else
+                    workflow_canvas(ui, screen, sidebar + 28, main_width - 56, p, tokens);
             } else {
                 conversation_page(ui, screen, sidebar, p, tokens);
             }
@@ -4611,6 +4957,7 @@ const DslAppConfig &dslAppConfig() {
                     auto &s = mirage::native_ui::state();
                     if (!s.about && !s.confirm_clear && !s.confirm_delete &&
                         s.model_dialog == mirage::native_ui::PageState::ModelDialog::None) {
+                        s.workflow_page = false;
                         s.settings = true;
                         s.popup = mirage::native_ui::PageState::Popup::None;
                     }
@@ -4648,6 +4995,8 @@ const DslAppConfig &dslAppConfig() {
                         mirage::native_ui::cancel_model_add();
                     else if (s.model_chooser)
                         s.model_chooser = false;
+                    else if (s.workflow_page)
+                        s.workflow_page = false;
                     else if (!s.chat.current().edit_turn_id.empty() &&
                              !s.chat.current().submitting && !s.chat.current().running)
                         s.chat.cancel_edit();

@@ -873,6 +873,8 @@ mira::JsonValue encode_payload(const ResponsePayload &payload) {
             } else if constexpr (std::is_same_v<T, WorkflowDeleted>) {
                 put(object, "workflow_id", value.workflow_id);
             } else if constexpr (std::is_same_v<T, WorkflowAtomCatalog>) {
+                if (value.safe_workflow_editor)
+                    put(object, "safe_workflow_editor", true);
                 mira::JsonValue::Array entries;
                 for (const auto &tool : value.tools) {
                     auto entry = make_object();
@@ -1173,9 +1175,15 @@ std::string encode_request(std::uint64_t id, const Request &body) {
             } else if constexpr (std::is_same_v<T, WorkflowSaveRequest>) {
                 put(object, "op", kOpWorkflowSave);
                 put(object, "definition", embedded_json(value.definition_json));
+                if (value.expected_head)
+                    put(object, "expected_head", *value.expected_head);
             } else if constexpr (std::is_same_v<T, WorkflowPublishRequest>) {
                 put(object, "op", kOpWorkflowPublish);
                 put(object, "definition", embedded_json(value.definition_json));
+                if (value.reusable)
+                    put(object, "reusable", true);
+                if (value.expected_head)
+                    put(object, "expected_head", *value.expected_head);
             } else if constexpr (std::is_same_v<T, WorkflowDeleteRequest>) {
                 put(object, "op", kOpWorkflowDelete);
                 put(object, "workflow_id", value.workflow_id);
@@ -1623,6 +1631,16 @@ RequestDecode decode_request(std::string_view payload) {
             result.error = "workflow.save requires a 'definition' object";
             return result;
         }
+        if (member(object, "expected_head")) {
+            const auto head = string_member(object, "expected_head");
+            if (!head || (!head->empty() &&
+                          (head->size() != 64 ||
+                           head->find_first_not_of("0123456789abcdef") != std::string::npos))) {
+                result.error = "expected_head must be empty or a lowercase SHA256 digest";
+                return result;
+            }
+            save.expected_head = *head;
+        }
         save.definition_json = std::move(*definition);
         result.body = std::move(save);
     } else if (*op == kOpWorkflowPublish) {
@@ -1631,6 +1649,21 @@ RequestDecode decode_request(std::string_view payload) {
         if (!definition || !member(object, "definition")->is_object()) {
             result.error = "workflow.publish requires a 'definition' object";
             return result;
+        }
+        if (member(object, "reusable") && !boolean_member(object, "reusable")) {
+            result.error = "workflow.publish reusable must be boolean";
+            return result;
+        }
+        publish.reusable = boolean_member(object, "reusable").value_or(false);
+        if (member(object, "expected_head")) {
+            const auto head = string_member(object, "expected_head");
+            if (!head || (!head->empty() &&
+                          (head->size() != 64 ||
+                           head->find_first_not_of("0123456789abcdef") != std::string::npos))) {
+                result.error = "expected_head must be empty or a lowercase SHA256 digest";
+                return result;
+            }
+            publish.expected_head = *head;
         }
         publish.definition_json = std::move(*definition);
         result.body = std::move(publish);
@@ -2599,6 +2632,13 @@ ResponseDecode decode_response(std::string_view payload) {
             return result;
         }
         WorkflowAtomCatalog catalog;
+        if (member(object, "safe_workflow_editor") &&
+            !boolean_member(object, "safe_workflow_editor")) {
+            result.error = "safe_workflow_editor must be boolean";
+            return result;
+        }
+        catalog.safe_workflow_editor =
+            boolean_member(object, "safe_workflow_editor").value_or(false);
         for (const auto &entry : *tools->as_array()) {
             if (!entry.is_object()) {
                 result.error = "workflow.atom.catalog entries must be objects";

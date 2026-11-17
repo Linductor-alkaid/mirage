@@ -79,11 +79,16 @@ class Binding final : public i::DesktopEnvironmentBinding, public mira::IEnviron
 class Files final : public d::DesktopEnvironment, public d::FilesystemProvider {
   public:
     std::atomic<unsigned> reads{0}, successes{0};
+    std::atomic<bool> hold_reads{false}, read_entered{false};
     d::EnvironmentInfo info() const override { return {"recovery-fixture", "test"}; }
     d::FilesystemProvider *filesystem() override { return this; }
     d::FileReadOutcome read_text_file(const std::filesystem::path &path, const d::FileReadLimits &l,
                                       const d::CancelToken &cancel) override {
         ++reads;
+        read_entered = true;
+        const auto limit = std::chrono::steady_clock::now() + 10s;
+        while (hold_reads && !cancel.cancelled() && std::chrono::steady_clock::now() < limit)
+            std::this_thread::sleep_for(1ms);
         d::FileReadOutcome result;
         if (!cancel.cancelled() && l.max_bytes >= 7 && path.generic_string() == "/fixture/good") {
             result.ok = true;

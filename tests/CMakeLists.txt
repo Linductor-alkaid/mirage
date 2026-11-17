@@ -15,6 +15,14 @@ mirage_add_test(visual_scene_mapping_test
     TIMEOUT 30
     )
 
+mirage_add_test(native_workflow_model_test
+    SOURCES desktop/native_workflow_model_test.cpp
+    INCLUDE_DIRS ${CMAKE_SOURCE_DIR}/apps/native
+    LIBS Mirage::ipc
+    LABELS "unit;ui;workflow"
+    TIMEOUT 30
+    )
+
 mirage_add_test(native_chat_model_test
     SOURCES desktop/native_chat_model_test.cpp ${CMAKE_SOURCE_DIR}/apps/native/chat_model.cpp ${CMAKE_SOURCE_DIR}/apps/native/attachment.cpp
     INCLUDE_DIRS ${CMAKE_SOURCE_DIR}/apps/native
@@ -862,6 +870,15 @@ mirage_add_test(update_client_http_test
     )
 endif()
 
+mirage_add_test(native_workflow_integration_test
+    SOURCES runtime/native_workflow_integration_test.cpp
+        ${CMAKE_SOURCE_DIR}/apps/native/runtime_bridge.cpp ${CMAKE_SOURCE_DIR}/apps/native/attachment.cpp
+    INCLUDE_DIRS ${CMAKE_SOURCE_DIR}/apps/native
+    LIBS Mirage::workflow_document Mirage::runtime_service Mirage::integration_mira Mirage::ipc Mirage::kairo_consumer
+    LABELS "integration;ui;workflow"
+    TIMEOUT 120
+    )
+
 mirage_add_test(workflow_recovery_service_test
     SOURCES runtime/workflow_recovery_service_test.cpp
     LIBS Mirage::runtime_service Mirage::integration_mira Mirage::ipc Mirage::kairo_consumer
@@ -1371,7 +1388,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND MIRAGE_ENABLE_NATIVE_FRONTEND)
     target_include_directories(native_conversation_view_test PRIVATE ${CMAKE_SOURCE_DIR}/apps/native)
     target_include_directories(native_conversation_view_test SYSTEM PRIVATE
         ${CMAKE_SOURCE_DIR}/third_party/eui-neo ${CMAKE_SOURCE_DIR}/third_party/eui-neo/include)
-    target_link_libraries(native_conversation_view_test PRIVATE eui::neo Mirage::ipc Mirage::persistence
+    target_link_libraries(native_conversation_view_test PRIVATE eui::neo Mirage::workflow_document Mirage::ipc Mirage::persistence
         Mirage::platform Mirage::kairo_consumer)
     mirage_enable_warnings(native_conversation_view_test)
     add_test(NAME native_conversation_view_test COMMAND native_conversation_view_test)
@@ -1387,7 +1404,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND MIRAGE_ENABLE_NATIVE_FRONTEND)
     target_include_directories(native_input_performance_test PRIVATE ${CMAKE_SOURCE_DIR}/apps/native)
     target_include_directories(native_input_performance_test SYSTEM PRIVATE
         ${CMAKE_SOURCE_DIR}/third_party/eui-neo ${CMAKE_SOURCE_DIR}/third_party/eui-neo/include)
-    target_link_libraries(native_input_performance_test PRIVATE eui::neo Mirage::ipc Mirage::persistence
+    target_link_libraries(native_input_performance_test PRIVATE eui::neo Mirage::workflow_document Mirage::ipc Mirage::persistence
         Mirage::platform Mirage::kairo_consumer)
     mirage_enable_warnings(native_input_performance_test)
     add_test(NAME native_input_performance_test COMMAND native_input_performance_test)
@@ -2027,4 +2044,19 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND MIRAGE_WITH_PPOCR)
     add_executable(ime_fill_acceptance manual/ime_fill_acceptance.cpp)
     target_link_libraries(ime_fill_acceptance PRIVATE Mirage::platform Mirage::integration_mira Mirage::integration_mirador Mirage::kairo_consumer)
     mirage_enable_warnings(ime_fill_acceptance)
+endif()
+
+mirage_add_test(native_workflow_editor_test
+    SOURCES desktop/native_workflow_editor_test.cpp
+    INCLUDE_DIRS ${CMAKE_SOURCE_DIR}/apps/native
+    LIBS Mirage::workflow_document Mirage::ipc
+    LABELS "unit;ui;workflow"
+    TIMEOUT 30)
+
+if(UNIX)
+    mirage_add_test(workflow_composition_service_test
+        SOURCES runtime/workflow_composition_service_test.cpp
+        LIBS Mirage::workflow_document Mirage::runtime_service Mirage::integration_mira Mirage::ipc Mirage::kairo_consumer
+        LABELS "integration;workflow"
+        TIMEOUT 120)
 endif()

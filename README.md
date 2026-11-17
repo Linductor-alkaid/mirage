@@ -269,6 +269,22 @@ M15-19 提供 `mirage workflow recovery start|status|cancel|lesson RUN_ID`，在
 恢复尝试结算前拒绝聊天，首次绑定后切换模型需重启服务。start 是接纳，status 是模型
 尝试结果，Run 完成状态另查 `workflow runs`。用法与限制见
 [产品恢复示例](docs/examples/workflow-agent-recovery.md#产品服务显式恢复m15-19)。
+M15-20 交付原生目录、运行与学习状态、默认参数运行、停止、显式恢复/查询及成功恢复
+经验保存；状态变化后需刷新，范围见[原生验收](docs/compatibility/native-workflow-controls-20261116.md)。
+其标题栏主入口布局已由 M15-21 的侧栏左上「会话 / 工作流」工作空间切换替代；侧栏
+收起时仍提供标题栏切换，运行与恢复保留独立视图。
+
+2026-11-16（M15-21 / DEC-150）：原生工作流空间显示真实 IR 顺序图、条件/验证、失败
+回退与有界回环。可编辑原子任务和多行 JSON 参数、提取连续任务段为独立工作流草稿、
+显式保存/验证发布，并进入被调用工作流和返回来源。工作流彼此独立，调用按 ID 在分派时
+使用最新已发布目标，进行中的单次调用不重放；发布前拒绝直接与间接调用环路。
+默认调用深度2只限制资源，不代替环路检查。保存/发布通过 `expected_head` 检查版本；
+旧服务未声明 `safe_workflow_editor` 时只读，冲突/失败保留本地草稿。
+当前服务目录不跨服务重启保留，与已持久化的学习元数据存储分别说明。完整候选审阅、
+目录持久化、自动恢复和完整 M15 仍开放；本轮无 Windows、在线模型或真实桌面验收声明。
+使用见[原生说明](apps/native/README.md#workflow-graph-calls)，
+契约见[DEC-150](docs/decisions/DEC-150-workflow-graph-composition.md)，
+范围见[本轮验证](docs/compatibility/workflow-graph-calls-20261116.md)。
 真实模型受控 Workflow 在线闭环及独立进程重开记录见
 [验收证据](docs/compatibility/workflow-learning-20261114.md)。截图长期采集与原生自动恢复另验。
 

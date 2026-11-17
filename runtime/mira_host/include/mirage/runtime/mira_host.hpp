@@ -437,7 +437,8 @@ class MiraHost {
     /// content-derived evidence; head-same-content replays settle idempotent.
     /// Requires the workflow surface.
     WorkflowDefinitionResult publish_workflow_definition(const std::string &definition_json,
-                                                         const std::string &reason);
+                                                         const std::string &reason,
+                                                         bool reusable = false);
 
     /// Captures a completed, actually executed Workflow Run and delegates
     /// literal compilation to pinned Mira (DEC-138, M15-02). Returns an IR

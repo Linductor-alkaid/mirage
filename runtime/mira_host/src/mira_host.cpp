@@ -2,6 +2,7 @@
 
 #include <mira/core_contracts.hpp>
 #include <mira/runtime.hpp>
+#include <mira/tool_skill.hpp>
 #include <mira/version.hpp>
 #include <mira/workflow_compiler.hpp>
 #include <mira/workflow_ir.hpp>
@@ -12,6 +13,9 @@
 
 #include <algorithm>
 #include <atomic>
+#include <functional>
+#include <kairo/comm/double_buffer.hpp>
+#include <unordered_map>
 #include <utility>
 
 namespace mirage::runtime {
@@ -166,6 +170,19 @@ const char *host_status_name(HostStatus status) {
     return "unknown";
 }
 
+// DEC-150: independent workflow calls resolve the latest published target at dispatch.
+// Registries are immutable after publication; the shared snapshot retains an in-flight
+// call's handler without racing the serial publisher or mutating Mira's registry.
+struct WorkflowCallVersion {
+    mira::SkillPublicationRegistry skills;
+    mira::BuiltinToolHandler handler;
+};
+struct WorkflowCallAlias {
+    using Version = std::shared_ptr<const WorkflowCallVersion>;
+    kairo::comm::DoubleBuffer<Version> current{Version{}, "workflow.call.latest"};
+    std::vector<std::string> callees; // serial owner only
+};
+
 struct MiraHost::Impl {
     explicit Impl(HostConfig host_config)
         : config(host_config),
@@ -199,6 +216,9 @@ struct MiraHost::Impl {
     /// over the primary session, attached by the service after start(). The
     /// event bridge is kept alive here so the runtime's event store outlives
     /// every drive; constructed empty and engaged by attach.
+    // DEC-150: registry and tools outlive runtime handlers and child Runs.
+    std::unordered_map<std::string, std::shared_ptr<WorkflowCallAlias>> workflow_calls;
+    std::shared_ptr<mira::BuiltinToolRegistry> workflow_tools;
     std::unique_ptr<mira::WorkflowRuntime> workflow_runtime;
     std::shared_ptr<mirage::integration::WorkflowEventBridge> workflow_events;
     kairo::Executor *workflow_executor = nullptr;
@@ -632,7 +652,8 @@ HostOutcome MiraHost::attach_workflow_surface(
     // ToolCall steps dispatch through the desktop atom registry (DEC-024);
     // Strict definitions carrying ToolCall steps are rejected at admission
     // while it is absent, so the registry installs before any run starts.
-    runtime->set_tool_registry(atom_toolset->registry());
+    impl_->workflow_tools = atom_toolset->registry();
+    runtime->set_tool_registry(impl_->workflow_tools);
     if (learning) {
         const mira::MemoryScope scope{
             learning->agent_subject_id.empty() ? mira::MemoryScopeKind::Session
@@ -720,7 +741,8 @@ WorkflowDefinitionResult MiraHost::import_workflow_experience(const std::string 
 }
 
 WorkflowDefinitionResult MiraHost::publish_workflow_definition(const std::string &definition_json,
-                                                               const std::string &reason) {
+                                                               const std::string &reason,
+                                                               bool reusable) {
     if (!impl_->workflow_surface_active()) {
         return WorkflowDefinitionResult{
             false,
@@ -735,6 +757,53 @@ WorkflowDefinitionResult MiraHost::publish_workflow_definition(const std::string
     if (!parsed) {
         return WorkflowDefinitionResult{false, {}, {}, {}, {}, false, pinned_error(parsed.error())};
     }
+    const auto workflow_id = parsed.value().workflow_id.to_string();
+    std::vector<std::string> callees;
+    for (const auto &step : parsed.value().steps) {
+        const auto *tool = step.arguments.find("tool");
+        if (!tool || !tool->as_string())
+            continue;
+        const auto &wire = *tool->as_string();
+        if (wire.starts_with("workflow.") && wire.size() == 41)
+            callees.push_back(wire.substr(9));
+    }
+    // Check the entire candidate graph before changing any published target.
+    std::unordered_map<std::string, unsigned> colors;
+    std::function<bool(const std::string &)> cycle = [&](const std::string &id) {
+        if (colors[id] == 1)
+            return true;
+        if (colors[id] == 2)
+            return false;
+        colors[id] = 1;
+        const auto found = impl_->workflow_calls.find(id);
+        if (id == workflow_id) {
+            for (const auto &next : callees)
+                if (cycle(next))
+                    return true;
+        } else if (found != impl_->workflow_calls.end()) {
+            for (const auto &next : found->second->callees)
+                if (cycle(next))
+                    return true;
+        }
+        colors[id] = 2;
+        return false;
+    };
+    if (cycle(workflow_id))
+        return {false,
+                {},
+                {},
+                {},
+                {},
+                false,
+                host_error("workflow_cycle", "workflow call graph contains a cycle")};
+    if (!impl_->workflow_calls.contains(workflow_id) && impl_->workflow_calls.size() >= 128)
+        return {false,
+                {},
+                {},
+                {},
+                {},
+                false,
+                host_error("resource_exhausted", "workflow call graph capacity exhausted")};
     // The pinned gate validates, dry-runs on the calling context and appends
     // a DryRunPassed record with content-derived evidence; gate failures
     // leave the library untouched and surface as pinned rejections.
@@ -743,6 +812,93 @@ WorkflowDefinitionResult MiraHost::publish_workflow_definition(const std::string
     if (!outcome) {
         return WorkflowDefinitionResult{
             false, {}, {}, {}, {}, false, pinned_error(outcome.error())};
+    }
+    // All published versions update an existing call target, even when a CLI
+    // caller did not request first-time exposure as a reusable workflow.
+    if (reusable || impl_->workflow_calls.contains(workflow_id)) {
+        const auto refs = impl_->workflow_runtime->workflow_tool_refs(parsed.value().workflow_id,
+                                                                      outcome.value().ir_digest);
+        if (!refs)
+            return {false, {}, {}, {}, {}, false, pinned_error(refs.error())};
+        const auto view = impl_->workflow_tools->exposed_tools();
+        const auto internal_name =
+            "mirage.call." + workflow_id + "." + outcome.value().ir_digest.to_string();
+        const auto descriptor = mira::make_skill_descriptor(parsed.value(), refs.value(), view,
+                                                            internal_name, {1, 0, 0});
+        if (!descriptor)
+            return {false, {}, {}, {}, {}, false, pinned_error(descriptor.error())};
+        auto version = std::make_shared<WorkflowCallVersion>();
+        mira::WorkflowVersionHistory history{parsed.value().workflow_id, {}};
+        mira::WorkflowVersionRecord record;
+        record.actor = "mirage-service";
+        record.reason = reason;
+        record.content_digest = outcome.value().ir_digest;
+        record.validation = mira::WorkflowValidationResult::DryRunPassed;
+        record.validation_evidence = outcome.value().evidence;
+        const auto appended = mira::append_workflow_version(history, record);
+        if (!appended)
+            return {false, {}, {}, {}, {}, false, pinned_error(appended.error())};
+        const auto published = version->skills.publish_skill(descriptor.value(), parsed.value(),
+                                                             refs.value(), view, history);
+        if (!published)
+            return {false, {}, {}, {}, {}, false, pinned_error(published.error())};
+        version->skills.seal();
+        auto registrations = impl_->workflow_runtime->skill_tool_registrations(version->skills);
+        if (registrations.size() != 1)
+            return {false,
+                    {},
+                    {},
+                    {},
+                    {},
+                    false,
+                    host_error("invalid_state", "workflow call handler is missing")};
+        version->handler = std::move(registrations.front().handler);
+        auto found = impl_->workflow_calls.find(workflow_id);
+        if (found == impl_->workflow_calls.end()) {
+            auto alias = std::make_shared<WorkflowCallAlias>();
+            mira::BuiltinToolSpec spec;
+            spec.wire_name = "workflow." + workflow_id;
+            spec.description = "Call the latest published workflow " + workflow_id;
+            // Stable, conservative call surface. Mira binds the current target's
+            // exact parameter schema and checks its authority on every call.
+            spec.parameters_schema =
+                mira::JsonSchema{mira::JsonValue::Object{{"type", "object"},
+                                                         {"properties", mira::JsonValue::Object{}},
+                                                         {"additionalProperties", true}}};
+            spec.has_side_effects = true;
+            const auto registered = impl_->workflow_tools->register_tool(
+                std::move(spec),
+                [alias](const mira::JsonValue &arguments,
+                        const mira::OperationContext &context) -> mira::Result<mira::JsonValue> {
+                    kairo::comm::Snapshot<WorkflowCallAlias::Version> snapshot;
+                    if (!alias->current.try_load(snapshot) || !snapshot.value) {
+                        mira::Error error;
+                        error.code = mira::ErrorCode::Unavailable;
+                        error.safe_message =
+                            "workflow call target is unavailable; retry after publication";
+                        return error;
+                    }
+                    const auto completed = snapshot.value->handler(arguments, context);
+                    if (!completed)
+                        return completed.error();
+                    // A stable scalar receipt: true means the current target really
+                    // completed. Failure/cancellation never becomes success.
+                    return mira::JsonValue{true};
+                });
+            if (!registered)
+                return {false, {}, {}, {}, {}, false, pinned_error(registered.error())};
+            found = impl_->workflow_calls.emplace(workflow_id, std::move(alias)).first;
+        }
+        if (!found->second->current.try_publish(std::move(version)))
+            return {
+                false,
+                {},
+                {},
+                {},
+                {},
+                false,
+                host_error("unavailable", "workflow call publication is busy; retry explicitly")};
+        found->second->callees = std::move(callees);
     }
     WorkflowDefinitionResult result;
     result.ok = true;

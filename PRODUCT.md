@@ -26,7 +26,7 @@ Mirage 是基于 Mira 构建的桌面端产品，为 Mira 通用 Agent 提供完
 ## Operating Context
 
 - 当前原生进程经 Local IPC 连接 Runtime Service，显示会话历史、真实通用 harness 回复、运行/停止状态和上下文用量。
-- 会话页为侧栏、消息区与输入栏；设置页提供外观和模型配置。工作流、资源、技能、MCP、批准中心及全局紧急停止仍属于后续产品范围。
+- 会话页为侧栏、消息区与输入栏；设置页提供外观和模型配置。侧栏左上「会话 / 工作流」切换工作空间（M15-21），工作流提供资产目录、真实 IR 图与节点编辑，运行与显式恢复保留独立视图；侧栏收起后提供标题栏切换。完整候选审阅、目录跨服务重启保存、原生会话自动选择/恢复、资源、技能、MCP、批准中心及全局紧急停止仍属于后续产品范围。
 - `mirage start` 启动服务、独立原生窗口与托盘。活动会话退出确认和统一生命周期尚由 M6-04 实现验收；启动入口不等于这一闭环已完成。
 - IPC v1 的 C++ golden 与运行时测试锁定契约，UI 只展示服务确认或明确标记未知的状态。
 
@@ -39,6 +39,8 @@ Mirage 是基于 Mira 构建的桌面端产品，为 Mira 通用 Agent 提供完
 - 原生引用最多4段、原文合计8KiB；草稿与编码后引用共同受16KiB提交上限，拒绝保留草稿。ACK按引用实例清除本次提交项，保护新草稿/新引用与重新引用。上下文圆环与详情展示最近成功请求的模型输入Token / 显式配置窗口预算，优先使用Mira的Exact / ProviderReported用量，缺失时复用Mira实际请求输入估算并显示“约 / 本地估算”；工具循环取最终回复调用输入，不累计调用或计入输出，不从草稿或UI历史片段重建精确计数。默认窗口未知，既无报告也无请求估算或缺分母时显示未知；已知零显示0%，超额保留原始数字/百分比、图形钳制100%。失败/取消保留此前成功值，新成功缺用量改用该请求估算，估算不可用才重置未知，旧序列不覆盖新值；用量快照随会话保存，切换、重连和服务重启后仍可查看，且不受最近40轮历史截断影响；旧文件缺少快照时显示未知（M6-06/43/45、DEC-036/102）。支持同一消息拖选引用；跨消息选择、自动滚动与链接打开尚不支持；EUI连续CJK间距临时经公共DSL Adapter修正，上游保守换行保留（DEC-035、EUI-20261004-004）。
 - 设置 → 模型提供服务 origin、API 路径、模型 ID、直接 API Key 输入、可选上下文窗口预算（Token）与 Responses / Chat Completions 协议。窗口预算留空为未知，非零整数范围2048–2000000；保存后的配置同时映射Mira ProfileLimits，未配置保留既有Mira默认运行预算，UI不宣称自动发现供应商窗口。保存经 model.set 合并写入服务配置并应用；活动轮次时忙拒绝，失败保留已应用模型。API Key 默认遮蔽，保存在系统钥匙环，普通配置仅保存引用；已存 Key 不回传，留空保留、显式移除后保存清除。旧环境变量配置保留兼容读取；composer 显示服务确认的模型，未保存表单不会冒充已应用配置。
 - Agent 模式入口经 session.chat(agent=true) 使用 MiraRuntime、ModelGateway、公开 ConversationLoop 与规范工具回填。Linux 会话按实际 Provider 注册结构化观察、完整键鼠及 wait，修改仍经共享权限；显式开启逐模型“识图”后可授权截图并逐请求供给 PNG。修改后强制新观察，按预先声明的局部后条件核验；工具卡区分派发、已核验、未验证、不确定与拒绝，显示目标和证据。M7-08 的真实 X11 激活/回显/提交落盘三类任务已验收，受控 MiniMax 在线选号已验，真实语义表单、其他模型、用户宿主与 Windows/Wayland 仍待验；OCR/SoM 已交付 Linux 首增量；会话不暴露 workflow 执行工具。
+- 2026-11-16（M15-20 / DEC-149）：原生「工作流」显示服务目录、运行记录、所选 Run 的恢复尝试和学习存储快照；显式运行已发布且 runnable 的版本（默认参数）、停止未终结运行、请求/查询/取消恢复，以及在 Run 完成、恢复成功且学习开启后单独保存 Lesson。打开页面或点击刷新读取服务状态；事件只令快照过期，断线/失败/过期时禁止依赖该状态的操作，拒绝提示先刷新。UI 线程投影最多128项目录、256项运行，一次最多三项读取或一项控制，复用 RuntimeBridge/Executor，不增加轮询或自动恢复。每 Run 最多恢复一次，首次绑定恢复后切换模型须重启服务；接纳、恢复结算、Run 终态与经验保存分别确认。证据限于隔离服务/脚本 provider 和 Linux 原生合成状态渲染，不代表在线模型、真实桌面、Windows 或完整 M15 验收。
+- 2026-11-16（M15-21 / DEC-150）：工作流图显示真实顺序节点、前置/完成条件、失败回退和有界回环，支持原子任务更换、多行 JSON 参数、连续任务段提取为独立草稿、显式保存/验证发布与调用目标进入/返回。各工作流是独立资产，调用按 ID 在分派时使用目标最新已发布版本，已开始的单次调用不重放；发布前拒绝直接/间接调用环路，默认调用深度2仅为额外资源边界。保存/发布使用 expected_head 检查当前摘要；缺少 safe_workflow_editor 的旧服务只读，冲突/失败保留本地草稿，断线过期禁止写入。当前目录仅在本服务内保留，保存/发布不代表跨服务重启存储；长期学习元数据存储为另一条已持久化路径。本增量不宣称任意分支/并行、节点拖拽、完整候选审阅、自动恢复或完整 M15 验收。
 - RuntimeBridge 经 Executor 管理有界 IPC 请求与事件投递，服务断开可在模型页重新连接；退出 UI 停止自身 IPC 与 Executor，不关闭外部已有 Runtime Service。真实流式预览、等待动效与用时已接入；统一入口/托盘与活动退出确认仍待后续交付。
 - 2026-10-05 按维护者要求删除旧 TS/CEF、npm 工具链与 Web 调试桥；原生前端继续消费版本化 Local IPC，C++ golden 和服务测试保留。后台工作由 Mira Executor 管理。
 - 平台与供应商验收：Linux X11/XWayland 为当前验收范围；SiliconFlow和MiniMax真实文字/规范工具循环与提前流式预览通过，SNI已升级复验；Linux XIM/IBus候选光标跟随与中文提交通过。Windows 真机窗口/IME与物理高DPI未验收，原生 Wayland 只读 ScreenCast 单帧由 DEC-073 独立验收，输入未交付。
@@ -55,6 +57,10 @@ Mirage 是基于 Mira 构建的桌面端产品，为 Mira 通用 Agent 提供完
 - 原生当前事实：`apps/native/app.cpp`、`chat_model.cpp`、`runtime_bridge.cpp`；设计与边界见 `docs/design/native-agent-frontend.md`、DEC-034/035/036/037，原生视觉系统见 `apps/native/DESIGN.md`。
 
 - 上下文占用证据：`docs/compatibility/native-context-usage-20261004.md`、`.impeccable/review/native-context-finish-verdict.md` 与 `.impeccable/review/native-context-live-usage.json`。Linux正常/最小窗口明暗及未知态已复核；真实SiliconFlow请求391输入Token / 显式测试预算128000，UI显示0.3%，不代表供应商窗口自动发现。
+
+- 原生工作流入口：[DEC-149](docs/decisions/DEC-149-native-workflow-controls.md)、[验证记录](docs/compatibility/native-workflow-controls-20261116.md)与[文档交接](.impeccable/review/m15-workflow/documentation-review.md)。独立[修正评分](.impeccable/review/m15-workflow/finish-verdict.md)为 `ship`，仅确认两项指定修正 resolved，不作为全表面或平台认证。
+
+- 当前工作流图与调用：[DEC-150](docs/decisions/DEC-150-workflow-graph-composition.md)、[本轮验证](docs/compatibility/workflow-graph-calls-20261116.md)与[文档交接](.impeccable/review/m15-workflow-graph/documentation-review.md)。证据为隔离服务/脚本 provider 和 Linux 合成状态原生渲染，不代表 Windows、在线模型或真实桌面实跑。
 
 - 设计规范与 IA：`docs/design/Mirage 前端设计规范与信息架构.md`（拓扑树、路由表、会话页/工作流页/设置页构成、全局层）。
 - 协议事实源：`docs/design/mirage-ipc-protocol-v1.md` + `tests/runtime/data/ipc_protocol_golden.json`。

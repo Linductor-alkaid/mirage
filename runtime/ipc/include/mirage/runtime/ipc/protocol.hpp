@@ -304,6 +304,7 @@ struct WorkflowListRequest {};
 /// byte budget.
 struct WorkflowSaveRequest {
     std::string definition_json;
+    std::optional<std::string> expected_head = std::nullopt;
 };
 
 /// Runs the pinned publish gate on the definition (DEC-023): structural
@@ -312,6 +313,8 @@ struct WorkflowSaveRequest {
 /// and evidence settles as an idempotent NoOp.
 struct WorkflowPublishRequest {
     std::string definition_json;
+    bool reusable = false;
+    std::optional<std::string> expected_head = std::nullopt;
 };
 
 /// Removes the product catalog entry (DEC-023). The pinned append-only
@@ -757,6 +760,7 @@ struct ExposedTool {
 /// desktop capability tools are registered.
 struct WorkflowAtomCatalog {
     std::vector<ExposedTool> tools;
+    bool safe_workflow_editor = false; // DEC-150: CAS writes, current-target calls and DAG gate.
 };
 
 /// One workflow run as reported by workflow.runs (DEC-023). `state` is the

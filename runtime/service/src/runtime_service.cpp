@@ -1,3 +1,4 @@
+#include <mirage/integration/workflow_document.hpp>
 #include <mirage/runtime/runtime_service.hpp>
 
 #include <mirage/runtime/basic_output_store.hpp>
@@ -3188,6 +3189,31 @@ struct RuntimeService::Impl {
     /// Serial thread: append one draft version (DEC-023). Capacity and byte
     /// budget are refused before the host call so a rejection never leaves a
     /// pinned library record behind.
+    bool workflow_edit_preflight(std::uint64_t connection_id, std::uint64_t correlation_id,
+                                 const std::string &json,
+                                 const std::optional<std::string> &expected) {
+        const auto parsed = integration::read_workflow_document(json);
+        if (!parsed) {
+            fail(connection_id, correlation_id, "invalid_argument", parsed.error);
+            return false;
+        }
+        std::lock_guard lock(core->workflows.mutex);
+        const auto found = core->workflows.workflows.find(parsed.document.id);
+        if (expected && ((found == core->workflows.workflows.end() && !expected->empty()) ||
+                         (found != core->workflows.workflows.end() &&
+                          found->second.head_digest != *expected))) {
+            fail(connection_id, correlation_id, "conflict",
+                 "workflow head changed; reopen before saving");
+            return false;
+        }
+        if (found == core->workflows.workflows.end() && core->workflows.full()) {
+            fail(connection_id, correlation_id, "unavailable",
+                 "workflow registry capacity exhausted");
+            return false;
+        }
+        return true;
+    }
+
     void handle_workflow_save(std::uint64_t connection_id, std::uint64_t correlation_id,
                               ipc::WorkflowSaveRequest request) {
         if (request.definition_json.size() > kMaxWorkflowDefinitionBytes) {
@@ -3196,6 +3222,9 @@ struct RuntimeService::Impl {
                      " byte budget");
             return;
         }
+        if (!workflow_edit_preflight(connection_id, correlation_id, request.definition_json,
+                                     request.expected_head))
+            return;
         const auto saved =
             core->host.save_workflow_definition(request.definition_json, "workflow.save draft");
         if (!saved.ok) {
@@ -3236,8 +3265,11 @@ struct RuntimeService::Impl {
                      " byte budget");
             return;
         }
-        const auto published = core->host.publish_workflow_definition(request.definition_json,
-                                                                      "workflow.publish gate");
+        if (!workflow_edit_preflight(connection_id, correlation_id, request.definition_json,
+                                     request.expected_head))
+            return;
+        const auto published = core->host.publish_workflow_definition(
+            request.definition_json, "workflow.publish gate", request.reusable);
         if (!published.ok) {
             fail(connection_id, correlation_id, published.error.code, published.error.message);
             return;
@@ -3300,6 +3332,7 @@ struct RuntimeService::Impl {
     /// mapped providers; the wire shape is the contract.
     void handle_workflow_atom_catalog(std::uint64_t connection_id, std::uint64_t correlation_id) {
         ipc::WorkflowAtomCatalog catalog;
+        catalog.safe_workflow_editor = true;
         if (core->workflow_tools) {
             const auto atoms = core->workflow_tools->exposed_atoms();
             catalog.tools.reserve(atoms.size());

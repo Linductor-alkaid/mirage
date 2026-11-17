@@ -1,0 +1,161 @@
+{
+  "kind": "native EUI/OpenGL synthetic product renderer; final F1 hover foreground correction",
+  "captures": [
+    {
+      "path": "/home/linductor/.codex/worktrees/supervised-rpa-experience/mirage/.impeccable/review/m15-workflow-graph/native-workflow-call-1180-dark.png",
+      "width": 1180,
+      "height": 800,
+      "sha256": "5f0b9c6d94dfb3b379f4af924c39f86ad45c9e0bd503731d1d14792ef2af8bd2"
+    },
+    {
+      "path": "/home/linductor/.codex/worktrees/supervised-rpa-experience/mirage/.impeccable/review/m15-workflow-graph/native-workflow-call-1180-light.png",
+      "width": 1180,
+      "height": 800,
+      "sha256": "8cef3839546a41c0ec117d6548bd0a228553bd8e819f0b9dfa7b92a1fac61b7e"
+    },
+    {
+      "path": "/home/linductor/.codex/worktrees/supervised-rpa-experience/mirage/.impeccable/review/m15-workflow-graph/native-workflow-call-860-dark.png",
+      "width": 860,
+      "height": 620,
+      "sha256": "ce0f7e084e09cab0741afcf6f8116e74b7384c28a24ef8232466fd426eec29e4"
+    },
+    {
+      "path": "/home/linductor/.codex/worktrees/supervised-rpa-experience/mirage/.impeccable/review/m15-workflow-graph/native-workflow-call-860-light.png",
+      "width": 860,
+      "height": 620,
+      "sha256": "fb0822f564934673d0bb54563fbdc58478877b919212fe073f2c5d0dfa6135cb"
+    },
+    {
+      "path": "/home/linductor/.codex/worktrees/supervised-rpa-experience/mirage/.impeccable/review/m15-workflow-graph/native-workflow-catalog-min-light.png",
+      "width": 860,
+      "height": 620,
+      "sha256": "36ef1ad1340884a398f0f28c9d5c50b5355f426ba51bfde10242e73a606c976a"
+    },
+    {
+      "path": "/home/linductor/.codex/worktrees/supervised-rpa-experience/mirage/.impeccable/review/m15-workflow-graph/native-workflow-completed-min-light.png",
+      "width": 860,
+      "height": 620,
+      "sha256": "5849d22801a4efc0941fe5089a175e752cf80be699245324297683970429ae6d"
+    },
+    {
+      "path": "/home/linductor/.codex/worktrees/supervised-rpa-experience/mirage/.impeccable/review/m15-workflow-graph/native-workflow-disconnected-min-dark.png",
+      "width": 860,
+      "height": 620,
+      "sha256": "6979ab40afbf9376725bc332ef4d11a83dd2ffd82ac34cb59981e80d99346425"
+    },
+    {
+      "path": "/home/linductor/.codex/worktrees/supervised-rpa-experience/mirage/.impeccable/review/m15-workflow-graph/native-workflow-empty-min-light.png",
+      "width": 860,
+      "height": 620,
+      "sha256": "3e1e50f20890a9b396b231a0c304db9effa232776793496f70b9d2ab927e64f4"
+    },
+    {
+      "path": "/home/linductor/.codex/worktrees/supervised-rpa-experience/mirage/.impeccable/review/m15-workflow-graph/native-workflow-error-min-light.png",
+      "width": 860,
+      "height": 620,
+      "sha256": "69e8de9cde127b247bb0cfe376d304dc9f0ec62432152b6054d9b818d6f76448"
+    },
+    {
+      "path": "/home/linductor/.codex/worktrees/supervised-rpa-experience/mirage/.impeccable/review/m15-workflow-graph/native-workflow-graph-1180-dark.png",
+      "width": 1180,
+      "height": 800,
+      "sha256": "b15cb7c9995cf3a7340537692fe83011d1e81a110d6f7fa6ae2d70adf90fcb95"
+    },
+    {
+      "path": "/home/linductor/.codex/worktrees/supervised-rpa-experience/mirage/.impeccable/review/m15-workflow-graph/native-workflow-graph-1180-light-collapsed.png",
+      "width": 1180,
+      "height": 800,
+      "sha256": "4a71b311a2feebbc1040801b16ef7da497dd3803fa13ae6e5d1b932365e45783"
+    },
+    {
+      "path": "/home/linductor/.codex/worktrees/supervised-rpa-experience/mirage/.impeccable/review/m15-workflow-graph/native-workflow-graph-1180-light.png",
+      "width": 1180,
+      "height": 800,
+      "sha256": "0eca0928b83fb08333bbdbd2af90a6dab528587b2cf829ff7f38d191664cc62f"
+    },
+    {
+      "path": "/home/linductor/.codex/worktrees/supervised-rpa-experience/mirage/.impeccable/review/m15-workflow-graph/native-workflow-graph-860-dark-collapsed.png",
+      "width": 860,
+      "height": 620,
+      "sha256": "3b05ec6da41536348a406f8ddf241dc7b095048833d1d5a1209c09874d43e8b9"
+    },
+    {
+      "path": "/home/linductor/.codex/worktrees/supervised-rpa-experience/mirage/.impeccable/review/m15-workflow-graph/native-workflow-graph-860-dark.png",
+      "width": 860,
+      "height": 620,
+      "sha256": "846a97f28d62eedbb0b120d3032fa83bcb9655054d3b7efb0420ca3c9c1365eb"
+    },
+    {
+      "path": "/home/linductor/.codex/worktrees/supervised-rpa-experience/mirage/.impeccable/review/m15-workflow-graph/native-workflow-graph-860-light.png",
+      "width": 860,
+      "height": 620,
+      "sha256": "ecc509f383cead5f7402e486e4fca2ee3757b73d89b5d6217ab33aa5b42b0680"
+    },
+    {
+      "path": "/home/linductor/.codex/worktrees/supervised-rpa-experience/mirage/.impeccable/review/m15-workflow-graph/native-workflow-graph-error-min-dark.png",
+      "width": 860,
+      "height": 620,
+      "sha256": "cc076f73887234c85a967ec35b70d891aa784b2b489489a48e480d979bc6c27b"
+    },
+    {
+      "path": "/home/linductor/.codex/worktrees/supervised-rpa-experience/mirage/.impeccable/review/m15-workflow-graph/native-workflow-loop-1180-dark.png",
+      "width": 1180,
+      "height": 800,
+      "sha256": "209d52c9196acc440aa4067df0a712c953c91ada5d18a70386e22d8477f6b674"
+    },
+    {
+      "path": "/home/linductor/.codex/worktrees/supervised-rpa-experience/mirage/.impeccable/review/m15-workflow-graph/native-workflow-pending-min-light.png",
+      "width": 860,
+      "height": 620,
+      "sha256": "d1bf54f80c10e5df4d5c533088b9d35e06d4b7495002ed2cd8c081115f477bc1"
+    },
+    {
+      "path": "/home/linductor/.codex/worktrees/supervised-rpa-experience/mirage/.impeccable/review/m15-workflow-graph/native-workflow-waiting-1180-dark-collapsed.png",
+      "width": 1180,
+      "height": 800,
+      "sha256": "2201947426487f4e837527ccdafa67efcd2360fbc09e1a4821042af256c6c50a"
+    },
+    {
+      "path": "/home/linductor/.codex/worktrees/supervised-rpa-experience/mirage/.impeccable/review/m15-workflow-graph/native-workflow-waiting-1180-dark.png",
+      "width": 1180,
+      "height": 800,
+      "sha256": "a509bd3fb1a248b8ad04bdbd2bd00158c6d460b1e17775b8794adfa5b73ed91f"
+    },
+    {
+      "path": "/home/linductor/.codex/worktrees/supervised-rpa-experience/mirage/.impeccable/review/m15-workflow-graph/native-workflow-waiting-1180-light-collapsed.png",
+      "width": 1180,
+      "height": 800,
+      "sha256": "1f2a4844a2d83a84c60d85a8f907572c805921d5fc1431400c9bcd52a933b60b"
+    },
+    {
+      "path": "/home/linductor/.codex/worktrees/supervised-rpa-experience/mirage/.impeccable/review/m15-workflow-graph/native-workflow-waiting-1180-light.png",
+      "width": 1180,
+      "height": 800,
+      "sha256": "9d7fb107ae2f28205fed3b2a728f2d0e54ee5a93a8a77cf75ac84109fe15ab8c"
+    },
+    {
+      "path": "/home/linductor/.codex/worktrees/supervised-rpa-experience/mirage/.impeccable/review/m15-workflow-graph/native-workflow-waiting-860-dark-collapsed.png",
+      "width": 860,
+      "height": 620,
+      "sha256": "8abe45ce63ffb115cd2f71a6ad83b4f1d96e1ed04faf9bbe3ef5a7973659f450"
+    },
+    {
+      "path": "/home/linductor/.codex/worktrees/supervised-rpa-experience/mirage/.impeccable/review/m15-workflow-graph/native-workflow-waiting-860-dark.png",
+      "width": 860,
+      "height": 620,
+      "sha256": "dbb7c9ccd7b25daa8b22283094726b54f6dde0a5fb1c487fcfd1f484cfde70e8"
+    },
+    {
+      "path": "/home/linductor/.codex/worktrees/supervised-rpa-experience/mirage/.impeccable/review/m15-workflow-graph/native-workflow-waiting-860-light-collapsed.png",
+      "width": 860,
+      "height": 620,
+      "sha256": "4e150ef955988c1ddda942828fe4d5cfe7f4c9b0975ebfa7e46b87ecb119e89c"
+    },
+    {
+      "path": "/home/linductor/.codex/worktrees/supervised-rpa-experience/mirage/.impeccable/review/m15-workflow-graph/native-workflow-waiting-860-light.png",
+      "width": 860,
+      "height": 620,
+      "sha256": "f28a4897e65c284664ae77d6361b1d51b5804c70d027745ed446beca06d824fc"
+    }
+  ]
+}

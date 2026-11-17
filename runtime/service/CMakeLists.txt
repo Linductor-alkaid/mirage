@@ -44,6 +44,7 @@ target_link_libraries(mirage_runtime_service
         Mirage::ipc
         Mirage::permission
     PRIVATE
+        Mirage::workflow_document
         Mirage::integration_mira
         Mirage::integration_mirador
         Mirage::persistence

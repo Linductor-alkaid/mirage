@@ -1,5 +1,6 @@
 #include "../support/ipc_io.hpp"
 #include "../support/test.hpp"
+#include "../support/workflow_graph_fixture.hpp"
 #include "../support/xvfb_display.hpp"
 // Compile the product view into this isolated test translation unit, keeping
 // private UI state out of the product's public API and production test hooks.
@@ -382,6 +383,8 @@ int main(int argc, char **argv) {
         // Validate rendered geometry across every product button and every state.
         // This catches regressions from new controls and dependency layout changes.
         auto audit = [&](auto &&self, const core::dsl::Element &node) -> void {
+            if (page.workflow_page && node.id.starts_with("workflow."))
+                MIRAGE_CHECK(node.text.find("Hello EUI-NEO") == std::string::npos);
             if (node.id.ends_with(".text")) {
                 const auto base = node.id.substr(0, node.id.size() - 5);
                 const auto *background = view->find(base + ".bg");
@@ -463,7 +466,8 @@ int main(int argc, char **argv) {
         MIRAGE_CHECK(motion.current == 0.0f);
     }
     auto capture = [&](const std::string &name) {
-        if (argc < 2)
+        if (argc < 2 || (argc > 2 && std::string_view{argv[2]} == "workflow" &&
+                         !name.starts_with("native-workflow")))
             return;
         runtime.requestFullPaint();
         const auto pixels_width = static_cast<int>(std::lround(width * dpi_scale));
@@ -2225,6 +2229,250 @@ const auto model = "Mirage";
                              {}, 2);
         frame();
         MIRAGE_CHECK(std::abs(element(settled_key + ".markdown")->frame.y - live_y + 28) < .5f);
+    }
+    // DEC-149: isolated product projection, no model/IPC calls from renderer scenes.
+    {
+        page.settings = page.model_page = page.desktop_page = false;
+        page.workflow_page = true;
+        page.workflow_runs = true;
+        page.popup = PageState::Popup::None;
+        page.selection.clear();
+        const std::string workflow_id(32, '1'), run_id(32, '2');
+        auto load_workflow = [&](const std::string &status, bool empty = false) {
+            page.workflows = {};
+            page.workflow_scroll = 0;
+            const auto requests = page.workflows.refresh();
+            for (const auto &ticket : requests) {
+                ipc::Response reply;
+                reply.ok = true;
+                if (ticket.tag == "workflow.catalog") {
+                    ipc::WorkflowList catalog;
+                    if (!empty)
+                        catalog.workflows.push_back({workflow_id,
+                                                     "月度发票归档：工作流名称很长时保持实际身份与"
+                                                     "操作目标一致，显示按可用宽度收敛",
+                                                     std::string(64, 'a'), "dry_run_passed", true,
+                                                     1});
+                    reply.payload = catalog;
+                } else if (ticket.tag == "workflow.runs") {
+                    ipc::WorkflowRunList runs;
+                    if (!empty)
+                        runs.runs.push_back({run_id, workflow_id, status, 1, 1});
+                    reply.payload = runs;
+                } else
+                    reply.payload =
+                        ipc::WorkflowLearningStatus{true, 4096, 64ULL << 20, 4ULL << 20, 4096};
+                MIRAGE_CHECK(page.workflows.accept(ticket.tag, ticket.revision, reply));
+            }
+            if (!empty)
+                MIRAGE_CHECK(page.workflows.select(run_id));
+        };
+        for (const bool collapsed : {false, true}) {
+            page.sidebar = !collapsed;
+            for (const bool dark : {false, true}) {
+                page.dark = dark;
+                for (const int viewport : {1180, 860}) {
+                    width = viewport;
+                    height = viewport == 1180 ? 800 : 620;
+                    page.font_size_step = viewport == 860 ? 2 : 1;
+                    load_workflow("waiting_agent");
+                    frame();
+                    MIRAGE_CHECK(
+                        element(collapsed ? "workflow.navigation.text" : "workspace.workflow.text")
+                            ->text == (collapsed ? "返回对话" : "工作流"));
+                    MIRAGE_CHECK(element("workflow.selected.state")->text == "等待 Agent");
+                    for (const std::string id :
+                         {"workflow.refresh", "workflow.action.start", "workflow.action.status",
+                          "workflow.action.cancel", "workflow.action.lesson",
+                          "workflow.action.stop"}) {
+                        const auto *button = element(id);
+                        MIRAGE_CHECK(button->frame.width > 64 && button->frame.x >= 0 &&
+                                     button->frame.x + button->frame.width <= width + 0.5f);
+                    }
+                    MIRAGE_CHECK(page.workflows.allowed("start") &&
+                                 !page.workflows.allowed("lesson"));
+                    capture("native-workflow-waiting-" + std::to_string(viewport) +
+                            (dark ? "-dark" : "-light") + (collapsed ? "-collapsed" : ""));
+                }
+            }
+        }
+        width = 860;
+        height = 620;
+        page.sidebar = true;
+        page.dark = false;
+        load_workflow("completed");
+        const auto query = page.workflows.control("status");
+        MIRAGE_CHECK(query);
+        if (query) {
+            ipc::Response reply;
+            reply.ok = true;
+            ipc::WorkflowRecoveryStatus recovered;
+            recovered.run_id = run_id;
+            recovered.action = "status";
+            recovered.settled = true;
+            recovered.ordinal = 1;
+            recovered.workflow_id = workflow_id;
+            recovered.outcome = "patched-and-resumed";
+            reply.payload = recovered;
+            MIRAGE_CHECK(page.workflows.accept(query->tag, query->revision, reply));
+        }
+        frame();
+        MIRAGE_CHECK(page.workflows.allowed("lesson") && !page.workflows.allowed("start"));
+        MIRAGE_CHECK(element("workflow.action.start.bg")->disabled &&
+                     !element("workflow.action.lesson.bg")->disabled);
+        capture("native-workflow-completed-min-light");
+        load_workflow("waiting_agent");
+        const auto pending = page.workflows.control("start");
+        MIRAGE_CHECK(pending);
+        frame();
+        MIRAGE_CHECK(page.workflows.busy() && !page.workflows.allowed("stop"));
+        MIRAGE_CHECK(element("workflow.action.start.bg")->disabled &&
+                     element("workflow.refresh.bg")->disabled);
+        capture("native-workflow-pending-min-light");
+        page.workflows.invalidate("连接已中断，请重新连接后刷新工作流。");
+        page.dark = true;
+        frame();
+        MIRAGE_CHECK(!page.workflows.allowed("start"));
+        MIRAGE_CHECK(element("workflow.selected.state")->text.find("上次快照") !=
+                     std::string::npos);
+        capture("native-workflow-disconnected-min-dark");
+        load_workflow("waiting_agent");
+        page.dark = false;
+        const auto refused = page.workflows.control("start");
+        MIRAGE_CHECK(refused);
+        if (refused) {
+            ipc::Response failed;
+            failed.error = {"invalid_state", "本次运行已使用恢复机会，请查询结果或停止运行。"};
+            MIRAGE_CHECK(page.workflows.accept(refused->tag, refused->revision, failed));
+        }
+        frame();
+        MIRAGE_CHECK(element("workflow.action.start.bg")->disabled);
+        capture("native-workflow-error-min-light");
+        load_workflow("waiting_agent");
+        frame();
+        const auto *workflow_scroll = element("workflow.scroll");
+        MIRAGE_CHECK(workflow_scroll->scrollMaxOffset > 0);
+        MIRAGE_CHECK(static_cast<bool>(workflow_scroll->onScrollOffsetChanged));
+        if (workflow_scroll->onScrollOffsetChanged)
+            workflow_scroll->onScrollOffsetChanged(workflow_scroll->scrollMaxOffset);
+        frame();
+        MIRAGE_CHECK(!element("workflow.catalog." + workflow_id + ".start.bg")->disabled);
+        capture("native-workflow-catalog-min-light");
+        if (element("workflow.scroll")->onScrollOffsetChanged)
+            element("workflow.scroll")->onScrollOffsetChanged(0);
+        load_workflow("", true);
+        page.dark = false;
+        frame();
+        MIRAGE_CHECK(view->find("workflow.runs.empty") && view->find("workflow.catalog.empty"));
+        capture("native-workflow-empty-min-light");
+        // Entry is shared with the real window; returning preserves the current draft.
+        const auto draft = page.chat.current().draft;
+        element(page.sidebar ? "workspace.chat.bg" : "workflow.navigation.bg")->onClick();
+        frame();
+        MIRAGE_CHECK(!page.workflow_page && page.chat.current().draft == draft);
+        page.font_size_step = 1;
+    }
+    // DEC-150: actual graph and inspector, native dimensions and both themes.
+    {
+        page.workflow_page = true;
+        page.workflow_runs = false;
+        page.sidebar = true;
+        page.workflow_editor = {};
+        page.workflow_editor.supported = true;
+        auto document = mirage::integration::new_workflow_document();
+        MIRAGE_CHECK(document);
+        for (const auto &name : {"归档子工作流", "核对归档结果", "完成记录"}) {
+            document = mirage::integration::append_workflow_atom(
+                document.document,
+                std::string_view(name) == "归档子工作流" ? "workflow." + std::string(32, 'a')
+                                                         : "desktop.filesystem.read_text",
+                name);
+            MIRAGE_CHECK(document);
+        }
+        auto node = document.document.nodes[0];
+        node.name = "查找待处理发票";
+        node.arguments = R"({"tool":"desktop.filesystem.read_text","path":"/invoices/pending"})";
+        node.precondition = R"({"signal":"run_parameter:ready","op":"eq","value":true})";
+        document = mirage::integration::edit_workflow_node(document.document, 0, node);
+        document = mirage::integration::rename_workflow_document(
+            document.document, "每月发票归档", "查找、归档并验证发票，重复工作由流程执行。");
+        MIRAGE_CHECK(document);
+        page.workflows.catalog = {{document.document.id, document.document.name,
+                                   document.document.digest, "dry_run_passed", true, 1}};
+        auto open = page.workflow_editor.open(document.document.id, document.document.digest);
+        ipc::Response response;
+        response.ok = true;
+        response.payload = ipc::WorkflowDefinitionView{
+            document.document.id, document.document.digest, document.document.json};
+        MIRAGE_CHECK(page.workflow_editor.accept(open->tag, open->revision, response));
+        for (const bool dark : {false, true}) {
+            page.dark = dark;
+            for (const int viewport : {1180, 860}) {
+                width = viewport;
+                height = viewport == 1180 ? 800 : 620;
+                page.font_size_step = 1;
+                frame();
+                MIRAGE_CHECK(element("workspace.workflow.text")->text == "工作流");
+                for (const auto *id : {"workflow.graph.scroll", "workflow.inspector.scroll",
+                                       "workflow.node.0.hit", "workflow.editor.publish"}) {
+                    const auto *item = element(id);
+                    MIRAGE_CHECK(item->frame.width > 40 && item->frame.x >= 0 &&
+                                 item->frame.x + item->frame.width <= width + 0.5f);
+                }
+                MIRAGE_CHECK(element("workflow.node.1.kind")->text.starts_with("调用"));
+                MIRAGE_CHECK(view->find("workflow.node.1.open.bg"));
+                const auto *kind = element("workflow.node.1.kind");
+                const auto *open_call = element("workflow.node.1.open");
+                MIRAGE_CHECK(kind->frame.x + kind->frame.width + 7.5f <= open_call->frame.x);
+                MIRAGE_CHECK(element("workflow.editor.notice")->text.find("不跨服务重启保留") !=
+                             std::string::npos);
+                capture("native-workflow-graph-" + std::to_string(viewport) +
+                        (dark ? "-dark" : "-light"));
+                element("workflow.node.1.hit")->onClick();
+                frame();
+                MIRAGE_CHECK(page.workflow_editor.selected == 1 &&
+                             view->find("workflow.node.enter.bg"));
+                const auto *enter = element("workflow.node.enter");
+                MIRAGE_CHECK(enter->frame.y >= 224 &&
+                             enter->frame.y + enter->frame.height < height);
+                capture("native-workflow-call-" + std::to_string(viewport) +
+                        (dark ? "-dark" : "-light"));
+                page.workflow_editor.select(0);
+                if ((viewport == 1180 && !dark) || (viewport == 860 && dark)) {
+                    page.sidebar = false;
+                    frame();
+                    capture("native-workflow-graph-" + std::to_string(viewport) +
+                            (dark ? "-dark-collapsed" : "-light-collapsed"));
+                    page.sidebar = true;
+                    frame();
+                }
+            }
+        }
+        page.workflow_editor.node.arguments = "{invalid}";
+        page.workflow_editor.node_changed = true;
+        MIRAGE_CHECK(!page.workflow_editor.apply_node());
+        frame();
+        capture("native-workflow-graph-error-min-dark");
+        page.workflow_editor.discard();
+        const auto loop_document =
+            mirage::integration::read_workflow_document(mirage::testing::workflow_loop_ir);
+        MIRAGE_CHECK(loop_document);
+        if (loop_document) {
+            page.workflows.catalog.push_back(
+                {loop_document.document.id, loop_document.document.name,
+                 loop_document.document.digest, "not_validated", false, 2});
+            page.workflow_editor.fresh_document(loop_document);
+            page.workflow_editor.selected = 2;
+            page.workflow_editor.node = loop_document.document.nodes[2];
+            width = 1180;
+            height = 800;
+            page.dark = true;
+            frame();
+            MIRAGE_CHECK(view->find("workflow.node.2.loop") &&
+                         view->find("workflow.node.iterations.hit"));
+            capture("native-workflow-loop-1180-dark");
+        }
+        page.workflow_page = false;
     }
     width = 1180;
     height = 800;
